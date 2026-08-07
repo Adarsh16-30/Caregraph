@@ -1,0 +1,24 @@
+# Normalize line endings.
+#
+# The repository is authored on Windows but built in Linux containers and CI. A
+# shell script checked out with CRLF fails there with a "bad interpreter" error
+# that points at the shebang rather than at the line endings, so these are
+# pinned to LF regardless of platform.
+
+* text=auto eol=lf
+
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.rs        text eol=lf
+*.py        text eol=lf
+*.toml      text eol=lf
+*.proto     text eol=lf
+*.jsonl     text eol=lf
+
+# Binary — never touched.
+*.png       binary
+*.pdf       binary
+*.onnx      binary
+*.pt        binary
