@@ -83,6 +83,21 @@ byte sequence and sorts first. A point-in-time read is therefore a single
 forward seek — no reverse iterator, no secondary index. That is the mechanism
 behind O(log n) point-in-time retrieval.
 
+Note that edge keys order by timestamp *before* `dst_id`, so within one
+adjacency list the versions of different destinations are interleaved in time.
+That is what makes a time-windowed scan ("every change to this patient's
+diagnoses between T1 and T2") a single contiguous key range. The trade-off is
+that reconstructing a full adjacency list at a timestamp costs a walk over the
+list's version history rather than a seek per edge — see the module docs on
+`src/temporal/index.rs`.
+
+### Deletions are tombstones
+
+A removal appends a version marked `deleted`, never a RocksDB `delete`.
+Erasing the key would erase the history that point-in-time reconstruction
+reads, making `as_of(T)` for a `T` before the removal wrongly report that the
+edge never existed. The timeline is append-only.
+
 ## The ten non-negotiable rules
 
 `scripts/check_rules.sh` enforces PRD Section 0. Every rule reports `PASS`,
@@ -108,7 +123,7 @@ the failure mode Section 0 exists to prevent.
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Infrastructure, KV abstraction, column families | code complete, **not yet compiled** |
-| 2 | Temporal indexing, `as_of()` reads | key encoding done; read API pending |
+| 2 | Temporal indexing, `as_of()` reads, windowed scans | code complete, **not yet compiled**; latency benchmark blocked on data |
 | 3 | Graph semantics, traversal, first Neo4j benchmark | not started |
 | 4 | GraphSAGE/GCN incremental embeddings | not started |
 | 5 | GAT incremental path, atomic commit, fault injection | not started |

@@ -11,6 +11,7 @@
 //! Synthetic data is confined to `*_synthetic_test.rs`; every other code path,
 //! including integration tests, runs against a real RocksDB instance on disk.
 
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -41,16 +42,48 @@ pub trait KvStore: Send + Sync {
     /// mutation-plus-embedding commits (Rule 5).
     fn write(&self, batch: WriteBatch) -> Result<()>;
 
+    /// Walk entries from `seek_key` forward, stopping at the end of `prefix` or
+    /// when `visit` breaks.
+    ///
+    /// This is the primitive every temporal read is built from. It hands
+    /// borrowed slices to the callback rather than returning a `Vec` so that a
+    /// caller which only needs the first few versions of a long history does
+    /// not pay to materialize the whole thing.
+    ///
+    /// Because timestamps are stored inverted, walking *forward* from
+    /// `as_of_prefix(prefix, t)` walks *backward* through time, newest first.
+    fn scan_from(
+        &self,
+        cf: &'static str,
+        prefix: &[u8],
+        seek_key: &[u8],
+        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    ) -> Result<()>;
+
     /// Seek to the first entry at or after `seek_key`, stopping if the entry
     /// falls outside `prefix`.
     ///
     /// With CareGraph's inverted-timestamp encoding this single call *is* the
     /// point-in-time read: seek to `as_of_prefix(prefix, as_of)` and the first
     /// hit is the newest version at or before `as_of` (Contribution 2).
-    fn seek(&self, cf: &'static str, prefix: &[u8], seek_key: &[u8]) -> Result<Option<Entry>>;
+    fn seek(&self, cf: &'static str, prefix: &[u8], seek_key: &[u8]) -> Result<Option<Entry>> {
+        let mut found = None;
+        self.scan_from(cf, prefix, seek_key, &mut |key, value| {
+            found = Some((key.to_vec(), value.to_vec()));
+            ControlFlow::Break(())
+        })?;
+        Ok(found)
+    }
 
     /// Every entry sharing `prefix`, in key order — newest version first.
-    fn scan_prefix(&self, cf: &'static str, prefix: &[u8]) -> Result<Vec<Entry>>;
+    fn scan_prefix(&self, cf: &'static str, prefix: &[u8]) -> Result<Vec<Entry>> {
+        let mut out = Vec::new();
+        self.scan_from(cf, prefix, prefix, &mut |key, value| {
+            out.push((key.to_vec(), value.to_vec()));
+            ControlFlow::Continue(())
+        })?;
+        Ok(out)
+    }
 
     /// Flush memtables to SST files. Used by the encryption-at-rest
     /// verification test, which reads SST files directly (Rule 8).
@@ -122,43 +155,34 @@ impl KvStore for RocksKv {
         Ok(())
     }
 
-    fn seek(&self, cf: &'static str, prefix: &[u8], seek_key: &[u8]) -> Result<Option<Entry>> {
+    fn scan_from(
+        &self,
+        cf: &'static str,
+        prefix: &[u8],
+        seek_key: &[u8],
+        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    ) -> Result<()> {
         let handle = self.cf_handle(cf)?;
-        let mut iter = self.db.iterator_cf_opt(
+        let iter = self.db.iterator_cf_opt(
             &handle,
             Self::prefix_read_opts(),
             IteratorMode::From(seek_key, Direction::Forward),
         );
 
-        match iter.next() {
-            Some(Ok((key, value))) if key.starts_with(prefix) => {
-                Ok(Some((key.to_vec(), value.to_vec())))
-            }
-            // Either the iterator is exhausted, or `prefix_same_as_start`
-            // let through a key from a neighbouring prefix. Both mean "no
-            // version exists at or before the requested timestamp".
-            Some(Ok(_)) | None => Ok(None),
-            Some(Err(e)) => Err(e.into()),
-        }
-    }
-
-    fn scan_prefix(&self, cf: &'static str, prefix: &[u8]) -> Result<Vec<Entry>> {
-        let handle = self.cf_handle(cf)?;
-        let iter = self.db.iterator_cf_opt(
-            &handle,
-            Self::prefix_read_opts(),
-            IteratorMode::From(prefix, Direction::Forward),
-        );
-
-        let mut out = Vec::new();
         for item in iter {
             let (key, value) = item?;
+            // `prefix_same_as_start` bounds the iterator to the seek key's
+            // extractor output, but the guard is re-checked here: the seek key
+            // may be shorter than the extractor width, and a caller may pass a
+            // prefix narrower than the one RocksDB derived.
             if !key.starts_with(prefix) {
                 break;
             }
-            out.push((key.to_vec(), value.to_vec()));
+            if visit(&key, &value).is_break() {
+                break;
+            }
         }
-        Ok(out)
+        Ok(())
     }
 
     fn flush(&self, cf: &'static str) -> Result<()> {

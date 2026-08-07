@@ -17,6 +17,10 @@ path = "src/main.rs"
 name = "caregraph-load"
 path = "src/bin/load_trace.rs"
 
+[[bin]]
+name = "caregraph-bench-pit"
+path = "src/bin/bench_pit.rs"
+
 [dependencies]
 # --- Storage & persistence (PRD 2.1) -----------------------------------------
 # NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the
@@ -50,6 +54,10 @@ proptest = "1"
 [[test]]
 name = "integration"
 path = "tests/integration/main.rs"
+
+[[test]]
+name = "unit"
+path = "tests/unit/main.rs"
 
 [profile.release]
 lto = true

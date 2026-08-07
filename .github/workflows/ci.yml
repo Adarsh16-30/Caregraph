@@ -56,8 +56,11 @@ jobs:
           sudo apt-get install -y clang libclang-dev cmake llvm-dev
       - uses: Swatinem/rust-cache@v2
 
-      - name: Unit tests
+      - name: In-crate unit tests
         run: cargo test --lib
+
+      - name: Property-based correctness (Phase 2)
+        run: cargo test --test unit
 
       - name: Integration tests (real on-disk RocksDB, Rule 1)
         run: cargo test --test integration

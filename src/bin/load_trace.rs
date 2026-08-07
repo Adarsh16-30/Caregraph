@@ -20,7 +20,8 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use caregraph::storage::{cf, KvStore, RocksKv};
-use caregraph::temporal::keys::{encode_edge_key, encode_node_key};
+use caregraph::temporal::record::{EdgeValue, NodeValue};
+use caregraph::temporal::TemporalWriter;
 use caregraph::types::{EdgeType, NodeId, Timestamp};
 use rocksdb::WriteBatch;
 use serde::Deserialize;
@@ -47,12 +48,36 @@ enum Record {
         #[serde(default)]
         properties: serde_json::Value,
     },
+    /// A retraction — a diagnosis withdrawn, a prescription stopped. Recorded
+    /// as a tombstone version at `timestamp_us`, never as a delete, so the
+    /// history before the retraction stays queryable.
+    RemoveEdge {
+        src: u64,
+        dst: u64,
+        edge_type: u16,
+        timestamp_us: u64,
+    },
 }
 
 #[derive(Default, Debug)]
 struct Stats {
     nodes: u64,
     edges: u64,
+    removals: u64,
+}
+
+/// An unrecognised discriminant means the trace and `src/types.rs::EdgeType`
+/// have drifted apart. Fail rather than silently dropping clinical
+/// relationships — a graph quietly missing its diagnoses still loads, still
+/// benchmarks, and is wrong.
+fn decode_edge_type(raw: u16, trace: &std::path::Path, lineno: usize) -> Result<EdgeType> {
+    EdgeType::from_u16(raw).with_context(|| {
+        format!(
+            "{}:{}: unknown edge_type discriminant {raw}",
+            trace.display(),
+            lineno + 1
+        )
+    })
 }
 
 fn parse_args() -> Result<(PathBuf, String)> {
@@ -99,9 +124,7 @@ fn main() -> Result<()> {
     let mut batch = WriteBatch::default();
     let mut pending = 0usize;
 
-    let nodes_cf = store.cf_handle(cf::CF_NODES)?;
-    let edges_cf = store.cf_handle(cf::CF_EDGES)?;
-    let reverse_cf = store.cf_handle(cf::CF_REVERSE)?;
+    let writer = TemporalWriter::new(&store)?;
 
     for (lineno, line) in reader.lines().enumerate() {
         let line = line.with_context(|| format!("reading line {}", lineno + 1))?;
@@ -119,9 +142,12 @@ fn main() -> Result<()> {
                 timestamp_us,
                 properties,
             } => {
-                let key = encode_node_key(NodeId(node_id), Timestamp(timestamp_us));
-                let value = serde_json::json!({ "type": node_type, "properties": properties });
-                batch.put_cf(&nodes_cf, key, serde_json::to_vec(&value)?);
+                writer.put_node(
+                    &mut batch,
+                    NodeId(node_id),
+                    Timestamp(timestamp_us),
+                    &NodeValue::new(node_type, properties),
+                );
                 pending += 1;
                 stats.nodes += 1;
             }
@@ -132,25 +158,36 @@ fn main() -> Result<()> {
                 timestamp_us,
                 properties,
             } => {
-                // An unrecognised discriminant means the trace and
-                // src/types.rs::EdgeType have drifted apart. Fail rather than
-                // silently dropping clinical relationships.
-                let edge_type = EdgeType::from_u16(edge_type).with_context(|| {
-                    format!(
-                        "{}:{}: unknown edge_type discriminant {edge_type}",
-                        trace_path.display(),
-                        lineno + 1
-                    )
-                })?;
-                let (src, dst, ts) = (NodeId(src), NodeId(dst), Timestamp(timestamp_us));
-                let value = serde_json::to_vec(&properties)?;
-
-                batch.put_cf(&edges_cf, encode_edge_key(src, edge_type, ts, dst), &value);
-                // Mirrored into CF_REVERSE so incoming traversal is a prefix
-                // scan rather than a full scan (PRD 3.3).
-                batch.put_cf(&reverse_cf, encode_edge_key(dst, edge_type, ts, src), &value);
+                let edge_type = decode_edge_type(edge_type, &trace_path, lineno)?;
+                // put_edge mirrors into CF_REVERSE in the same batch, so forward
+                // and reverse adjacency can never disagree (PRD 3.3).
+                writer.put_edge(
+                    &mut batch,
+                    NodeId(src),
+                    edge_type,
+                    NodeId(dst),
+                    Timestamp(timestamp_us),
+                    &EdgeValue::new(properties),
+                );
                 pending += 2;
                 stats.edges += 1;
+            }
+            Record::RemoveEdge {
+                src,
+                dst,
+                edge_type,
+                timestamp_us,
+            } => {
+                let edge_type = decode_edge_type(edge_type, &trace_path, lineno)?;
+                writer.remove_edge(
+                    &mut batch,
+                    NodeId(src),
+                    edge_type,
+                    NodeId(dst),
+                    Timestamp(timestamp_us),
+                );
+                pending += 2;
+                stats.removals += 1;
             }
         }
 
@@ -173,10 +210,11 @@ fn main() -> Result<()> {
         db = %db_path,
         nodes = stats.nodes,
         edges = stats.edges,
+        removals = stats.removals,
         "trace applied"
     );
 
-    if stats.nodes == 0 && stats.edges == 0 {
+    if stats.nodes == 0 && stats.edges == 0 && stats.removals == 0 {
         bail!("trace contained no records; refusing to report an empty load as success");
     }
 
