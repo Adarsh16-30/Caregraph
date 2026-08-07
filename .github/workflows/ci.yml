@@ -1,0 +1,108 @@
+# CareGraph CI — rule enforcement, real-storage tests, benchmark regression.
+#
+# The build is gated on scripts/check_rules.sh (PRD Section 0). Tests run against
+# a real RocksDB instance compiled from source; there is no mocked-storage path
+# to fall back to, by design.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Raise this as each phase completes. check_rules.sh turns a PENDING rule into
+  # a hard failure once the gating phase reaches the phase that introduces it.
+  CAREGRAPH_PHASE: "1"
+
+jobs:
+  rules:
+    name: Section 0 rule enforcement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce non-negotiable rules
+        run: bash scripts/check_rules.sh --phase "$CAREGRAPH_PHASE"
+
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: tests against real RocksDB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Unit tests
+        run: cargo test --lib
+
+      - name: Integration tests (real on-disk RocksDB, Rule 1)
+        run: cargo test --test integration
+
+      # Guards against the failure mode where the integration suite silently
+      # compiles to zero tests and reports success.
+      - name: Assert the integration suite actually ran tests
+        run: |
+          count=$(cargo test --test integration -- --list 2>/dev/null | grep -c ': test$')
+          echo "integration tests discovered: $count"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::integration suite contains no tests"
+            exit 1
+          fi
+
+  docker:
+    name: dev stack builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the CareGraph image
+        run: |
+          docker build \
+            -f infrastructure/docker-compose/Dockerfile \
+            -t caregraph:ci .
+      - name: Validate the compose file
+        run: docker compose -f infrastructure/docker-compose/dev-stack.yml config -q
+
+  # --- Phase-gated jobs -----------------------------------------------------
+  # Enabled as the phases that make them meaningful land. Each is listed here so
+  # that the gap is visible in the workflow rather than forgotten.
+
+  fault-injection:
+    name: fault injection (Rule 5) — enabled at Phase 5
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --test fault_injection -- --test-threads=1
+
+  benchmarks:
+    name: baseline benchmarks (Rule 4) — enabled at Phase 3
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f infrastructure/docker-compose/dev-stack.yml up -d neo4j terminusdb
+      - run: bash benchmarks/run_baseline.sh

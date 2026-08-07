@@ -1,0 +1,18 @@
+# Provisions the single Prometheus datasource that every CareGraph panel binds to.
+#
+# Rule 9 requires that no panel has a null or unreachable datasource. Declaring
+# the datasource here — rather than clicking it in at runtime — means a freshly
+# started stack either has a working datasource or fails visibly.
+
+apiVersion: 1
+
+datasources:
+  - name: CareGraph-Prometheus
+    uid: caregraph-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 5s

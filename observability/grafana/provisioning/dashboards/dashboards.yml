@@ -1,0 +1,19 @@
+# Loads dashboard JSON from observability/grafana/dashboards/.
+#
+# Dashboards are added as the metrics that feed them come online (Phase 7), not
+# before. A panel whose query has no series is exactly the "Coming Soon" panel
+# Rule 9 prohibits.
+
+apiVersion: 1
+
+providers:
+  - name: caregraph
+    orgId: 1
+    folder: CareGraph
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

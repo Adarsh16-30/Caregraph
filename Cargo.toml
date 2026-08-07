@@ -1,0 +1,60 @@
+[package]
+name = "caregraph"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "A temporally-versioned graph database with incrementally-maintained GNN embeddings"
+license = "Apache-2.0"
+# Bin targets are declared explicitly below; without this, Cargo would also
+# auto-discover src/bin/load_trace.rs and register it a second time.
+autobins = false
+
+[[bin]]
+name = "caregraph"
+path = "src/main.rs"
+
+[[bin]]
+name = "caregraph-load"
+path = "src/bin/load_trace.rs"
+
+[dependencies]
+# --- Storage & persistence (PRD 2.1) -----------------------------------------
+# NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the
+# GitHub repository; the crate it publishes to crates.io is `rocksdb`, whose own
+# version line is 0.2x. Pinned to the canonical crate here so the build resolves.
+# Confirm against the intended fork at first `cargo build` (see docs/TOOLCHAIN.md).
+rocksdb = { version = "0.23", features = ["multi-threaded-cf", "lz4"] }
+
+# --- Async runtime (PRD 2.2) -------------------------------------------------
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal"] }
+
+# --- Serialization -----------------------------------------------------------
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# --- Errors & logging --------------------------------------------------------
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- Observability (PRD 2.8) -------------------------------------------------
+prometheus = "0.14"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+
+# Cargo only auto-discovers test crates at the top level of tests/. The PRD's
+# Section 10 layout puts them in subdirectories, so each suite is declared here.
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[profile.bench]
+lto = true
+debug = true

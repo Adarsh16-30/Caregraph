@@ -1,0 +1,30 @@
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Local RocksDB instances and benchmark output
+/data/db/
+/data/*.db/
+/benchmarks/results/
+/results/
+
+# Real clinical data must never be committed (Rule 6 / PRD 2.7)
+/data/raw/
+/data/idpip_export/
+*.csv
+*.parquet
+!/benchmarks/traces/*.jsonl
+
+# ML artifacts
+/ml/checkpoints/
+*.onnx
+*.pt
+__pycache__/
+*.py[cod]
+.venv/
+
+# Secrets — encryption keys are never committed (Rule 8)
+*.key
+*.pem
+!/infrastructure/certs/README.md
+.env

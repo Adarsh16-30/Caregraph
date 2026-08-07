@@ -1,0 +1,23 @@
+# Prometheus scrape configuration for the CareGraph dev stack.
+#
+# The caregraph job feeds every Grafana panel. Rule 9 forbids panels backed by a
+# null or unreachable datasource, so a panel may only be added once its series
+# actually appear here.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+  external_labels:
+    stack: caregraph-dev
+
+rule_files:
+  - /etc/prometheus/recording-rules.yaml
+
+scrape_configs:
+  - job_name: caregraph
+    static_configs:
+      - targets: ["caregraph:9100"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

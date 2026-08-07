@@ -1,0 +1,49 @@
+# Recording rules backing the Rule 7 and Rule 9 checks.
+#
+# The metrics referenced here are emitted by the BenchmarkLogger stage of the
+# mutation pipeline (PRD 4.1), which is implemented in Phase 4. Until then these
+# rules evaluate to no series — which is the honest state, and is why the
+# Grafana panels that consume them are not added to the dashboard until Phase 7.
+
+groups:
+  - name: caregraph_incremental
+    interval: 15s
+    rules:
+      # Rule 7: the fallback rate for the associative-model benchmark suite must
+      # stay under 5%. CI asserts against this series.
+      - record: caregraph:incremental_fallback_rate
+        expr: |
+          sum(rate(incremental_fallback_total[5m]))
+            /
+          clamp_min(sum(rate(mutations_total[5m])), 1e-9)
+
+      - record: caregraph:mutation_latency_p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(mutation_latency_seconds_bucket[5m]))
+          )
+
+      - record: caregraph:embedding_update_latency_p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, computation_path) (rate(embedding_update_latency_seconds_bucket[5m]))
+          )
+
+  - name: caregraph_query
+    interval: 15s
+    rules:
+      - record: caregraph:point_in_time_query_p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(point_in_time_query_seconds_bucket[5m]))
+          )
+
+      - record: caregraph:traversal_2hop_p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(traversal_latency_seconds_bucket{max_hops="2"}[5m]))
+          )
