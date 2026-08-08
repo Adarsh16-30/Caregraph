@@ -17,7 +17,11 @@ env:
   RUST_BACKTRACE: 1
   # Raise this as each phase completes. check_rules.sh turns a PENDING rule into
   # a hard failure once the gating phase reaches the phase that introduces it.
-  CAREGRAPH_PHASE: "1"
+  #
+  # Held at 2 while Phase 3's benchmark remains unrun: Rule 4 goes live at phase
+  # 3 and requires a timestamped raw-results file, which cannot exist until the
+  # real clinical graph is loaded. Raise to 3 once that benchmark has run.
+  CAREGRAPH_PHASE: "2"
 
 jobs:
   rules:

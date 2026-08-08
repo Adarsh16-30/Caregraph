@@ -6,8 +6,8 @@
 //! | Layer | Module | Status |
 //! |-------|--------|--------|
 //! | 1. Storage | [`storage`] | Phase 1 — implemented |
-//! | 2. Temporal indexing | [`temporal`] | Phase 1 encoders; `as_of` reads land in Phase 2 |
-//! | 3. Graph semantics | `graph` | Phase 3 |
+//! | 2. Temporal indexing | [`temporal`] | Phase 2 — implemented |
+//! | 3. Graph semantics | [`graph`] | Phase 3 — implemented |
 //! | 4. Incremental embedding | `embedding` | Phases 4–5 |
 //! | 5. Query & API | `api` | Phase 6 |
 //! | 6. Observability & compliance | `observability` | Phase 7 |
@@ -17,6 +17,7 @@
 //! a reader, which is precisely the failure mode Section 0 exists to prevent.
 
 pub mod error;
+pub mod graph;
 pub mod storage;
 pub mod temporal;
 pub mod types;

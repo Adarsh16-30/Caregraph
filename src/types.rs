@@ -65,6 +65,17 @@ pub enum EdgeType {
 impl EdgeType {
     pub const WIDTH: usize = 2;
 
+    /// Every edge type, in discriminant order. Traversal uses this when a
+    /// request does not name specific types.
+    pub const ALL: [EdgeType; 6] = [
+        EdgeType::DiagnosedWith,
+        EdgeType::PrescribedMedication,
+        EdgeType::UnderwentProcedure,
+        EdgeType::TreatedByProvider,
+        EdgeType::HasLabResult,
+        EdgeType::HasEncounter,
+    ];
+
     #[inline]
     pub fn to_be_bytes(self) -> [u8; Self::WIDTH] {
         (self as u16).to_be_bytes()

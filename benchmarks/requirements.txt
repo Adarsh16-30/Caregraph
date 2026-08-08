@@ -1,0 +1,14 @@
+# Baseline runner dependencies (PRD Rule 4).
+#
+#     pip install -r benchmarks/requirements.txt
+#
+# These drive the real, running Neo4j and TerminusDB instances that comparative
+# numbers must be measured against. They are not needed to build or test
+# CareGraph itself.
+
+neo4j>=5.0,<6
+terminusdb-client>=10.2,<11
+
+# Used by data/idpip_ukpds_loader.py to read the real UKPDS tables from IDPIP's
+# TimescaleDB instance.
+psycopg[binary]>=3.1

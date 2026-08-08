@@ -124,6 +124,7 @@ the failure mode Section 0 exists to prevent.
 |-------|-------|--------|
 | 1 | Infrastructure, KV abstraction, column families | code complete, **not yet compiled** |
 | 2 | Temporal indexing, `as_of()` reads, windowed scans | code complete, **not yet compiled**; latency benchmark blocked on data |
+| 3 | Bounded traversal, snapshots, baseline harness | code complete, **not yet compiled**; benchmark blocked on data |
 | 3 | Graph semantics, traversal, first Neo4j benchmark | not started |
 | 4 | GraphSAGE/GCN incremental embeddings | not started |
 | 5 | GAT incremental path, atomic commit, fault injection | not started |

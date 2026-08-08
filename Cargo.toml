@@ -21,6 +21,10 @@ path = "src/bin/load_trace.rs"
 name = "caregraph-bench-pit"
 path = "src/bin/bench_pit.rs"
 
+[[bin]]
+name = "caregraph-bench-traversal"
+path = "src/bin/bench_traversal.rs"
+
 [dependencies]
 # --- Storage & persistence (PRD 2.1) -----------------------------------------
 # NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the
