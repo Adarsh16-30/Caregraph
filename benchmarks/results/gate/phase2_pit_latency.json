@@ -1,0 +1,44 @@
+{
+  "benchmark": "point_in_time_read_latency",
+  "prd_target": "Section 1: point-in-time snapshot query latency (p95) < 20 ms",
+  "provenance": {
+    "generated_at_unix": 1787570007,
+    "generated_at_iso": "2026-08-24T11:13:27Z",
+    "git_commit": "dfd1fd85c291d025bde1358d7d9167885f4b2753",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-pit.exe --db data\\db\\diabetes130 --trace benchmarks\\traces\\diabetes130_full.jsonl --queries 1000 --seed 42 --out-dir benchmarks\\results",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": "Intel Core i5-13450HX (10C/16T), 15.6 GB RAM, NVMe SSD, Windows 11 Home 26200"
+  },
+  "database_path": "data\\db\\diabetes130",
+  "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl",
+  "seed": 42,
+  "warmup_queries": 500,
+  "node_as_of": {
+    "samples": 1000,
+    "min_ms": 0.0043,
+    "p50_ms": 0.0126,
+    "p95_ms": 0.1924,
+    "p99_ms": 0.25789999999999996,
+    "max_ms": 0.417,
+    "mean_ms": 0.0352654
+  },
+  "edges_as_of": {
+    "samples": 1000,
+    "min_ms": 0.0044,
+    "p50_ms": 0.028900000000000002,
+    "p95_ms": 0.2397,
+    "p99_ms": 0.31839999999999996,
+    "max_ms": 0.7673,
+    "mean_ms": 0.10254280000000006
+  },
+  "p95_target_ms": 20.0,
+  "passed": true,
+  "notes": [
+    "query hit rate 58.3%",
+    "working tree was dirty at run time; this result is not reproducible from the recorded commit alone",
+    "embedding point-in-time latency is not measured here — CF_EMBEDDINGS is populated from Phase 4"
+  ]
+}

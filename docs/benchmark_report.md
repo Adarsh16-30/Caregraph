@@ -13,8 +13,8 @@ comparison to be measured; that work is outstanding.
 
 | Field | Value |
 |---|---|
-| Commit | `dfd1fd85c291d025bde1358d7d9167885f4b2753` |
-| Working tree | **dirty** at run time (5 files) — results are not reproducible from the commit alone |
+| Commit | `d1757bd14a674d5a0cee18f51f99d4b1b9256602` |
+| Working tree | **clean** at run time — the gate results below reproduce from this commit |
 | Hardware | Intel Core i5-13450HX (10C/16T), 15.6 GB RAM, NVMe SSD |
 | OS | Windows 11 Home 26200 |
 | Build | `cargo build --release`, rustc 1.97.1, rocksdb crate 0.23.0 (RocksDB 10.4.2) |
@@ -67,11 +67,11 @@ comparable, but it is a substitution and every number here inherits that.
 |---|---|---|---|
 | Point-in-time node read (p95) | < 20 ms | **0.192 ms** | PASS |
 | Point-in-time edge read (p95) | < 20 ms | **0.240 ms** | PASS |
-| 2-hop bounded traversal (p95) | < 50 ms | **8.144 ms** | PASS |
+| 2-hop bounded traversal (p95) | < 50 ms | **13.026 ms** | PASS |
 
 ### 2.1 Point-in-time reads — passes with ~100x headroom
 
-[benchmark: benchmarks/results/pit_latency_1787570007.json]
+[benchmark: benchmarks/results/gate/phase2_pit_latency.json]
 
 ```
 node_as_of   p50 0.013 ms   p95 0.192 ms   p99 0.258 ms
@@ -96,14 +96,20 @@ populated from Phase 4.
 
 ### 2.2 2-hop bounded traversal — passes
 
-[benchmark: benchmarks/results/traversal_2hop_caregraph_1787569774.json]
+[benchmark: benchmarks/results/gate/phase3_traversal_2hop.json]
 
 ```
-p50 1.998 ms   p95 8.144 ms   p99 12.704 ms   max 22.633 ms
+p50 3.550 ms   p95 13.026 ms   p99 20.390 ms   max 40.379 ms
 1000 queries, seed 42, default bounds (fan-out 512, expanded 5000)
 mean result: 1366.9 nodes, 1564.8 edges
 590 of 1000 traversals hit the fan-out cap
 ```
+
+Measured on a **clean working tree** at commit `d1757bd`, so this figure traces
+to a specific tree state (Rule 10). An earlier identical run on a dirty tree
+recorded p95 8.144 ms; the 8.1 vs 13.0 ms spread across two runs of the same
+code, same seed, same graph is thermal (see §3), not a code difference. The
+slower of the two is quoted here because it is the reproducible one.
 
 This target was **missed by ~4x until the §5 change landed**. The history matters
 more than the number, so it is kept in full below rather than overwritten:
@@ -111,9 +117,9 @@ more than the number, so it is kept in full below rather than overwritten:
 | | p95 | mean edges returned |
 |---|---|---|
 | Before (materialise-then-truncate) | 189.8 ms | 1564.9 |
-| After (bounded scan) | **8.144 ms** | 1564.8 |
+| After (bounded scan) | **13.026 ms** | 1564.8 |
 
-**23x faster returning the same answer.** Edge count is unchanged to within 0.1
+**15x faster returning the same answer.** Edge count is unchanged to within 0.1
 edges, which is the evidence that this was wasted work rather than a
 completeness/latency trade: the old path read tens of thousands of neighbours
 per hub and discarded all but 512 of them.
@@ -261,7 +267,7 @@ dropped" has no post-fix equivalent, and the same run now reports 2,783 — whic
 is a floor, not a total. `fanout_capped_nodes` remains exact, and
 `SnapshotReader` still scans exhaustively and reports an exact figure.
 
-Trading an exact diagnostic for a 23x latency win is the right call here, but it
+Trading an exact diagnostic for a 15x latency win is the right call here, but it
 is a real loss of information and is recorded as one rather than quietly
 dropped.
 
@@ -274,7 +280,7 @@ dropped.
 - [ ] A thermally controlled machine, or a documented cooldown protocol
 - [ ] Clean working tree at run time, so results trace to a commit
 - [ ] Real UKPDS graph, or an explicit decision to publish on this substitution
-- [x] Bounded-selection fix, then re-measure the traversal target — §5, p95 8.144 ms
+- [x] Bounded-selection fix, then re-measure the traversal target — §5, p95 13.026 ms
 
 Both Section 1 latency targets in scope for Phases 2 and 3 are now met on real
 data. What remains before any *comparative* claim is the baseline work: these

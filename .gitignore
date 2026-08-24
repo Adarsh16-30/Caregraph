@@ -5,8 +5,15 @@ Cargo.lock
 # Local RocksDB instances and benchmark output
 /data/db/
 /data/*.db/
-/benchmarks/results/
+/benchmarks/results/*
 /results/
+
+# Exception: results that prove a phase gate are committed, so a Rule 10
+# [benchmark: file] citation points at a file that is actually in the repo.
+# Routine runs stay ignored; copy one here only when it closes a gate.
+# (The parent is excluded by its *contents* above, not as a directory, because
+# git will not descend into an excluded directory to re-include anything.)
+!/benchmarks/results/gate/
 
 # Real clinical data must never be committed (Rule 6 / PRD 2.7)
 /data/raw/

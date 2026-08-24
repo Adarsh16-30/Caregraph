@@ -1,0 +1,51 @@
+{
+  "benchmark": "bounded_traversal_latency",
+  "system": "caregraph",
+  "prd_target": "Section 1: 2-hop bounded traversal latency (p95) < 50 ms",
+  "provenance": {
+    "generated_at_unix": 1787582361,
+    "git_commit": "d1757bd14a674d5a0cee18f51f99d4b1b9256602",
+    "git_dirty": false,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-traversal.exe --db data\\db\\diabetes130 --trace benchmarks\\traces\\diabetes130_full.jsonl --queries 1000 --hops 2 --seed 42 --out-dir benchmarks\\results",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": "Intel Core i5-13450HX (10C/16T), 15.6 GB RAM, NVMe SSD, Windows 11 Home 26200"
+  },
+  "database_path": "data\\db\\diabetes130",
+  "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl",
+  "hops": 2,
+  "seed": 42,
+  "warmup_queries": 200,
+  "limits": {
+    "max_hops": 4,
+    "max_result_nodes": 10000,
+    "max_result_edges": 50000,
+    "max_neighbors_per_node": 512,
+    "max_expanded_nodes": 5000
+  },
+  "latency": {
+    "samples": 1000,
+    "min_ms": 0.0234,
+    "p50_ms": 3.5505,
+    "p95_ms": 13.025500000000001,
+    "p99_ms": 20.3903,
+    "max_ms": 40.3788,
+    "mean_ms": 4.557593299999997
+  },
+  "mean_nodes_returned": 1366.936,
+  "mean_edges_returned": 1564.763,
+  "truncation": {
+    "queries_truncated": 590,
+    "queries_hit_node_limit": 0,
+    "queries_hit_edge_limit": 0,
+    "queries_fanout_capped": 590,
+    "total_neighbors_dropped": 2783
+  },
+  "p95_target_ms": 50.0,
+  "passed": true,
+  "notes": [
+    "59.1% of traversals returned at least one edge",
+    "590 of 1000 traversals hit a bound (590 at the fan-out cap, 2783 neighbours dropped in total); this latency is the latency of bounded traversal, not of exhaustive traversal"
+  ]
+}
