@@ -25,6 +25,10 @@ path = "src/bin/bench_pit.rs"
 name = "caregraph-bench-traversal"
 path = "src/bin/bench_traversal.rs"
 
+[[bin]]
+name = "caregraph-bench-incremental"
+path = "src/bin/bench_incremental.rs"
+
 [dependencies]
 # --- Storage & persistence (PRD 2.1) -----------------------------------------
 # NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the
@@ -62,6 +66,13 @@ path = "tests/integration/main.rs"
 [[test]]
 name = "unit"
 path = "tests/unit/main.rs"
+
+# Needs a real trained model on disk and a real Python + torch interpreter
+# (Rule 3); not run by the default `cargo test` sweep of --lib/--test unit/
+# --test integration, same reason the Rule 4 baselines are not in CI yet.
+[[test]]
+name = "embedding"
+path = "tests/embedding/main.rs"
 
 [profile.release]
 lto = true

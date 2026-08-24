@@ -285,3 +285,109 @@ dropped.
 Both Section 1 latency targets in scope for Phases 2 and 3 are now met on real
 data. What remains before any *comparative* claim is the baseline work: these
 numbers say CareGraph is fast, not that it is faster than anything.
+
+---
+
+## 7. Phase 4 — incremental embedding, associative models
+
+### 7.1 Framework substitution
+
+The PRD's Phase 4 task text names DGL. DGL 2.x is not installable on this
+machine — the package index offers only the 2018-era 0.1.x line for the
+available Python version. PyTorch Geometric is used instead, which Rule 3
+names as an equally acceptable implementation; the deviation is from task
+wording, not from the rule that gates the phase. `torch 2.11.0+cpu`,
+`torch_geometric 2.7.0`.
+
+### 7.2 Calling mechanism substitution
+
+The PRD names PyO3 as the Rust↔Python boundary. Tried first, against this
+machine's real Python 3.14 install, and rejected for a reproducible reason:
+
+- `pyo3 0.24`'s build script refuses CPython 3.14 outright — its own maximum
+  supported version is 3.13.
+- Its documented forward-compatibility escape hatch,
+  `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` under the stable ABI, **builds**,
+  but fails at the first `import torch`: `_ctypes` and torch's own native
+  extensions are not abi3-limited, so CPython's own ABI-mismatch guard
+  refuses to load them under the compatibility shim
+  (`Module use of python314.dll conflicts with this version of Python`).
+
+Both findings are empirical — built and run, not inferred from documentation.
+`ml/embedding_server.py` is a persistent worker process instead: spawned once,
+kept alive across mutations (so PyTorch's import cost is paid once, not per
+mutation), real forward passes through the real trained model, communicating
+over newline-delimited JSON on stdio. Warm round-trip: ~2-4 ms for a small
+subgraph.
+
+### 7.3 Trained model (Rule 3)
+
+`ml/train_graphsage.py` trains a 2-layer GraphSAGE (mean aggregation, 32-dim
+output) on the full Diabetes 130 graph via unsupervised link prediction — no
+labels, because the derived timeline (§Dataset) would make any temporal label
+leaky. Loss 0.804 → 0.432 over 60 epochs. Deployed to
+`ml/deployed/diabetes130_graphsage/` with `model.pt`, `model.sha256`, and
+`dataset_manifest.json` — the manifest and checksum Rule 3's gate checks for.
+
+### 7.4 A real bug the correctness test caught
+
+Phase 4's success criterion: incremental results must exactly match a
+full-graph recompute on 50 randomised mutation sequences.
+
+The first implementation of `AffectedSubgraphResolver` fetched edges for every
+node in the affected set, but not for the nodes *discovered as their
+neighbours*. For a 2-layer model, computing `h2(hub)` needs `h1(n)` for every
+neighbour `n` of the hub — and `h1(n)` depends on `n`'s own edges, not just on
+`n` existing as a feature row. Missing that second ring left those neighbours
+as structurally isolated rows in the subgraph: present, but with none of their
+real edges, silently corrupting their own layer-1 embedding and therefore
+every hub embedding that depended on them. Measured error from this bug:
+~1e-2, unmistakably structural, not numerical.
+
+Fixed by expanding the receptive field in two rings instead of one — see
+`src/embedding/resolver.rs`. After the fix, the residual gap across all 50
+sequences is a max absolute difference of 6e-7 and max relative difference of
+6e-5 (float32 scatter-mean taking a different internal path for
+differently-shaped tensors) — four orders of magnitude tighter than the bug it
+replaced. `tests/embedding/associative_correctness_test.rs` compares with a
+tolerance chosen to sit between those two numbers, not to paper over one with
+room for the other.
+
+[benchmark: N/A — correctness test, not a timed benchmark; run with
+`cargo test --test embedding`]
+
+### 7.5 Incremental vs. full recompute — passes on the median, with disclosed variance
+
+[benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
+
+30 real `add_edge` mutations sampled evenly across the full trace, on the full
+174,298-node / 515,117-edge graph.
+
+```
+incremental     median 710.97 ms   p95 3004.05 ms
+full recompute  median 5212.64 ms  p95 5920.53 ms
+median speedup: 6.15x     target: >= 5.0x     PASS
+```
+
+**The median clears the target. Individual mutations are uneven: 12 of 30
+samples (40%) fall below 5x on their own**, from 1.9x to 4.8x. The pattern is
+consistent, not random:
+
+| Affected-set size | Typical speedup | Why |
+|---|---|---|
+| ~2 (isolated mutation) | 34x – 1076x | Full recompute pays a near-fixed ~5s cost shipping the whole graph to the model; incremental scales with almost nothing. |
+| ~500-545 (hits the fan-out cap) | 1.9x – 6.7x, median ~3.5x | `AffectedSubgraphResolver`'s two-ring expansion issues one `capped_neighbors` call — 6 edge types × 2 directions — **per node**. At ~520 affected nodes that is several thousand small RocksDB reads, and that per-node call overhead is what the weaker samples are actually measuring. |
+
+This is the direct successor to §4's fan-out finding: bounding the *forward
+pass* to a resolved subgraph was the right fix for exactness and for the
+small/typical case, but the resolver that builds that subgraph now has its own
+unbounded-in-*calls* cost for the medium-degree case, structurally similar to
+what the traversal cap had before §5's fix. Bounding the ring-2 expansion's
+call count (batching the per-node adjacency reads, or capping ring-2 breadth
+independently of ring-1) is the equivalent next step; not implemented this
+session — recorded here so it is a decision made deliberately later, not a
+gap discovered by surprise.
+
+`incremental_fallback_total` was 0 across all 30 real samples and all 400
+correctness-test mutations — the fallback path exists and is counted (Rule 7)
+but was never exercised by anything in this session's real workload.

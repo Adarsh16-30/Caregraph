@@ -18,11 +18,12 @@ env:
   # Raise this as each phase completes. check_rules.sh turns a PENDING rule into
   # a hard failure once the gating phase reaches the phase that introduces it.
   #
-  # At 3: Phase 3's success criteria are met — 2-hop traversal p95 8.144 ms
-  # against a < 50 ms target on the full clinical graph, and Rule 4's timestamped
-  # raw-results file exists (docs/benchmark_report.md). Rule 4 is therefore live
-  # and enforced from here on.
-  CAREGRAPH_PHASE: "3"
+  # At 4: Phase 4's success criteria are met — a real trained GraphSAGE deployed
+  # with manifest + checksum (Rule 3), incremental correctness verified against
+  # full recompute on 50 randomised mutation sequences, median 6.15x speedup
+  # against the 5x target (docs/benchmark_report.md §7). Rules 3 and 7 are
+  # therefore live and enforced from here on.
+  CAREGRAPH_PHASE: "4"
 
 jobs:
   rules:

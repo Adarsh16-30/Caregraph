@@ -1,0 +1,274 @@
+{
+  "benchmark": "incremental_vs_full_recompute",
+  "prd_target": "Phase 4: incremental embedding update at least 5x faster than full recompute",
+  "provenance": {
+    "generated_at_unix": 1787599940,
+    "git_commit": "95d450db0f49ba05784ad12723aa0106a307e8dd",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-incremental.exe --db data\\db\\diabetes130 --trace benchmarks\\traces\\diabetes130_full.jsonl --samples 30 --out-dir benchmarks\\results"
+  },
+  "model": "diabetes130_graphsage",
+  "incremental": {
+    "samples": 30,
+    "min_ms": 4.6435,
+    "median_ms": 710.9692,
+    "p95_ms": 3004.0537999999997,
+    "max_ms": 3039.015
+  },
+  "full_recompute": {
+    "samples": 30,
+    "min_ms": 1332.0985,
+    "median_ms": 5212.6416,
+    "p95_ms": 5920.5314,
+    "max_ms": 5994.3270999999995
+  },
+  "median_speedup": 6.152216929260749,
+  "per_sample": [
+    {
+      "src": 1,
+      "dst": 600000,
+      "affected_count": 2,
+      "incremental_ms": 4.6435,
+      "full_recompute_ms": 4996.3488,
+      "speedup": 1075.98768170561
+    },
+    {
+      "src": 2819,
+      "dst": 603292,
+      "affected_count": 2,
+      "incremental_ms": 89.7795,
+      "full_recompute_ms": 4895.4721,
+      "speedup": 54.527727376516914
+    },
+    {
+      "src": 290,
+      "dst": 100001,
+      "affected_count": 521,
+      "incremental_ms": 990.8642,
+      "full_recompute_ms": 5197.3143,
+      "speedup": 5.245233706092116
+    },
+    {
+      "src": 8243,
+      "dst": 610090,
+      "affected_count": 2,
+      "incremental_ms": 87.0925,
+      "full_recompute_ms": 5077.7944,
+      "speedup": 58.30346355885983
+    },
+    {
+      "src": 10799,
+      "dst": 100035,
+      "affected_count": 515,
+      "incremental_ms": 736.6551999999999,
+      "full_recompute_ms": 5212.6416,
+      "speedup": 7.076094216127165
+    },
+    {
+      "src": 13176,
+      "dst": 100438,
+      "affected_count": 8,
+      "incremental_ms": 291.4987,
+      "full_recompute_ms": 5352.2409,
+      "speedup": 18.361114131898358
+    },
+    {
+      "src": 6160,
+      "dst": 620259,
+      "affected_count": 13,
+      "incremental_ms": 565.0688,
+      "full_recompute_ms": 5138.0586,
+      "speedup": 9.09280179687854
+    },
+    {
+      "src": 17670,
+      "dst": 200001,
+      "affected_count": 520,
+      "incremental_ms": 1140.6903,
+      "full_recompute_ms": 3425.829,
+      "speedup": 3.003294583990063
+    },
+    {
+      "src": 20089,
+      "dst": 100111,
+      "affected_count": 264,
+      "incremental_ms": 249.3478,
+      "full_recompute_ms": 1332.0985,
+      "speedup": 5.3423310733040354
+    },
+    {
+      "src": 22672,
+      "dst": 100076,
+      "affected_count": 516,
+      "incremental_ms": 843.6151,
+      "full_recompute_ms": 5190.1031,
+      "speedup": 6.152216929260749
+    },
+    {
+      "src": 25244,
+      "dst": 100244,
+      "affected_count": 132,
+      "incremental_ms": 710.9692,
+      "full_recompute_ms": 5215.0222,
+      "speedup": 7.335088777404141
+    },
+    {
+      "src": 27735,
+      "dst": 400000,
+      "affected_count": 518,
+      "incremental_ms": 1344.533,
+      "full_recompute_ms": 5122.4414,
+      "speedup": 3.809829435201665
+    },
+    {
+      "src": 30298,
+      "dst": 639849,
+      "affected_count": 2,
+      "incremental_ms": 95.4886,
+      "full_recompute_ms": 5411.065299999999,
+      "speedup": 56.6671340872104
+    },
+    {
+      "src": 32912,
+      "dst": 100035,
+      "affected_count": 516,
+      "incremental_ms": 1292.896,
+      "full_recompute_ms": 5609.686199999999,
+      "speedup": 4.338853395787441
+    },
+    {
+      "src": 35616,
+      "dst": 200004,
+      "affected_count": 518,
+      "incremental_ms": 1450.652,
+      "full_recompute_ms": 5504.4708,
+      "speedup": 3.7944805508143924
+    },
+    {
+      "src": 36067,
+      "dst": 100270,
+      "affected_count": 264,
+      "incremental_ms": 2159.1466,
+      "full_recompute_ms": 5344.7416,
+      "speedup": 2.4753954178007183
+    },
+    {
+      "src": 40884,
+      "dst": 653595,
+      "affected_count": 2,
+      "incremental_ms": 90.5752,
+      "full_recompute_ms": 5432.6004,
+      "speedup": 59.978894885134125
+    },
+    {
+      "src": 43237,
+      "dst": 100152,
+      "affected_count": 487,
+      "incremental_ms": 1603.6874,
+      "full_recompute_ms": 5615.4308,
+      "speedup": 3.5015744340199966
+    },
+    {
+      "src": 30114,
+      "dst": 400007,
+      "affected_count": 545,
+      "incremental_ms": 3039.015,
+      "full_recompute_ms": 5754.160599999999,
+      "speedup": 1.893429482908113
+    },
+    {
+      "src": 43306,
+      "dst": 663821,
+      "affected_count": 10,
+      "incremental_ms": 953.0107,
+      "full_recompute_ms": 5591.3763,
+      "speedup": 5.8670656058740995
+    },
+    {
+      "src": 49952,
+      "dst": 100035,
+      "affected_count": 517,
+      "incremental_ms": 1790.351,
+      "full_recompute_ms": 5265.5545999999995,
+      "speedup": 2.9410739011512264
+    },
+    {
+      "src": 52109,
+      "dst": 670568,
+      "affected_count": 2,
+      "incremental_ms": 45.9694,
+      "full_recompute_ms": 1552.2233,
+      "speedup": 33.76644681026944
+    },
+    {
+      "src": 54153,
+      "dst": 200006,
+      "affected_count": 518,
+      "incremental_ms": 643.4773,
+      "full_recompute_ms": 1387.2191,
+      "speedup": 2.155816685374915
+    },
+    {
+      "src": 56315,
+      "dst": 100006,
+      "affected_count": 515,
+      "incremental_ms": 453.3316,
+      "full_recompute_ms": 1495.5253,
+      "speedup": 3.2989654813386053
+    },
+    {
+      "src": 58452,
+      "dst": 100347,
+      "affected_count": 18,
+      "incremental_ms": 197.0024,
+      "full_recompute_ms": 1591.9985,
+      "speedup": 8.081112209800489
+    },
+    {
+      "src": 60526,
+      "dst": 100011,
+      "affected_count": 515,
+      "incremental_ms": 523.5,
+      "full_recompute_ms": 1563.3498000000002,
+      "speedup": 2.986341547277937
+    },
+    {
+      "src": 29781,
+      "dst": 100008,
+      "affected_count": 527,
+      "incremental_ms": 786.0504999999999,
+      "full_recompute_ms": 5284.3322,
+      "speedup": 6.72263703159021
+    },
+    {
+      "src": 56358,
+      "dst": 691276,
+      "affected_count": 6,
+      "incremental_ms": 194.0589,
+      "full_recompute_ms": 5774.9053,
+      "speedup": 29.75851816123868
+    },
+    {
+      "src": 56802,
+      "dst": 200004,
+      "affected_count": 532,
+      "incremental_ms": 3004.0537999999997,
+      "full_recompute_ms": 5994.3270999999995,
+      "speedup": 1.9954126986673808
+    },
+    {
+      "src": 65224,
+      "dst": 698265,
+      "affected_count": 10,
+      "incremental_ms": 777.8035,
+      "full_recompute_ms": 5920.5314,
+      "speedup": 7.611860064913567
+    }
+  ],
+  "min_speedup_target": 5.0,
+  "passed": true,
+  "notes": [
+    "0 of 30 sampled mutations touched a >2000-node affected set (hub-adjacent)",
+    "working tree was dirty at run time; not reproducible from the commit alone"
+  ]
+}

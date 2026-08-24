@@ -16,6 +16,7 @@
 //! that compiles is indistinguishable from an implementation to anything except
 //! a reader, which is precisely the failure mode Section 0 exists to prevent.
 
+pub mod embedding;
 pub mod error;
 pub mod graph;
 pub mod storage;

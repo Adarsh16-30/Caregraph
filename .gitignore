@@ -29,10 +29,13 @@ Cargo.lock
 /benchmarks/traces/*_full.jsonl
 !/benchmarks/traces/*.manifest.json
 
-# ML artifacts
+# ML artifacts. Training checkpoints stay ignored (bulky, reproducible from
+# the trace + the trainer script); the small deployed model that Rule 3's
+# gate checks for is committed, same reasoning as benchmarks/results/gate/.
 /ml/checkpoints/
 *.onnx
 *.pt
+!/ml/deployed/**/*.pt
 __pycache__/
 *.py[cod]
 .venv/

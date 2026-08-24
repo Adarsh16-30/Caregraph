@@ -1,0 +1,35 @@
+{
+  "model_id": "diabetes130_graphsage",
+  "architecture": "GraphSAGE",
+  "framework": "pytorch-geometric 2.7.0",
+  "framework_note": "PRD Phase 4 names DGL; DGL 2.x has no distribution for this Python version, and Rule 3 names PyTorch Geometric as equally acceptable.",
+  "torch": "2.11.0+cpu",
+  "trained_at": "2026-08-24T16:45:03.761742+00:00",
+  "objective": "unsupervised link prediction (positive edges vs negative sampling)",
+  "aggregation": "mean",
+  "is_associative": true,
+  "layers": 2,
+  "embedding_dim": 32,
+  "epochs": 60,
+  "learning_rate": 0.01,
+  "seed": 42,
+  "final_loss": 0.43233782052993774,
+  "initial_loss": 0.8044247627258301,
+  "dataset": {
+    "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl",
+    "trace_sha256": "f755e44882055115677d1dcdb0ba70012cc4e99384024e40d8c669ea4628cfe4",
+    "nodes": 174298,
+    "live_edges": 515117,
+    "node_type_counts": {
+      "Patient": 71518,
+      "Condition": 915,
+      "Medication": 21,
+      "Provider": 72,
+      "LabResult": 6,
+      "Encounter": 101766
+    },
+    "as_of_us": null
+  },
+  "model_sha256": "15f810bcd78976384b97a272e437e9fc339b6a9b1729e2ee3f54be2d48e77b9b",
+  "node_feature_encoding": "one-hot node type; no clinical attributes as features"
+}
