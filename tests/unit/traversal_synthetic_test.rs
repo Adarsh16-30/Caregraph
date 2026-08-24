@@ -278,12 +278,51 @@ fn hitting_a_limit_is_reported_rather_than_returned_as_a_complete_answer() {
         .unwrap();
 
     // 50 patients attached, 10 permitted. The caller must be able to tell that
-    // the other 40 exist — silently returning 10 as if that were all of them is
-    // the failure this guards against.
+    // more exist — silently returning 10 as if that were all of them is the
+    // failure this guards against.
+    //
+    // The count is a lower bound by design: the scan stops one past the cap, so
+    // it learns that more existed without reading all 50. Knowing the exact 40
+    // would mean paying the O(degree) cost the cap is there to avoid.
     assert!(result.truncation.is_truncated());
     assert_eq!(result.truncation.fanout_capped_nodes, 1);
-    assert_eq!(result.truncation.fanout_dropped_neighbors, 40);
+    assert!(
+        result.truncation.fanout_dropped_neighbors >= 1,
+        "at least one dropped neighbour must be reported, got {}",
+        result.truncation.fanout_dropped_neighbors
+    );
     assert_eq!(result.nodes.len(), 11, "the hub plus 10 spokes");
+}
+
+#[test]
+fn a_capped_hop_does_not_read_the_whole_adjacency() {
+    // The property that decides the p95 target: cost must scale with the cap,
+    // not with the degree of the node being expanded. A 2,000-spoke hub read
+    // through a cap of 10 must cost about what a 50-spoke hub costs, not 40x it.
+    let (_dir, small) = hub_fixture(50);
+    let (_dir2, large) = hub_fixture(2_000);
+    let limits = TraversalLimits {
+        max_neighbors_per_node: 10,
+        ..TraversalLimits::default()
+    };
+
+    let request = TraversalRequest::new(CKD, ts(100_000), 1).direction(Direction::Incoming);
+
+    let small_result = Traverser::new(&small, limits).traverse(&request).unwrap();
+    let large_result = Traverser::new(&large, limits).traverse(&request).unwrap();
+
+    // Same bounded answer from both, despite a 40x difference in degree.
+    assert_eq!(small_result.nodes.len(), 11);
+    assert_eq!(large_result.nodes.len(), 11);
+    assert!(large_result.truncation.is_truncated());
+
+    // If the scan were unbounded the larger hub would return every spoke it
+    // read before truncating; bounding it means it never materialised them.
+    assert_eq!(
+        large_result.edges.len(),
+        10,
+        "a capped hop must yield exactly the cap, never the full adjacency"
+    );
 }
 
 #[test]

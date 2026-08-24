@@ -135,8 +135,17 @@ pub struct Truncation {
     /// The whole-traversal expansion backstop was reached.
     pub hit_expansion_limit: bool,
     /// How many nodes had their neighbour list cut short by the fan-out cap.
+    /// Exact: a node either hit the cap or it did not.
     pub fanout_capped_nodes: usize,
-    /// How many neighbours were dropped by that cap in total.
+    /// How many neighbours were dropped by that cap.
+    ///
+    /// A **lower bound** during traversal. The fan-out scan stops one past the
+    /// cap, so it learns *that* more neighbours existed without learning how
+    /// many — counting them exactly would mean reading the entire adjacency,
+    /// which is the cost the cap exists to avoid. `fanout_capped_nodes > 0`
+    /// with a small count here means "at least this many", not "this many".
+    /// [`SnapshotReader`](crate::graph::SnapshotReader) scans exhaustively and
+    /// does report an exact figure.
     pub fanout_dropped_neighbors: usize,
 }
 
@@ -230,17 +239,33 @@ impl<'a, S: KvStore + ?Sized> Traverser<'a, S> {
             for &edge_type in &edge_types {
                 let mut neighbors: Vec<(Edge, NodeId)> = Vec::new();
 
+                // One more than the cap: if a direction returns `probe` edges we
+                // know the cap bound without having read the whole adjacency.
+                // Reading `cap + 1` is what keeps a hop through a 54,000-degree
+                // reference node O(cap) rather than O(degree) — see the
+                // `limits` module for why that distinction decides the p95.
+                let probe = self.limits.max_neighbors_per_node.saturating_add(1);
+                let mut capped_direction = false;
+
                 if request.direction.includes_outgoing() {
-                    for edge in self.index.edges_as_of(node, edge_type, request.as_of)? {
+                    let out = self
+                        .index
+                        .edges_as_of_limited(node, edge_type, request.as_of, probe)?;
+                    capped_direction |= out.len() == probe;
+                    for edge in out {
                         let other = edge.dst;
                         neighbors.push((edge, other));
                     }
                 }
                 if request.direction.includes_incoming() {
-                    for edge in self
-                        .index
-                        .incoming_edges_as_of(node, edge_type, request.as_of)?
-                    {
+                    let inc = self.index.incoming_edges_as_of_limited(
+                        node,
+                        edge_type,
+                        request.as_of,
+                        probe,
+                    )?;
+                    capped_direction |= inc.len() == probe;
+                    for edge in inc {
                         let other = edge.src;
                         neighbors.push((edge, other));
                     }
@@ -258,10 +283,11 @@ impl<'a, S: KvStore + ?Sized> Traverser<'a, S> {
                 // measuring anything stable.
                 neighbors.sort_by_key(|(edge, other)| (*other, edge.timestamp));
 
-                if neighbors.len() > self.limits.max_neighbors_per_node {
+                if capped_direction || neighbors.len() > self.limits.max_neighbors_per_node {
                     truncation.fanout_capped_nodes += 1;
-                    truncation.fanout_dropped_neighbors +=
-                        neighbors.len() - self.limits.max_neighbors_per_node;
+                    truncation.fanout_dropped_neighbors += neighbors
+                        .len()
+                        .saturating_sub(self.limits.max_neighbors_per_node);
                     neighbors.truncate(self.limits.max_neighbors_per_node);
                 }
 

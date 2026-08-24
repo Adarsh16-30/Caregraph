@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-08-20T16:27:51.557755+00:00",
+  "source": "Diabetes 130-US Hospitals for years 1999-2008 (UCI ML Repository, id 296)",
+  "citation": "Strack B, DeShazo JP, Gennings C, Olmo JL, Ventura S, Cios KJ, Clore JN. Impact of HbA1c Measurement on Hospital Readmission Rates. BioMed Research International, 2014:781670.",
+  "source_file": "data\\raw\\diabetic_data.csv",
+  "source_sha256": "0689e7ec031237dc63031b938805c48377748761a3b26acab621567afa24df97",
+  "encounters": 101766,
+  "encounters_in_source": 101766,
+  "patients": 71518,
+  "distinct_conditions": 915,
+  "distinct_medications": 21,
+  "distinct_providers": 72,
+  "distinct_lab_results": 6,
+  "record_counts": {
+    "upsert_node": 174298,
+    "remove_edge": 10989,
+    "DIAGNOSED_WITH": 303496,
+    "PRESCRIBED_MEDICATION": 120054,
+    "UNDERWENT_PROCEDURE": 0,
+    "TREATED_BY_PROVIDER": 51817,
+    "HAS_LAB_RESULT": 22364,
+    "HAS_ENCOUNTER": 101766
+  },
+  "total_records": 784784,
+  "timeline": {
+    "basis": "encounter_id rank spread evenly across the 1999-2008 window",
+    "ordering": "real \u2014 encounter_id is assigned in admission order",
+    "spacing": "derived \u2014 inter-encounter gaps are not in the public release",
+    "window_start": "1999-01-01T00:00:00+00:00",
+    "window_end": "2008-12-31T00:00:00+00:00",
+    "step_micros": 3100571900
+  },
+  "omitted": {
+    "UNDERWENT_PROCEDURE": "source records num_procedures as a count with no procedure identities; emitting these edges would require inventing them"
+  },
+  "provider_identity": "medical_specialty used as a provider proxy",
+  "trace_sha256": "ff614401a42bd81f7d7670a99d33299f7d42eb0c88e79ce8ba77858d37f6ffc4",
+  "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl"
+}

@@ -145,7 +145,7 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         edge_type: EdgeType,
         as_of: Timestamp,
     ) -> Result<Vec<Edge>> {
-        self.adjacency_as_of(cf::CF_EDGES, src, edge_type, as_of, false)
+        self.adjacency_as_of(cf::CF_EDGES, src, edge_type, as_of, false, None)
     }
 
     /// Every live incoming edge of `(dst, edge_type)` at `as_of`.
@@ -159,7 +159,37 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         edge_type: EdgeType,
         as_of: Timestamp,
     ) -> Result<Vec<Edge>> {
-        self.adjacency_as_of(cf::CF_REVERSE, dst, edge_type, as_of, true)
+        self.adjacency_as_of(cf::CF_REVERSE, dst, edge_type, as_of, true, None)
+    }
+
+    /// Like [`edges_as_of`](Self::edges_as_of), but stops the scan once `limit`
+    /// live neighbours have been resolved.
+    ///
+    /// The scan walks backward through time, so the neighbours kept are the
+    /// most recently updated ones. This is what makes a hop through a
+    /// high-degree reference node cost O(limit) instead of O(degree): a
+    /// condition referenced by 18,000 patients is never fully materialised just
+    /// to discard all but a few hundred of its edges.
+    pub fn edges_as_of_limited(
+        &self,
+        src: NodeId,
+        edge_type: EdgeType,
+        as_of: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<Edge>> {
+        self.adjacency_as_of(cf::CF_EDGES, src, edge_type, as_of, false, Some(limit))
+    }
+
+    /// Incoming-direction counterpart of
+    /// [`edges_as_of_limited`](Self::edges_as_of_limited).
+    pub fn incoming_edges_as_of_limited(
+        &self,
+        dst: NodeId,
+        edge_type: EdgeType,
+        as_of: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<Edge>> {
+        self.adjacency_as_of(cf::CF_REVERSE, dst, edge_type, as_of, true, Some(limit))
     }
 
     /// Shared walk for both directions.
@@ -167,6 +197,11 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
     /// `swap` un-mirrors `CF_REVERSE` keys so the returned [`Edge`] always
     /// reads in the graph's natural direction regardless of which family it
     /// came from.
+    ///
+    /// `limit` stops the walk after that many *live* neighbours. Tombstoned
+    /// versions still consume a step — they resolve a destination to "absent",
+    /// which is an answer — but they do not count toward the limit, so a
+    /// caller asking for N live neighbours gets N whenever N exist.
     fn adjacency_as_of(
         &self,
         family: &'static str,
@@ -174,6 +209,7 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         edge_type: EdgeType,
         as_of: Timestamp,
         swap: bool,
+        limit: Option<usize>,
     ) -> Result<Vec<Edge>> {
         let prefix = edge_prefix(anchor, edge_type);
         let seek = as_of_prefix(&prefix, as_of);
@@ -211,6 +247,9 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
                                 timestamp,
                                 properties: stored.properties,
                             });
+                            if limit.is_some_and(|l| live.len() >= l) {
+                                return ControlFlow::Break(());
+                            }
                         }
                         ControlFlow::Continue(())
                     }

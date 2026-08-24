@@ -18,11 +18,31 @@
 //! fraction of the cohort, and the Section 1 target of p95 < 50 ms for a 2-hop
 //! traversal is not reachable on the full UKPDS graph at any constant factor.
 //!
-//! The cap is what makes the traversal genuinely *bounded* rather than
-//! bounded-in-hops-but-unbounded-in-work. When it binds, the result says so —
-//! see [`Truncation`](crate::graph::traversal::Truncation). A truncated result
+//! When the cap binds, the result says so — see
+//! [`Truncation`](crate::graph::traversal::Truncation). A truncated result
 //! reported as complete would be a silent correctness failure of exactly the
 //! kind Rule 7 exists to prevent.
+//!
+//! # How the cap bounds work, not just the result
+//!
+//! The cap is enforced *during* the adjacency scan, not after it. `traversal.rs`
+//! asks the temporal index for at most `max_neighbors_per_node + 1` live
+//! neighbours per direction, and the index stops walking once it has them
+//! ([`edges_as_of_limited`](crate::temporal::TemporalIndex::edges_as_of_limited)).
+//! A hop through a 54,000-degree reference node therefore costs O(cap), not
+//! O(degree).
+//!
+//! This was not always true. The first implementation materialised the full
+//! adjacency and sorted it before truncating, which made the cap bound the
+//! result while leaving the work unbounded: sweeping it from 512 down to 32
+//! moved p95 not at all (179-202 ms, no trend) while cutting the answer 14x.
+//! That measurement is what motivated the bounded scan — see
+//! `docs/benchmark_report.md` §4.
+//!
+//! The trade-off is *which* neighbours survive. Scanning backward through time
+//! means the cap keeps the most recently updated neighbours rather than an
+//! arbitrary subset. For care-pathway queries that is the more defensible
+//! answer, but it is a behaviour change, not a pure optimisation.
 
 /// Hard server-side ceilings on traversal work and result size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

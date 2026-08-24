@@ -39,6 +39,12 @@ struct Args {
     seed: u64,
     out_dir: PathBuf,
     p95_target_ms: f64,
+    /// Optional *tightenings* of the server caps, for measuring the latency
+    /// against completeness trade-off. Neither may exceed the server ceiling —
+    /// a benchmark that raised a bound would be reporting a configuration the
+    /// server would never actually serve.
+    max_neighbors_per_node: Option<usize>,
+    max_expanded_nodes: Option<usize>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -49,6 +55,8 @@ fn parse_args() -> Result<Args> {
     let mut seed = 0x5EED_C0FFEE_u64;
     let mut out_dir = PathBuf::from("benchmarks/results");
     let mut p95_target_ms = DEFAULT_P95_TARGET_MS;
+    let mut max_neighbors_per_node = None;
+    let mut max_expanded_nodes = None;
 
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -61,10 +69,13 @@ fn parse_args() -> Result<Args> {
             "--seed" => seed = next()?.parse()?,
             "--out-dir" => out_dir = PathBuf::from(next()?),
             "--p95-target-ms" => p95_target_ms = next()?.parse()?,
+            "--max-neighbors-per-node" => max_neighbors_per_node = Some(next()?.parse()?),
+            "--max-expanded-nodes" => max_expanded_nodes = Some(next()?.parse()?),
             "-h" | "--help" => {
                 println!(
                     "usage: caregraph-bench-traversal --trace <file.jsonl> [--db <path>] \
-                     [--hops N] [--queries N] [--seed N] [--out-dir DIR] [--p95-target-ms MS]"
+                     [--hops N] [--queries N] [--seed N] [--out-dir DIR] [--p95-target-ms MS] \
+                     [--max-neighbors-per-node N] [--max-expanded-nodes N]"
                 );
                 std::process::exit(0);
             }
@@ -80,6 +91,8 @@ fn parse_args() -> Result<Args> {
         seed,
         out_dir,
         p95_target_ms,
+        max_neighbors_per_node,
+        max_expanded_nodes,
     })
 }
 
@@ -288,7 +301,42 @@ fn main() -> Result<()> {
     // Server limits are not relaxed to accommodate the benchmark. If the
     // requested depth exceeds the ceiling, the traversal would be silently
     // clamped and the report would claim a depth it never ran at.
-    let limits = TraversalLimits::default();
+    let mut limits = TraversalLimits::default();
+
+    // A cap may be tightened to measure the latency/completeness curve, never
+    // loosened: the same rule `clamp` enforces for clients applies to the
+    // benchmark itself. Reporting a latency measured at a bound the server
+    // would refuse to serve would be reporting a configuration that does not
+    // exist.
+    if let Some(requested) = args.max_neighbors_per_node {
+        if requested > limits.max_neighbors_per_node {
+            bail!(
+                "--max-neighbors-per-node {} exceeds the server ceiling of {}; a \
+                 benchmark may tighten a bound but never raise one",
+                requested,
+                limits.max_neighbors_per_node
+            );
+        }
+        if requested == 0 {
+            bail!("--max-neighbors-per-node must be at least 1");
+        }
+        limits.max_neighbors_per_node = requested;
+    }
+    if let Some(requested) = args.max_expanded_nodes {
+        if requested > limits.max_expanded_nodes {
+            bail!(
+                "--max-expanded-nodes {} exceeds the server ceiling of {}; a \
+                 benchmark may tighten a bound but never raise one",
+                requested,
+                limits.max_expanded_nodes
+            );
+        }
+        if requested == 0 {
+            bail!("--max-expanded-nodes must be at least 1");
+        }
+        limits.max_expanded_nodes = requested;
+    }
+
     if args.hops > limits.max_hops {
         bail!(
             "--hops {} exceeds the server ceiling of {}; the traversal would be \
@@ -378,6 +426,18 @@ fn main() -> Result<()> {
             args.queries,
             profile.queries_fanout_capped,
             profile.total_neighbors_dropped
+        ));
+    }
+    if args.max_neighbors_per_node.is_some() || args.max_expanded_nodes.is_some() {
+        let defaults = TraversalLimits::default();
+        notes.push(format!(
+            "bounds were tightened for this run (fan-out {} vs default {}, expanded \
+             nodes {} vs default {}); this latency is not comparable to a run at \
+             the default bounds without also comparing what each returned",
+            limits.max_neighbors_per_node,
+            defaults.max_neighbors_per_node,
+            limits.max_expanded_nodes,
+            defaults.max_expanded_nodes
         ));
     }
     if provenance.git_dirty {

@@ -18,10 +18,11 @@ env:
   # Raise this as each phase completes. check_rules.sh turns a PENDING rule into
   # a hard failure once the gating phase reaches the phase that introduces it.
   #
-  # Held at 2 while Phase 3's benchmark remains unrun: Rule 4 goes live at phase
-  # 3 and requires a timestamped raw-results file, which cannot exist until the
-  # real clinical graph is loaded. Raise to 3 once that benchmark has run.
-  CAREGRAPH_PHASE: "2"
+  # At 3: Phase 3's success criteria are met — 2-hop traversal p95 8.144 ms
+  # against a < 50 ms target on the full clinical graph, and Rule 4's timestamped
+  # raw-results file exists (docs/benchmark_report.md). Rule 4 is therefore live
+  # and enforced from here on.
+  CAREGRAPH_PHASE: "3"
 
 jobs:
   rules:
@@ -105,8 +106,14 @@ jobs:
       - uses: actions/checkout@v4
       - run: cargo test --test fault_injection -- --test-threads=1
 
+  # Still disabled at Phase 3, deliberately. The CareGraph-side benchmark has
+  # run and its results are cited in docs/benchmark_report.md, but the Neo4j and
+  # TerminusDB baselines this job starts have never been exercised end to end.
+  # Enabling it before that would turn an unverified comparison into a required
+  # check. Enable once run_baseline.sh has completed against live baselines at
+  # least once by hand.
   benchmarks:
-    name: baseline benchmarks (Rule 4) — enabled at Phase 3
+    name: baseline benchmarks (Rule 4) — three-way comparison still unverified
     if: false
     runs-on: ubuntu-latest
     steps:

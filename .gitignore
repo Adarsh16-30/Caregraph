@@ -15,6 +15,13 @@ Cargo.lock
 *.parquet
 !/benchmarks/traces/*.jsonl
 
+# Full-scale traces are derived clinical data and run to hundreds of MB. The
+# manifest beside each one carries the source and trace SHA-256, so a committed
+# manifest is enough to prove which graph a benchmark number came from (Rule 10)
+# without committing the records themselves. Regenerate with data/*_loader.py.
+/benchmarks/traces/*_full.jsonl
+!/benchmarks/traces/*.manifest.json
+
 # ML artifacts
 /ml/checkpoints/
 *.onnx

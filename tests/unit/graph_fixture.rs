@@ -72,6 +72,7 @@ pub fn fixture() -> (TempDir, RocksKv) {
     writer.put_edge(&mut batch, P1, RX, METFORMIN, ts(130), &EdgeValue::new(json!({"dose": "500mg"})));
     writer.put_edge(&mut batch, P3, DX, RETINOPATHY, ts(140), &EdgeValue::new(json!({"status": "active"})));
     writer.remove_edge(&mut batch, P1, DX, CKD, ts(200));
+    drop(writer);
 
     store.write(batch).expect("commit fixture");
     (dir, store)
@@ -89,6 +90,7 @@ pub fn hub_fixture(spokes: u64) -> (TempDir, RocksKv) {
         writer.put_node(&mut batch, patient, ts(100), &NodeValue::new("Patient", json!({})));
         writer.put_edge(&mut batch, patient, DX, CKD, ts(110 + i), &EdgeValue::new(json!({})));
     }
+    drop(writer);
 
     store.write(batch).expect("commit hub fixture");
     (dir, store)
