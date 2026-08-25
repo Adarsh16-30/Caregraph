@@ -438,26 +438,29 @@ still left a ~617 ms pipeline, 1,500 brought it to ~234 ms, and 2,000 was
 worse again (~1,190 ms) — the search was empirical, not monotonic, and
 1,500 is a measured choice, not a round number.
 
-### 7.8 Second measurement, clean tree
+### 7.8 Second measurement, clean tree, cooled
+
+An uncooled run on a dirty tree immediately after the fix landed measured
+309.22 ms / 5.28x — kept out of the headline for the same reason §3 exists:
+not reproducible from a commit, and this machine's thermal state moves
+absolute latencies by more than a small fix does. Re-measured cooled
+(150s), on `a0d0937` clean:
 
 ```
-incremental     median 309.22 ms   p95 1099.20 ms
-full recompute  median 1431.83 ms  p95 6487.70 ms
-median speedup: 5.28x     target: >= 5.0x     PASS
+incremental     median 820.27 ms   p95 1548.96 ms
+full recompute  median 6210.12 ms  p95 7700.03 ms
+median speedup: 7.79x     target: >= 5.0x     PASS
 ```
 
 [benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
 
-Incremental median more than halved (710.97 ms → 309.22 ms). This is a
-**marginal pass, stated plainly**: 5.28x against a 5.0x target, and 15 of 30
-samples (50%) still fall below 5x individually — a similar count to before the
-fix, though the absolute latencies behind them are substantially lower.
-`full recompute`'s own numbers moved too (median 5212.64 ms → 1431.83 ms
-across the two runs) — consistent with §3's thermal finding, not with any
-change on the full-recompute code path, which this session did not touch.
-The honest reading: the fix delivered a large, real improvement to the
-incremental path specifically, and the topline speedup ratio is noisier than
-either median alone suggests, because both numbers move with machine state.
+**7.79x median, 5 of 30 samples (17%) below 5x individually** — down from 12
+and then 15 of 30 across the two pre-fix measurements. `full recompute`'s
+absolute numbers moved substantially across all three runs (5212 ms → 1432 ms
+→ 6210 ms median) on code this session never touched, which is §3's thermal
+finding restated, not a new one: read the *speedup ratio* as the signal and
+the absolute milliseconds as thermally contaminated, same as §2.2's traversal
+figures.
 
 `incremental_fallback_total` was 0 across all 30 real samples and all 400
 correctness-test mutations both before and after these fixes — the fallback
