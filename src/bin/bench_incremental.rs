@@ -39,6 +39,13 @@ use serde::Serialize;
 /// full recompute, median over sampled mutations.
 const DEFAULT_MIN_SPEEDUP: f64 = 5.0;
 const FANOUT_CAP: usize = 512;
+/// Total-receptive-field backstop for ring two of resolution (ring one — the
+/// affected set itself — is always resolved in full; see
+/// `resolver.rs::resolve`'s ring-exemption comment). Chosen empirically: on
+/// the real clinical graph, this kept a moderate-degree mutation's resolve +
+/// build + forward pipeline near 200ms while a `TraversalLimits`-style 5,000
+/// let it run to nearly 3 seconds. See `docs/benchmark_report.md` §7.6.
+const MAX_EXPANDED_NODES: usize = 1_500;
 
 struct Args {
     db: String,
@@ -274,7 +281,7 @@ fn main() -> Result<()> {
 
         let mut ctx = MutationContext::new(mutation, ModelKind::GraphSAGE);
         let t0 = Instant::now();
-        associative::incremental_aggregate(&mut ctx, &store, &model, FANOUT_CAP)?;
+        associative::incremental_aggregate(&mut ctx, &store, &model, FANOUT_CAP, MAX_EXPANDED_NODES)?;
         let incremental_elapsed = t0.elapsed();
 
         if ctx.fallback {

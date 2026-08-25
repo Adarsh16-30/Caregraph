@@ -52,6 +52,11 @@ pub trait KvStore: Send + Sync {
     ///
     /// Because timestamps are stored inverted, walking *forward* from
     /// `as_of_prefix(prefix, t)` walks *backward* through time, newest first.
+    ///
+    /// `prefix` and `seek_key` must be at least as wide as the column family's
+    /// configured fixed-prefix extractor (`storage::cf::prefix_len`) — `CF_EDGES`
+    /// and `CF_REVERSE` are tuned to `EDGE_PREFIX_LEN` (`[src_id | edge_type]`).
+    /// A narrower prefix needs [`scan_from_narrow_prefix`](Self::scan_from_narrow_prefix).
     fn scan_from(
         &self,
         cf: &'static str,
@@ -59,6 +64,34 @@ pub trait KvStore: Send + Sync {
         seek_key: &[u8],
         visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
     ) -> Result<()>;
+
+    /// Like [`scan_from`](Self::scan_from), for a `prefix` *narrower* than the
+    /// column family's configured fixed-prefix extractor width — e.g. seeking
+    /// by `[src_id]` alone (8 bytes) against `CF_EDGES`, whose extractor is
+    /// fixed at `EDGE_PREFIX_LEN` (10 bytes, `[src_id | edge_type]`).
+    ///
+    /// `scan_from`'s `prefix_same_as_start` read option asks RocksDB to bound
+    /// the iterator using the extractor's output on the seek key. Handing it a
+    /// key shorter than the extractor's width leaves RocksDB unable to derive
+    /// that bound, and the iterator silently returns nothing — found the hard
+    /// way by [`TemporalIndex::all_edges_as_of_limited`](crate::temporal::TemporalIndex::all_edges_as_of_limited),
+    /// which needs exactly this narrower scan to fetch a node's adjacency
+    /// across every edge type in one call instead of one call per type. This
+    /// bypasses the extractor-based bound and relies solely on the manual
+    /// `key.starts_with(prefix)` check every `scan_from` implementation
+    /// already performs as a safety net.
+    ///
+    /// Default: forwards to `scan_from`, correct for any implementation whose
+    /// column families are not tuned with a wider fixed-prefix extractor.
+    fn scan_from_narrow_prefix(
+        &self,
+        cf: &'static str,
+        prefix: &[u8],
+        seek_key: &[u8],
+        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    ) -> Result<()> {
+        self.scan_from(cf, prefix, seek_key, visit)
+    }
 
     /// Seek to the first entry at or after `seek_key`, stopping if the entry
     /// falls outside `prefix`.
@@ -125,6 +158,49 @@ impl RocksKv {
         opts
     }
 
+    /// Read options for [`KvStore::scan_from_narrow_prefix`]. Bypasses the
+    /// column family's fixed-prefix bloom filter entirely — it cannot be used
+    /// correctly on a shorter-than-configured prefix, so there is nothing to
+    /// opt into — and relies purely on the manual `starts_with` boundary check
+    /// in `scan_from_with_opts`'s loop body, same as `prefix_read_opts` does.
+    fn narrow_prefix_read_opts() -> ReadOptions {
+        let mut opts = ReadOptions::default();
+        opts.set_total_order_seek(true);
+        opts
+    }
+
+    /// Shared loop for [`KvStore::scan_from`] and
+    /// [`KvStore::scan_from_narrow_prefix`] — they differ only in which read
+    /// options make the RocksDB-side bound (or lack of one) correct for the
+    /// width of `prefix`; the manual `starts_with` boundary check is identical
+    /// either way and is what actually enforces correctness.
+    fn scan_from_with_opts(
+        &self,
+        cf: &'static str,
+        prefix: &[u8],
+        seek_key: &[u8],
+        read_opts: ReadOptions,
+        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    ) -> Result<()> {
+        let handle = self.cf_handle(cf)?;
+        let iter = self.db.iterator_cf_opt(
+            &handle,
+            read_opts,
+            IteratorMode::From(seek_key, Direction::Forward),
+        );
+
+        for item in iter {
+            let (key, value) = item?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            if visit(&key, &value).is_break() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Permanently remove the database files at `path`.
     pub fn destroy(path: impl AsRef<Path>) -> Result<()> {
         Db::destroy(&cf::db_options(), path)?;
@@ -162,27 +238,17 @@ impl KvStore for RocksKv {
         seek_key: &[u8],
         visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
     ) -> Result<()> {
-        let handle = self.cf_handle(cf)?;
-        let iter = self.db.iterator_cf_opt(
-            &handle,
-            Self::prefix_read_opts(),
-            IteratorMode::From(seek_key, Direction::Forward),
-        );
+        self.scan_from_with_opts(cf, prefix, seek_key, Self::prefix_read_opts(), visit)
+    }
 
-        for item in iter {
-            let (key, value) = item?;
-            // `prefix_same_as_start` bounds the iterator to the seek key's
-            // extractor output, but the guard is re-checked here: the seek key
-            // may be shorter than the extractor width, and a caller may pass a
-            // prefix narrower than the one RocksDB derived.
-            if !key.starts_with(prefix) {
-                break;
-            }
-            if visit(&key, &value).is_break() {
-                break;
-            }
-        }
-        Ok(())
+    fn scan_from_narrow_prefix(
+        &self,
+        cf: &'static str,
+        prefix: &[u8],
+        seek_key: &[u8],
+        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    ) -> Result<()> {
+        self.scan_from_with_opts(cf, prefix, seek_key, Self::narrow_prefix_read_opts(), visit)
     }
 
     fn flush(&self, cf: &'static str) -> Result<()> {

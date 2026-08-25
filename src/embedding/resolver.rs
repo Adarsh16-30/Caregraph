@@ -33,7 +33,7 @@ use crate::embedding::state::{GraphMutation, ResolutionTruncation};
 use crate::error::Result;
 use crate::storage::KvStore;
 use crate::temporal::TemporalIndex;
-use crate::types::{EdgeType, NodeId, Timestamp};
+use crate::types::{NodeId, Timestamp};
 
 /// The induced subgraph a 2-layer model needs to recompute the affected set.
 pub struct ResolvedSubgraph {
@@ -49,8 +49,35 @@ pub struct ResolvedSubgraph {
 }
 
 /// Live neighbours of `node` across every edge type, both directions, capped
-/// at `cap` per direction per edge type — the same unit the query-path fan-out
+/// at `cap` **total per direction** — the same unit the query-path fan-out
 /// cap bounds, reused here for the same reason.
+///
+/// # Why two calls per node, not twelve
+///
+/// The first version of this function called
+/// [`TemporalIndex::edges_as_of_limited`] once per `EdgeType` per direction —
+/// 6 edge types × 2 directions = 12 separate RocksDB scans for every single
+/// node the resolver visited. Measured on the real clinical graph
+/// (`docs/benchmark_report.md` §7.5), a mutation touching a moderate-degree
+/// reference node (affected-set size ~500, well under the fan-out cap of
+/// 5,000 but still substantial) drove incremental latency to within 2-4x of
+/// full recompute — the target is 5x. The gap wasn't the forward pass; it was
+/// several thousand small per-node RocksDB round trips, each paying seek
+/// overhead independent of how little data it returned.
+///
+/// [`TemporalIndex::all_edges_as_of_limited`] and its incoming counterpart
+/// scan a node's entire key range — every edge type — in one pass, because
+/// edge type sorts immediately after `src_id` in the key layout and so every
+/// edge type's data for one node is already one contiguous byte range. Two
+/// scans per node instead of twelve.
+///
+/// One honest consequence: the cap used to bound each edge type
+/// independently (up to `cap` `DiagnosedWith` neighbours *and* up to `cap`
+/// `PrescribedMedication` neighbours from the same node). It now bounds the
+/// combined total per direction. A node with high degree spread across
+/// several edge types surfaces fewer total neighbours than it used to under
+/// the same `cap` value — a tighter bound, not a looser one, and still
+/// recorded in [`ResolutionTruncation`] exactly as before whenever it binds.
 fn capped_neighbors<S: KvStore + ?Sized>(
     index: &TemporalIndex<'_, S>,
     node: NodeId,
@@ -62,21 +89,19 @@ fn capped_neighbors<S: KvStore + ?Sized>(
     let mut dropped = 0usize;
     let probe = cap.saturating_add(1);
 
-    for edge_type in EdgeType::ALL {
-        let out = index.edges_as_of_limited(node, edge_type, as_of, probe)?;
-        if out.len() == probe {
-            capped = true;
-            dropped += out.len() - cap;
-        }
-        neighbors.extend(out.into_iter().take(cap).map(|e| e.dst));
-
-        let inc = index.incoming_edges_as_of_limited(node, edge_type, as_of, probe)?;
-        if inc.len() == probe {
-            capped = true;
-            dropped += inc.len() - cap;
-        }
-        neighbors.extend(inc.into_iter().take(cap).map(|e| e.src));
+    let out = index.all_edges_as_of_limited(node, as_of, probe)?;
+    if out.len() == probe {
+        capped = true;
+        dropped += out.len() - cap;
     }
+    neighbors.extend(out.into_iter().take(cap).map(|e| e.dst));
+
+    let inc = index.all_incoming_edges_as_of_limited(node, as_of, probe)?;
+    if inc.len() == probe {
+        capped = true;
+        dropped += inc.len() - cap;
+    }
+    neighbors.extend(inc.into_iter().take(cap).map(|e| e.src));
 
     Ok((neighbors.into_iter().collect(), capped, dropped))
 }
@@ -87,13 +112,23 @@ pub struct AffectedSubgraphResolver<'a, S: KvStore + ?Sized> {
     /// [`crate::graph::limits::TraversalLimits::max_neighbors_per_node`]'s
     /// default rather than inventing a second number to keep in sync.
     cap: usize,
+    /// Backstop on how many nodes ring two will fetch edges *for* — distinct
+    /// from `cap`, which only bounds how many edges come *from* any one node.
+    /// Capping per-node fan-out does not cap how many affected nodes there
+    /// can be, and a mutation touching a 521-neighbour reference node still
+    /// leaves 521 nodes for ring two to visit. Reuses
+    /// [`crate::graph::limits::TraversalLimits::max_expanded_nodes`]'s default
+    /// for the same reason `cap` reuses its sibling — this is the same
+    /// "bounded in work, not just in fan-out" property, one layer up.
+    max_expanded_nodes: usize,
 }
 
 impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
-    pub fn new(store: &'a S, cap: usize) -> Self {
+    pub fn new(store: &'a S, cap: usize, max_expanded_nodes: usize) -> Self {
         AffectedSubgraphResolver {
             index: TemporalIndex::new(store),
             cap,
+            max_expanded_nodes,
         }
     }
 
@@ -132,10 +167,31 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
         let mut fetched: HashSet<NodeId> = HashSet::new();
 
         let mut ring = affected.clone();
-        for _ in 0..2 {
+        for ring_number in 0..2 {
             let mut next_ring = HashSet::new();
             for node in ring {
                 if !fetched.insert(node) {
+                    continue;
+                }
+                // The budget applies from ring two onward only. Ring one *is*
+                // `affected` — the nodes this call reports embeddings for —
+                // and every one of them must get its own edges fetched or its
+                // computed embedding is wrong, not merely stale (isolated in
+                // the subgraph looks identical to having no neighbours at
+                // all). Ring two is what actually needs bounding: it is
+                // whatever ring one's neighbours turned out to be, sized by
+                // the graph's own structure rather than by the mutation, and
+                // it is what produced a 49,165-node receptive field from a
+                // 521-node affected set on the real clinical graph before
+                // this bound existed (`docs/benchmark_report.md` §7.6).
+                if ring_number > 0 && fetched.len() > self.max_expanded_nodes {
+                    // Stay in the loop rather than returning early: nodes
+                    // already queued in `ring` after this one still get their
+                    // `fetched` membership recorded (so a later duplicate
+                    // sighting is a no-op, not a second skipped attempt), but
+                    // none of them are expanded either. The budget is a hard
+                    // stop on further RocksDB work, not a soft slowdown.
+                    truncation.expansion_capped = true;
                     continue;
                 }
                 let (neighbors, capped, dropped) =

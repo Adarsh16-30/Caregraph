@@ -36,6 +36,7 @@ pub fn run_mutation_pipeline<S: KvStore + ?Sized>(
     model: &EmbeddingModel,
     metrics: &EmbeddingMetrics,
     fanout_cap: usize,
+    max_expanded_nodes: usize,
 ) -> Result<MutationContext> {
     let start = Instant::now();
     metrics.mutations_total.inc();
@@ -45,7 +46,7 @@ pub fn run_mutation_pipeline<S: KvStore + ?Sized>(
     match active_model {
         ModelKind::GraphSAGE | ModelKind::GCN => {
             let embed_start = Instant::now();
-            incremental_aggregate(&mut ctx, store, model, fanout_cap)?;
+            incremental_aggregate(&mut ctx, store, model, fanout_cap, max_expanded_nodes)?;
             metrics
                 .embedding_update_latency_seconds
                 .observe(embed_start.elapsed().as_secs_f64());

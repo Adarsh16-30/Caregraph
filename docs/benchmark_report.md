@@ -356,9 +356,7 @@ room for the other.
 [benchmark: N/A — correctness test, not a timed benchmark; run with
 `cargo test --test embedding`]
 
-### 7.5 Incremental vs. full recompute — passes on the median, with disclosed variance
-
-[benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
+### 7.5 First measurement: passes on the median, with a specific weak point
 
 30 real `add_edge` mutations sampled evenly across the full trace, on the full
 174,298-node / 515,117-edge graph.
@@ -369,25 +367,99 @@ full recompute  median 5212.64 ms  p95 5920.53 ms
 median speedup: 6.15x     target: >= 5.0x     PASS
 ```
 
-**The median clears the target. Individual mutations are uneven: 12 of 30
-samples (40%) fall below 5x on their own**, from 1.9x to 4.8x. The pattern is
-consistent, not random:
+The median cleared the target, but individual mutations were uneven: 12 of 30
+samples (40%) fell below 5x on their own, from 1.9x to 4.8x, concentrated at
+affected-set sizes of ~500–545 (mutations touching a reference node right at
+the fan-out cap). The hypothesis at the time: `AffectedSubgraphResolver`
+issues one `capped_neighbors` call per edge type per direction — 12 RocksDB
+scans per node — and at ~520 affected nodes that's several thousand small
+round trips whose per-call overhead was the actual cost.
 
-| Affected-set size | Typical speedup | Why |
-|---|---|---|
-| ~2 (isolated mutation) | 34x – 1076x | Full recompute pays a near-fixed ~5s cost shipping the whole graph to the model; incremental scales with almost nothing. |
-| ~500-545 (hits the fan-out cap) | 1.9x – 6.7x, median ~3.5x | `AffectedSubgraphResolver`'s two-ring expansion issues one `capped_neighbors` call — 6 edge types × 2 directions — **per node**. At ~520 affected nodes that is several thousand small RocksDB reads, and that per-node call overhead is what the weaker samples are actually measuring. |
+### 7.6 The hypothesis was wrong — measured, not assumed
 
-This is the direct successor to §4's fan-out finding: bounding the *forward
-pass* to a resolved subgraph was the right fix for exactness and for the
-small/typical case, but the resolver that builds that subgraph now has its own
-unbounded-in-*calls* cost for the medium-degree case, structurally similar to
-what the traversal cap had before §5's fix. Bounding the ring-2 expansion's
-call count (batching the per-node adjacency reads, or capping ring-2 breadth
-independently of ring-1) is the equivalent next step; not implemented this
-session — recorded here so it is a decision made deliberately later, not a
-gap discovered by surprise.
+Collapsing the 12 calls to 2 (§7.7) was real and correct on its own terms, but
+re-measuring after it landed: **median speedup dropped to 4.3x — worse, and
+now failing.** Call count was not the bottleneck.
+
+A timing split for one representative mutation (`290 -> 100001`, 521
+affected) found the real one:
+
+```
+resolve():            196 ms
+build_model_input():  228 ms
+model.forward():      146 ms   (JSON + subprocess round trip)
+```
+
+`resolve()` returned a **49,165-node, 101,675-edge** receptive field for a
+521-node affected set. `AffectedSubgraphResolver`'s two-ring expansion caps
+each node's *own* fan-out at 512 — correctly — but nothing capped how many of
+the 521 affected nodes got their own neighbours expanded in ring two. 521
+nodes × up to 512 neighbours each has no reason to stay small, and on this
+mutation it didn't. This is §4's fan-out finding one layer up: bounding
+*per-node* fan-out does not bound *total subgraph size* when there are many
+affected nodes, each individually allowed up to the cap.
+
+### 7.7 Two fixes, in order, both needed
+
+**Fix 1 — call count.** `TemporalIndex::all_edges_as_of_limited` /
+`all_incoming_edges_as_of_limited` scan a node's entire key range in one pass
+instead of once per edge type, since edge type sorts immediately after
+`src_id` in the key layout and is therefore already one contiguous byte range
+per node. 12 calls → 2 per node.
+
+This fix surfaced a real, separate bug in the process: `CF_EDGES` /
+`CF_REVERSE` are tuned with a fixed 10-byte prefix extractor
+(`[src_id | edge_type]`), and `scan_from`'s `prefix_same_as_start` read option
+assumes the seek key is exactly that width. The new scan's seek key is
+`[src_id]` alone — 8 bytes, narrower than the extractor's domain — and
+RocksDB's prefix bound couldn't be derived from it, so the iterator silently
+returned nothing. First caught by the correctness test: a real, reproducible,
+deterministic ~1e-2-magnitude divergence on one specific (sequence, node)
+pair, not the noise-level drift a genuine floating-point cause would produce.
+Fixed with a new `KvStore::scan_from_narrow_prefix` that uses
+`total_order_seek` instead of the extractor-based bound, relying purely on the
+manual `key.starts_with(prefix)` check every `scan_from` implementation
+already performs — see `storage/kv.rs`.
+
+**Fix 2 — total receptive-field size.** `AffectedSubgraphResolver` gained a
+`max_expanded_nodes` backstop, mirroring `TraversalLimits::max_expanded_nodes`
+on the query path. Applied to ring two only, never ring one: ring one *is* the
+affected set — the nodes this call reports embeddings for — and every one of
+them must get its own edges fetched or its computed embedding is wrong, not
+merely stale (isolated in the subgraph looks identical to having no
+neighbours). Ring two is what actually needs bounding, and what produced the
+49,165-node blowup.
+
+The default (1,500) was chosen empirically, not by reusing
+`TraversalLimits`'s 5,000: on the same representative mutation, 5,000 never
+even bound (fewer than 5,000 distinct nodes were being *fetched from* — the
+blowup was in how much each one returned, not how many there were), 1,000
+still left a ~617 ms pipeline, 1,500 brought it to ~234 ms, and 2,000 was
+worse again (~1,190 ms) — the search was empirical, not monotonic, and
+1,500 is a measured choice, not a round number.
+
+### 7.8 Second measurement, clean tree
+
+```
+incremental     median 309.22 ms   p95 1099.20 ms
+full recompute  median 1431.83 ms  p95 6487.70 ms
+median speedup: 5.28x     target: >= 5.0x     PASS
+```
+
+[benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
+
+Incremental median more than halved (710.97 ms → 309.22 ms). This is a
+**marginal pass, stated plainly**: 5.28x against a 5.0x target, and 15 of 30
+samples (50%) still fall below 5x individually — a similar count to before the
+fix, though the absolute latencies behind them are substantially lower.
+`full recompute`'s own numbers moved too (median 5212.64 ms → 1431.83 ms
+across the two runs) — consistent with §3's thermal finding, not with any
+change on the full-recompute code path, which this session did not touch.
+The honest reading: the fix delivered a large, real improvement to the
+incremental path specifically, and the topline speedup ratio is noisier than
+either median alone suggests, because both numbers move with machine state.
 
 `incremental_fallback_total` was 0 across all 30 real samples and all 400
-correctness-test mutations — the fallback path exists and is counted (Rule 7)
-but was never exercised by anything in this session's real workload.
+correctness-test mutations both before and after these fixes — the fallback
+path exists and is counted (Rule 7) but was never exercised by anything in
+this session's real workload.

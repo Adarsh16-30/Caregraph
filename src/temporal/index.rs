@@ -192,6 +192,119 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         self.adjacency_as_of(cf::CF_REVERSE, dst, edge_type, as_of, true, Some(limit))
     }
 
+    /// Every live outgoing edge of `src`, **across every edge type**, at
+    /// `as_of`, capped at `limit` live neighbours total.
+    ///
+    /// One RocksDB scan instead of `EdgeType::ALL.len()` separate ones. Edge
+    /// type sorts immediately after `src_id` in the key layout
+    /// (`temporal/keys.rs`), so every edge type's data for one node is one
+    /// contiguous byte range — scanning it as a unit is what turns
+    /// [`AffectedSubgraphResolver`](crate::embedding::resolver::AffectedSubgraphResolver)'s
+    /// per-node cost from 12 calls into 2 (see `embedding/resolver.rs`, "Why
+    /// resolution issues two calls per node, not twelve").
+    pub fn all_edges_as_of_limited(
+        &self,
+        src: NodeId,
+        as_of: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<Edge>> {
+        self.all_adjacency_as_of(cf::CF_EDGES, src, as_of, false, limit)
+    }
+
+    /// Incoming-direction counterpart of
+    /// [`all_edges_as_of_limited`](Self::all_edges_as_of_limited).
+    pub fn all_incoming_edges_as_of_limited(
+        &self,
+        dst: NodeId,
+        as_of: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<Edge>> {
+        self.all_adjacency_as_of(cf::CF_REVERSE, dst, as_of, true, limit)
+    }
+
+    /// Shared walk for [`all_edges_as_of_limited`] and
+    /// [`all_incoming_edges_as_of_limited`].
+    ///
+    /// Unlike [`adjacency_as_of`](Self::adjacency_as_of), this cannot seek
+    /// straight to the `as_of` frontier: that frontier sits at a different
+    /// byte offset within each of the six edge-type sub-ranges, and there is
+    /// only one seek to spend. So the scan starts at the very beginning of
+    /// `anchor`'s key range — the globally newest version of its first edge
+    /// type, which may postdate `as_of` — and filters every entry against
+    /// `as_of` explicitly rather than relying on seek position to do it.
+    /// Dedup keys on `(edge_type, other)` rather than `other` alone, because a
+    /// single scan now mixes edge types where a plain `HashSet<NodeId>` could
+    /// conflate two different relationships that happen to share a
+    /// destination id.
+    fn all_adjacency_as_of(
+        &self,
+        family: &'static str,
+        anchor: NodeId,
+        as_of: Timestamp,
+        swap: bool,
+        limit: usize,
+    ) -> Result<Vec<Edge>> {
+        let prefix = node_prefix(anchor);
+
+        let mut resolved: HashSet<(EdgeType, NodeId)> = HashSet::new();
+        let mut live: Vec<Edge> = Vec::new();
+        let mut failure: Option<CareGraphError> = None;
+
+        // `prefix` here is `[node_id]` (8 bytes) — narrower than CF_EDGES /
+        // CF_REVERSE's configured fixed-prefix extractor width of
+        // `EDGE_PREFIX_LEN` (10 bytes, `[node_id | edge_type]`). `scan_from`'s
+        // `prefix_same_as_start` read option can't establish a bound from a
+        // key shorter than the extractor's own width and silently returns
+        // nothing — verified the hard way, see `scan_from_narrow_prefix`'s
+        // doc comment in `storage/kv.rs`.
+        self.store
+            .scan_from_narrow_prefix(family, &prefix, &prefix, &mut |key, value| {
+                let Some((_, key_edge_type, timestamp, other)) = decode_edge_key(key) else {
+                    failure = Some(CareGraphError::MalformedKey {
+                        cf: family,
+                        expected: EDGE_KEY_LEN,
+                        found: key.len(),
+                    });
+                    return ControlFlow::Break(());
+                };
+
+                if timestamp > as_of {
+                    return ControlFlow::Continue(()); // written after the instant we're reading
+                }
+                if !resolved.insert((key_edge_type, other)) {
+                    return ControlFlow::Continue(()); // superseded version
+                }
+
+                match EdgeValue::decode(value) {
+                    Ok(stored) => {
+                        if !stored.deleted {
+                            let (src, dst) = if swap { (other, anchor) } else { (anchor, other) };
+                            live.push(Edge {
+                                src,
+                                dst,
+                                edge_type: key_edge_type,
+                                timestamp,
+                                properties: stored.properties,
+                            });
+                            if live.len() >= limit {
+                                return ControlFlow::Break(());
+                            }
+                        }
+                        ControlFlow::Continue(())
+                    }
+                    Err(e) => {
+                        failure = Some(e);
+                        ControlFlow::Break(())
+                    }
+                }
+            })?;
+
+        if let Some(e) = failure {
+            return Err(e);
+        }
+        Ok(live)
+    }
+
     /// Shared walk for both directions.
     ///
     /// `swap` un-mirrors `CF_REVERSE` keys so the returned [`Edge`] always

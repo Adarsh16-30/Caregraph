@@ -37,6 +37,12 @@ use tempfile::TempDir;
 
 const SEQUENCES: u32 = 50;
 const FANOUT_CAP: usize = 512;
+/// Far above what this fixture's ~44 nodes could ever reach — the point of
+/// this test is to prove exactness where the budget does *not* bind, the
+/// benchmark is what exercises the budget itself binding on the real graph.
+/// (Matches the production default in bench_incremental.rs; irrelevant here
+/// since this fixture never gets close to it.)
+const MAX_EXPANDED_NODES: usize = 1_500;
 
 /// Chosen between the two numbers in the module doc: comfortably above the
 /// ~6e-7 absolute / ~6e-5 relative float32 noise this test actually measures,
@@ -176,7 +182,7 @@ fn incremental_matches_full_recompute_across_fifty_random_sequences() {
             let mutation = fx.random_mutation(&mut rng);
 
             let mut ctx = MutationContext::new(mutation, ModelKind::GraphSAGE);
-            associative::incremental_aggregate(&mut ctx, &fx.store, &model, FANOUT_CAP)
+            associative::incremental_aggregate(&mut ctx, &fx.store, &model, FANOUT_CAP, MAX_EXPANDED_NODES)
                 .expect("incremental_aggregate must not error on a well-formed fixture");
             assert!(!ctx.fallback, "seq {seq}: unexpected fallback on a small, well-formed fixture");
 

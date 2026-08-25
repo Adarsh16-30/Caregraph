@@ -30,13 +30,14 @@ pub fn incremental_aggregate<S: KvStore + ?Sized>(
     store: &S,
     model: &EmbeddingModel,
     fanout_cap: usize,
+    max_expanded_nodes: usize,
 ) -> Result<()> {
     debug_assert!(
         ctx.active_model.is_associative(),
         "incremental_aggregate is the GraphSAGE/GCN path; GAT routes to gat_incremental_update (Phase 5)"
     );
 
-    let resolver = AffectedSubgraphResolver::new(store, fanout_cap);
+    let resolver = AffectedSubgraphResolver::new(store, fanout_cap, max_expanded_nodes);
     let subgraph = resolver.resolve(ctx.mutation)?;
     ctx.truncation = subgraph.truncation;
 

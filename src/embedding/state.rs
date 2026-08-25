@@ -57,6 +57,18 @@ pub struct ResolutionTruncation {
     /// for the same reason `Truncation::fanout_dropped_neighbors` is one: the
     /// scan stops at the cap rather than paying to count the rest.
     pub neighbors_dropped: usize,
+    /// The receptive field's total-size backstop bound, distinct from
+    /// `fanout_capped`. Capping each node's *own* fan-out does not cap how
+    /// many affected nodes there can be: a mutation touching a reference node
+    /// with 521 (capped) neighbours still has 521 nodes whose own neighbours
+    /// ring two must fetch, and 521 × up to 512 each is no longer a small
+    /// number. Measured on the real clinical graph before this field existed:
+    /// one such mutation produced a 49,165-node, 101,675-edge receptive field
+    /// from a 521-node affected set — see `docs/benchmark_report.md` §7.6.
+    /// Nodes past this budget are simply never visited in ring two; their own
+    /// edges are absent from the subgraph, same stale-not-wrong semantics as
+    /// `fanout_capped`.
+    pub expansion_capped: bool,
 }
 
 /// One mutation's pass through the pipeline (PRD 4.2).
