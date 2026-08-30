@@ -132,8 +132,9 @@ fn main() -> Result<()> {
             continue;
         }
 
-        let record: Record = serde_json::from_str(&line)
-            .with_context(|| format!("{}:{}: malformed record", trace_path.display(), lineno + 1))?;
+        let record: Record = serde_json::from_str(&line).with_context(|| {
+            format!("{}:{}: malformed record", trace_path.display(), lineno + 1)
+        })?;
 
         match record {
             Record::UpsertNode {

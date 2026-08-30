@@ -22,7 +22,9 @@ fn db_with_version_history() -> (TempDir, RocksKv) {
 
     for ts in [100u64, 200, 300, 400, 500] {
         let key = encode_edge_key(PATIENT, REL, Timestamp(ts), CONDITION);
-        store.put(cf::CF_EDGES, &key, format!("v{ts}").as_bytes()).unwrap();
+        store
+            .put(cf::CF_EDGES, &key, format!("v{ts}").as_bytes())
+            .unwrap();
     }
     (dir, store)
 }
@@ -52,7 +54,10 @@ fn seek_returns_the_newest_version_at_or_before_as_of() {
 #[test]
 fn timestamp_max_resolves_to_current_state() {
     let (_dir, store) = db_with_version_history();
-    assert_eq!(version_visible_at(&store, Timestamp::MAX.as_u64()), Some(500));
+    assert_eq!(
+        version_visible_at(&store, Timestamp::MAX.as_u64()),
+        Some(500)
+    );
 }
 
 #[test]
@@ -108,7 +113,12 @@ fn edge_types_on_the_same_node_do_not_collide() {
     store
         .put(
             cf::CF_EDGES,
-            &encode_edge_key(PATIENT, EdgeType::PrescribedMedication, Timestamp(250), NodeId(77)),
+            &encode_edge_key(
+                PATIENT,
+                EdgeType::PrescribedMedication,
+                Timestamp(250),
+                NodeId(77),
+            ),
             b"metformin",
         )
         .unwrap();
@@ -118,7 +128,10 @@ fn edge_types_on_the_same_node_do_not_collide() {
     assert_eq!(version_visible_at(&store, 350), Some(300));
 
     let meds = store
-        .scan_prefix(cf::CF_EDGES, &edge_prefix(PATIENT, EdgeType::PrescribedMedication))
+        .scan_prefix(
+            cf::CF_EDGES,
+            &edge_prefix(PATIENT, EdgeType::PrescribedMedication),
+        )
         .unwrap();
     assert_eq!(meds.len(), 1);
 }

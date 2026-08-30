@@ -248,9 +248,9 @@ impl<'a, S: KvStore + ?Sized> Traverser<'a, S> {
                 let mut capped_direction = false;
 
                 if request.direction.includes_outgoing() {
-                    let out = self
-                        .index
-                        .edges_as_of_limited(node, edge_type, request.as_of, probe)?;
+                    let out =
+                        self.index
+                            .edges_as_of_limited(node, edge_type, request.as_of, probe)?;
                     capped_direction |= out.len() == probe;
                     for edge in out {
                         let other = edge.dst;

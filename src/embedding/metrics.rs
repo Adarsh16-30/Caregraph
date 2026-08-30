@@ -15,8 +15,7 @@ pub struct EmbeddingMetrics {
 
 impl EmbeddingMetrics {
     pub fn new(registry: &Registry) -> prometheus::Result<Self> {
-        let mutations_total =
-            IntCounter::new("mutations_total", "Structural mutations processed")?;
+        let mutations_total = IntCounter::new("mutations_total", "Structural mutations processed")?;
         let incremental_fallback_total = IntCounter::new(
             "incremental_fallback_total",
             "Mutations whose embedding update fell back to full recompute (Rule 7)",

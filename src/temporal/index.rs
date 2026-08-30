@@ -278,7 +278,11 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
                 match EdgeValue::decode(value) {
                     Ok(stored) => {
                         if !stored.deleted {
-                            let (src, dst) = if swap { (other, anchor) } else { (anchor, other) };
+                            let (src, dst) = if swap {
+                                (other, anchor)
+                            } else {
+                                (anchor, other)
+                            };
                             live.push(Edge {
                                 src,
                                 dst,
@@ -352,7 +356,11 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
                 match EdgeValue::decode(value) {
                     Ok(stored) => {
                         if !stored.deleted {
-                            let (src, dst) = if swap { (other, anchor) } else { (anchor, other) };
+                            let (src, dst) = if swap {
+                                (other, anchor)
+                            } else {
+                                (anchor, other)
+                            };
                             live.push(Edge {
                                 src,
                                 dst,

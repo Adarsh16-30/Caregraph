@@ -50,7 +50,10 @@ impl CareGraphSnapshot {
     pub fn by_edge_type(&self) -> BTreeMap<EdgeType, Vec<&RelatedEntity>> {
         let mut grouped: BTreeMap<EdgeType, Vec<&RelatedEntity>> = BTreeMap::new();
         for entity in &self.related {
-            grouped.entry(entity.edge.edge_type).or_default().push(entity);
+            grouped
+                .entry(entity.edge.edge_type)
+                .or_default()
+                .push(entity);
         }
         grouped
     }
@@ -92,11 +95,7 @@ impl<'a, S: KvStore + ?Sized> SnapshotReader<'a, S> {
     /// Returns `None` if the subject did not exist at `as_of` — either because
     /// they had not been enrolled yet, or because their record was retracted at
     /// or before that time.
-    pub fn snapshot(
-        &self,
-        subject: NodeId,
-        as_of: Timestamp,
-    ) -> Result<Option<CareGraphSnapshot>> {
+    pub fn snapshot(&self, subject: NodeId, as_of: Timestamp) -> Result<Option<CareGraphSnapshot>> {
         self.snapshot_of_types(subject, as_of, &EdgeType::ALL)
     }
 

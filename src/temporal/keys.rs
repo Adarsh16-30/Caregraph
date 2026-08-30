@@ -83,7 +83,10 @@ pub fn node_prefix(node: NodeId) -> Vec<u8> {
 
 /// Recover the timestamp from the inverted field at `offset`.
 fn decode_ts_at(key: &[u8], offset: usize) -> Option<Timestamp> {
-    let raw: [u8; Timestamp::WIDTH] = key.get(offset..offset + Timestamp::WIDTH)?.try_into().ok()?;
+    let raw: [u8; Timestamp::WIDTH] = key
+        .get(offset..offset + Timestamp::WIDTH)?
+        .try_into()
+        .ok()?;
     Some(Timestamp(!u64::from_be_bytes(raw)))
 }
 
@@ -140,12 +143,18 @@ mod tests {
         // Versions at or before as_of must sort at/after the seek target...
         for ts in [150u64, 100, 1] {
             let key = encode_edge_key(NodeId(1), T, Timestamp(ts), NodeId(2));
-            assert!(key >= seek, "ts={ts} should be reachable from a forward seek");
+            assert!(
+                key >= seek,
+                "ts={ts} should be reachable from a forward seek"
+            );
         }
         // ...and versions after it must sort strictly before, so the seek skips them.
         for ts in [151u64, 200, u64::MAX] {
             let key = encode_edge_key(NodeId(1), T, Timestamp(ts), NodeId(2));
-            assert!(key < seek, "ts={ts} is in the future of as_of and must be skipped");
+            assert!(
+                key < seek,
+                "ts={ts} is in the future of as_of and must be skipped"
+            );
         }
     }
 

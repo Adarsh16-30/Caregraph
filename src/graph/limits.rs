@@ -121,8 +121,14 @@ mod tests {
     fn a_client_cannot_raise_a_limit() {
         let limits = TraversalLimits::default();
         assert_eq!(limits.clamp_hops(200), limits.max_hops);
-        assert_eq!(limits.clamp_result_nodes(usize::MAX), limits.max_result_nodes);
-        assert_eq!(limits.clamp_result_edges(usize::MAX), limits.max_result_edges);
+        assert_eq!(
+            limits.clamp_result_nodes(usize::MAX),
+            limits.max_result_nodes
+        );
+        assert_eq!(
+            limits.clamp_result_edges(usize::MAX),
+            limits.max_result_edges
+        );
     }
 
     #[test]

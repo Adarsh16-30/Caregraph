@@ -36,13 +36,7 @@ impl<'a> TemporalWriter<'a> {
     }
 
     /// Append a node version at `ts`.
-    pub fn put_node(
-        &self,
-        batch: &mut WriteBatch,
-        node: NodeId,
-        ts: Timestamp,
-        value: &NodeValue,
-    ) {
+    pub fn put_node(&self, batch: &mut WriteBatch, node: NodeId, ts: Timestamp, value: &NodeValue) {
         batch.put_cf(&self.nodes, encode_node_key(node, ts), value.encode());
     }
 
@@ -76,7 +70,11 @@ impl<'a> TemporalWriter<'a> {
         value: &EdgeValue,
     ) {
         let encoded = value.encode();
-        batch.put_cf(&self.edges, encode_edge_key(src, edge_type, ts, dst), &encoded);
+        batch.put_cf(
+            &self.edges,
+            encode_edge_key(src, edge_type, ts, dst),
+            &encoded,
+        );
         batch.put_cf(
             &self.reverse,
             encode_edge_key(dst, edge_type, ts, src),

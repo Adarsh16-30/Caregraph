@@ -126,15 +126,27 @@ fn a_removed_edge_is_still_visible_before_its_removal() {
     apply(
         &store,
         &[
-            Mutation { dst: 10, ts: 100, payload: Some(1) },
-            Mutation { dst: 10, ts: 200, payload: None },
+            Mutation {
+                dst: 10,
+                ts: 100,
+                payload: Some(1),
+            },
+            Mutation {
+                dst: 10,
+                ts: 200,
+                payload: None,
+            },
         ],
     );
 
     // This is the case a hard delete would get wrong: the edge genuinely
     // existed at t=150, and erasing the key would rewrite that history.
     assert_eq!(actual_as_of(&store, 150), vec![(10, 1)]);
-    assert_eq!(actual_as_of(&store, 200), vec![], "removed at exactly t=200");
+    assert_eq!(
+        actual_as_of(&store, 200),
+        vec![],
+        "removed at exactly t=200"
+    );
     assert_eq!(actual_as_of(&store, 250), vec![]);
     assert_eq!(actual_as_of(&store, 99), vec![], "did not exist yet");
 }
@@ -145,9 +157,21 @@ fn an_edge_can_be_removed_and_re_added() {
     apply(
         &store,
         &[
-            Mutation { dst: 10, ts: 100, payload: Some(1) },
-            Mutation { dst: 10, ts: 200, payload: None },
-            Mutation { dst: 10, ts: 300, payload: Some(2) },
+            Mutation {
+                dst: 10,
+                ts: 100,
+                payload: Some(1),
+            },
+            Mutation {
+                dst: 10,
+                ts: 200,
+                payload: None,
+            },
+            Mutation {
+                dst: 10,
+                ts: 300,
+                payload: Some(2),
+            },
         ],
     );
 
@@ -162,10 +186,26 @@ fn one_edges_removal_does_not_hide_its_neighbours() {
     apply(
         &store,
         &[
-            Mutation { dst: 10, ts: 100, payload: Some(1) },
-            Mutation { dst: 20, ts: 110, payload: Some(2) },
-            Mutation { dst: 30, ts: 120, payload: Some(3) },
-            Mutation { dst: 20, ts: 200, payload: None },
+            Mutation {
+                dst: 10,
+                ts: 100,
+                payload: Some(1),
+            },
+            Mutation {
+                dst: 20,
+                ts: 110,
+                payload: Some(2),
+            },
+            Mutation {
+                dst: 30,
+                ts: 120,
+                payload: Some(3),
+            },
+            Mutation {
+                dst: 20,
+                ts: 200,
+                payload: None,
+            },
         ],
     );
 
@@ -181,9 +221,21 @@ fn the_newest_version_wins_when_several_share_a_timestamp_region() {
     apply(
         &store,
         &[
-            Mutation { dst: 10, ts: 100, payload: Some(1) },
-            Mutation { dst: 10, ts: 101, payload: Some(2) },
-            Mutation { dst: 10, ts: 102, payload: Some(3) },
+            Mutation {
+                dst: 10,
+                ts: 100,
+                payload: Some(1),
+            },
+            Mutation {
+                dst: 10,
+                ts: 101,
+                payload: Some(2),
+            },
+            Mutation {
+                dst: 10,
+                ts: 102,
+                payload: Some(3),
+            },
         ],
     );
 
@@ -198,10 +250,26 @@ fn a_windowed_scan_reports_removals_as_well_as_additions() {
     apply(
         &store,
         &[
-            Mutation { dst: 10, ts: 100, payload: Some(1) },
-            Mutation { dst: 20, ts: 200, payload: Some(2) },
-            Mutation { dst: 10, ts: 300, payload: None },
-            Mutation { dst: 30, ts: 400, payload: Some(3) },
+            Mutation {
+                dst: 10,
+                ts: 100,
+                payload: Some(1),
+            },
+            Mutation {
+                dst: 20,
+                ts: 200,
+                payload: Some(2),
+            },
+            Mutation {
+                dst: 10,
+                ts: 300,
+                payload: None,
+            },
+            Mutation {
+                dst: 30,
+                ts: 400,
+                payload: Some(3),
+            },
         ],
     );
 
@@ -227,15 +295,13 @@ fn a_windowed_scan_reports_removals_as_well_as_additions() {
 /// sequences actually collide — overwrites, removals, and re-adds on the same
 /// edge are the interesting cases, and a wide space would rarely produce them.
 fn mutation_strategy() -> impl Strategy<Value = Vec<Mutation>> {
-    prop::collection::vec(
-        (1u64..=6, 1u64..=40, prop::option::of(0u32..1000)),
-        1..40,
+    prop::collection::vec((1u64..=6, 1u64..=40, prop::option::of(0u32..1000)), 1..40).prop_map(
+        |raw| {
+            raw.into_iter()
+                .map(|(dst, ts, payload)| Mutation { dst, ts, payload })
+                .collect()
+        },
     )
-    .prop_map(|raw| {
-        raw.into_iter()
-            .map(|(dst, ts, payload)| Mutation { dst, ts, payload })
-            .collect()
-    })
 }
 
 proptest! {

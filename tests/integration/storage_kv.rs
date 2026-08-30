@@ -26,10 +26,15 @@ fn all_four_column_families_are_open() {
 #[test]
 fn put_then_get_round_trips_through_rocksdb() {
     let (_dir, store) = open();
-    store.put(cf::CF_NODES, b"patient:P00001", b"stage-3-ckd").unwrap();
+    store
+        .put(cf::CF_NODES, b"patient:P00001", b"stage-3-ckd")
+        .unwrap();
 
     assert_eq!(
-        store.get(cf::CF_NODES, b"patient:P00001").unwrap().as_deref(),
+        store
+            .get(cf::CF_NODES, b"patient:P00001")
+            .unwrap()
+            .as_deref(),
         Some(&b"stage-3-ckd"[..])
     );
 }
@@ -77,7 +82,10 @@ fn a_write_batch_commits_every_entry_or_none() {
 
     // Cross-family batch write is the mechanism Rule 5 depends on; if either
     // half were missing here, the atomic-commit guarantee could not hold.
-    assert_eq!(store.get(cf::CF_NODES, b"n1").unwrap().as_deref(), Some(&b"node-state"[..]));
+    assert_eq!(
+        store.get(cf::CF_NODES, b"n1").unwrap().as_deref(),
+        Some(&b"node-state"[..])
+    );
     assert_eq!(
         store.get(cf::CF_EMBEDDINGS, b"n1").unwrap().as_deref(),
         Some(&b"embedding-state"[..])
@@ -91,7 +99,9 @@ fn data_survives_closing_and_reopening_the_database() {
 
     {
         let store = RocksKv::open(&path).unwrap();
-        store.put(cf::CF_NODES, b"durable", b"written-before-close").unwrap();
+        store
+            .put(cf::CF_NODES, b"durable", b"written-before-close")
+            .unwrap();
         store.flush(cf::CF_NODES).unwrap();
     } // store dropped — RocksDB closed
 

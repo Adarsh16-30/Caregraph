@@ -57,20 +57,72 @@ pub fn fixture() -> (TempDir, RocksKv) {
     let mut batch = WriteBatch::default();
 
     for (node, kind, props) in [
-        (P1, "Patient", json!({"sex": "F", "treatment_arm": "conventional"})),
-        (P2, "Patient", json!({"sex": "M", "treatment_arm": "intensive"})),
-        (P3, "Patient", json!({"sex": "F", "treatment_arm": "intensive"})),
-        (CKD, "Condition", json!({"icd10_code": "N18.3", "label": "CKD stage 3"})),
-        (RETINOPATHY, "Condition", json!({"icd10_code": "E11.3", "label": "Diabetic retinopathy"})),
-        (METFORMIN, "Medication", json!({"atc_code": "A10BA02", "label": "Metformin"})),
+        (
+            P1,
+            "Patient",
+            json!({"sex": "F", "treatment_arm": "conventional"}),
+        ),
+        (
+            P2,
+            "Patient",
+            json!({"sex": "M", "treatment_arm": "intensive"}),
+        ),
+        (
+            P3,
+            "Patient",
+            json!({"sex": "F", "treatment_arm": "intensive"}),
+        ),
+        (
+            CKD,
+            "Condition",
+            json!({"icd10_code": "N18.3", "label": "CKD stage 3"}),
+        ),
+        (
+            RETINOPATHY,
+            "Condition",
+            json!({"icd10_code": "E11.3", "label": "Diabetic retinopathy"}),
+        ),
+        (
+            METFORMIN,
+            "Medication",
+            json!({"atc_code": "A10BA02", "label": "Metformin"}),
+        ),
     ] {
         writer.put_node(&mut batch, node, ts(100), &NodeValue::new(kind, props));
     }
 
-    writer.put_edge(&mut batch, P1, DX, CKD, ts(110), &EdgeValue::new(json!({"status": "active"})));
-    writer.put_edge(&mut batch, P2, DX, CKD, ts(120), &EdgeValue::new(json!({"status": "active"})));
-    writer.put_edge(&mut batch, P1, RX, METFORMIN, ts(130), &EdgeValue::new(json!({"dose": "500mg"})));
-    writer.put_edge(&mut batch, P3, DX, RETINOPATHY, ts(140), &EdgeValue::new(json!({"status": "active"})));
+    writer.put_edge(
+        &mut batch,
+        P1,
+        DX,
+        CKD,
+        ts(110),
+        &EdgeValue::new(json!({"status": "active"})),
+    );
+    writer.put_edge(
+        &mut batch,
+        P2,
+        DX,
+        CKD,
+        ts(120),
+        &EdgeValue::new(json!({"status": "active"})),
+    );
+    writer.put_edge(
+        &mut batch,
+        P1,
+        RX,
+        METFORMIN,
+        ts(130),
+        &EdgeValue::new(json!({"dose": "500mg"})),
+    );
+    writer.put_edge(
+        &mut batch,
+        P3,
+        DX,
+        RETINOPATHY,
+        ts(140),
+        &EdgeValue::new(json!({"status": "active"})),
+    );
     writer.remove_edge(&mut batch, P1, DX, CKD, ts(200));
     drop(writer);
 
@@ -84,11 +136,28 @@ pub fn hub_fixture(spokes: u64) -> (TempDir, RocksKv) {
     let writer = TemporalWriter::new(&store).expect("writer");
     let mut batch = WriteBatch::default();
 
-    writer.put_node(&mut batch, CKD, ts(100), &NodeValue::new("Condition", json!({})));
+    writer.put_node(
+        &mut batch,
+        CKD,
+        ts(100),
+        &NodeValue::new("Condition", json!({})),
+    );
     for i in 1..=spokes {
         let patient = NodeId(i);
-        writer.put_node(&mut batch, patient, ts(100), &NodeValue::new("Patient", json!({})));
-        writer.put_edge(&mut batch, patient, DX, CKD, ts(110 + i), &EdgeValue::new(json!({})));
+        writer.put_node(
+            &mut batch,
+            patient,
+            ts(100),
+            &NodeValue::new("Patient", json!({})),
+        );
+        writer.put_edge(
+            &mut batch,
+            patient,
+            DX,
+            CKD,
+            ts(110 + i),
+            &EdgeValue::new(json!({})),
+        );
     }
     drop(writer);
 

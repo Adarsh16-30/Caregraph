@@ -55,7 +55,11 @@ const REL_TOLERANCE: f32 = 1e-3;
 struct Rng(u64);
 impl Rng {
     fn new(seed: u64) -> Self {
-        Rng(if seed == 0 { 0x9E37_79B9_7F4A_7C15 } else { seed })
+        Rng(if seed == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            seed
+        })
     }
     fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
@@ -98,17 +102,39 @@ fn build_fixture() -> Fixture {
 
     let mut node_ids = vec![HUB];
     node_ids.extend(MEDS);
-    writer.put_node(&mut batch, HUB, Timestamp(0), &NodeValue::new("Condition", json!({})));
+    writer.put_node(
+        &mut batch,
+        HUB,
+        Timestamp(0),
+        &NodeValue::new("Condition", json!({})),
+    );
     for m in MEDS {
-        writer.put_node(&mut batch, m, Timestamp(0), &NodeValue::new("Medication", json!({})));
+        writer.put_node(
+            &mut batch,
+            m,
+            Timestamp(0),
+            &NodeValue::new("Medication", json!({})),
+        );
     }
 
     let mut live_edges = HashSet::new();
     for i in 0..PATIENTS {
         let patient = NodeId(1 + i);
         node_ids.push(patient);
-        writer.put_node(&mut batch, patient, Timestamp(0), &NodeValue::new("Patient", json!({})));
-        writer.put_edge(&mut batch, patient, EdgeType::DiagnosedWith, HUB, Timestamp(1 + i), &EdgeValue::new(json!({})));
+        writer.put_node(
+            &mut batch,
+            patient,
+            Timestamp(0),
+            &NodeValue::new("Patient", json!({})),
+        );
+        writer.put_edge(
+            &mut batch,
+            patient,
+            EdgeType::DiagnosedWith,
+            HUB,
+            Timestamp(1 + i),
+            &EdgeValue::new(json!({})),
+        );
         live_edges.insert((patient, HUB, EdgeType::DiagnosedWith));
     }
 
@@ -149,11 +175,28 @@ impl Fixture {
         let mutation = if self.live_edges.contains(&key) {
             writer.remove_edge(&mut batch, src, edge_type, dst, ts);
             self.live_edges.remove(&key);
-            GraphMutation::RemoveEdge { src, dst, edge_type, ts }
+            GraphMutation::RemoveEdge {
+                src,
+                dst,
+                edge_type,
+                ts,
+            }
         } else {
-            writer.put_edge(&mut batch, src, edge_type, dst, ts, &EdgeValue::new(json!({})));
+            writer.put_edge(
+                &mut batch,
+                src,
+                edge_type,
+                dst,
+                ts,
+                &EdgeValue::new(json!({})),
+            );
             self.live_edges.insert(key);
-            GraphMutation::AddEdge { src, dst, edge_type, ts }
+            GraphMutation::AddEdge {
+                src,
+                dst,
+                edge_type,
+                ts,
+            }
         };
         drop(writer);
         self.store.write(batch).expect("commit mutation");
@@ -182,9 +225,18 @@ fn incremental_matches_full_recompute_across_fifty_random_sequences() {
             let mutation = fx.random_mutation(&mut rng);
 
             let mut ctx = MutationContext::new(mutation, ModelKind::GraphSAGE);
-            associative::incremental_aggregate(&mut ctx, &fx.store, &model, FANOUT_CAP, MAX_EXPANDED_NODES)
-                .expect("incremental_aggregate must not error on a well-formed fixture");
-            assert!(!ctx.fallback, "seq {seq}: unexpected fallback on a small, well-formed fixture");
+            associative::incremental_aggregate(
+                &mut ctx,
+                &fx.store,
+                &model,
+                FANOUT_CAP,
+                MAX_EXPANDED_NODES,
+            )
+            .expect("incremental_aggregate must not error on a well-formed fixture");
+            assert!(
+                !ctx.fallback,
+                "seq {seq}: unexpected fallback on a small, well-formed fixture"
+            );
 
             let as_of = mutation.timestamp();
             let reference = associative::full_recompute(

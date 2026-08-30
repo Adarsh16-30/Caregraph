@@ -36,9 +36,8 @@ impl GraphMutation {
     /// The two nodes this mutation touches. Resolution starts from here.
     pub fn endpoints(self) -> (NodeId, NodeId) {
         match self {
-            GraphMutation::AddEdge { src, dst, .. } | GraphMutation::RemoveEdge { src, dst, .. } => {
-                (src, dst)
-            }
+            GraphMutation::AddEdge { src, dst, .. }
+            | GraphMutation::RemoveEdge { src, dst, .. } => (src, dst),
         }
     }
 }

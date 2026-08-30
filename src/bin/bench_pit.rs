@@ -95,7 +95,11 @@ struct Rng(u64);
 
 impl Rng {
     fn new(seed: u64) -> Self {
-        Rng(if seed == 0 { 0x9E37_79B9_7F4A_7C15 } else { seed })
+        Rng(if seed == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            seed
+        })
     }
 
     fn next_u64(&mut self) -> u64 {
@@ -300,7 +304,8 @@ fn main() -> Result<()> {
         bail!("--queries must be at least 1; there is nothing to measure otherwise");
     }
     let population = read_population(&args.trace)?;
-    let store = RocksKv::open(&args.db).with_context(|| format!("opening RocksDB at {}", args.db))?;
+    let store =
+        RocksKv::open(&args.db).with_context(|| format!("opening RocksDB at {}", args.db))?;
     let index = TemporalIndex::new(&store);
 
     let span = population.max_ts.saturating_sub(population.min_ts).max(1);
@@ -308,7 +313,8 @@ fn main() -> Result<()> {
 
     let pick = |rng: &mut Rng| {
         let node = population.sources[rng.below(population.sources.len() as u64) as usize];
-        let edge_type = population.edge_types[rng.below(population.edge_types.len() as u64) as usize];
+        let edge_type =
+            population.edge_types[rng.below(population.edge_types.len() as u64) as usize];
         // Sample across the whole timeline plus a margin, so queries land both
         // inside recorded history and after its end.
         let as_of = Timestamp(population.min_ts + rng.below(span + span / 10));
@@ -358,8 +364,7 @@ fn main() -> Result<()> {
 
     let node_stats = percentiles(node_samples);
     let edge_stats = percentiles(edge_samples);
-    let passed =
-        node_stats.p95_ms < args.p95_target_ms && edge_stats.p95_ms < args.p95_target_ms;
+    let passed = node_stats.p95_ms < args.p95_target_ms && edge_stats.p95_ms < args.p95_target_ms;
 
     let provenance = provenance();
     let mut notes = vec![format!("query hit rate {:.1}%", hit_rate * 100.0)];
@@ -399,9 +404,10 @@ fn main() -> Result<()> {
     };
 
     std::fs::create_dir_all(&args.out_dir)?;
-    let out = args
-        .out_dir
-        .join(format!("pit_latency_{}.json", report.provenance.generated_at_unix));
+    let out = args.out_dir.join(format!(
+        "pit_latency_{}.json",
+        report.provenance.generated_at_unix
+    ));
     std::fs::write(&out, serde_json::to_string_pretty(&report)? + "\n")?;
 
     println!("point-in-time read latency ({} queries)", args.queries);

@@ -17,7 +17,10 @@ fn a_snapshot_holds_every_live_relationship_at_that_instant() {
     let (_dir, store) = fixture();
     let reader = SnapshotReader::new(&store, TraversalLimits::default());
 
-    let snapshot = reader.snapshot(P1, ts(150)).unwrap().expect("P1 exists at t=150");
+    let snapshot = reader
+        .snapshot(P1, ts(150))
+        .unwrap()
+        .expect("P1 exists at t=150");
 
     assert_eq!(snapshot.subject.node_id, P1);
     assert_eq!(snapshot.subject.node_type, "Patient");
@@ -77,7 +80,12 @@ fn related_nodes_carry_the_state_they_had_at_the_snapshot_instant() {
     let writer = TemporalWriter::new(&store).unwrap();
     let mut batch = WriteBatch::default();
 
-    writer.put_node(&mut batch, P1, ts(100), &NodeValue::new("Patient", json!({})));
+    writer.put_node(
+        &mut batch,
+        P1,
+        ts(100),
+        &NodeValue::new("Patient", json!({})),
+    );
     // The medication's label is corrected at t=300.
     writer.put_node(
         &mut batch,
@@ -91,7 +99,14 @@ fn related_nodes_carry_the_state_they_had_at_the_snapshot_instant() {
         ts(300),
         &NodeValue::new("Medication", json!({"label": "Metformin hydrochloride"})),
     );
-    writer.put_edge(&mut batch, P1, RX, METFORMIN, ts(110), &EdgeValue::new(json!({})));
+    writer.put_edge(
+        &mut batch,
+        P1,
+        RX,
+        METFORMIN,
+        ts(110),
+        &EdgeValue::new(json!({})),
+    );
     store.write(batch).unwrap();
 
     let reader = SnapshotReader::new(&store, TraversalLimits::default());
@@ -101,7 +116,10 @@ fn related_nodes_carry_the_state_they_had_at_the_snapshot_instant() {
     let old = reader.snapshot(P1, ts(200)).unwrap().unwrap();
     let new = reader.snapshot(P1, ts(400)).unwrap().unwrap();
 
-    assert_eq!(old.related[0].node.as_ref().unwrap().properties["label"], "Metformin");
+    assert_eq!(
+        old.related[0].node.as_ref().unwrap().properties["label"],
+        "Metformin"
+    );
     assert_eq!(
         new.related[0].node.as_ref().unwrap().properties["label"],
         "Metformin hydrochloride"
@@ -114,9 +132,21 @@ fn an_edge_pointing_at_an_unwritten_node_is_surfaced_not_hidden() {
     let writer = TemporalWriter::new(&store).unwrap();
     let mut batch = WriteBatch::default();
 
-    writer.put_node(&mut batch, P1, ts(100), &NodeValue::new("Patient", json!({})));
+    writer.put_node(
+        &mut batch,
+        P1,
+        ts(100),
+        &NodeValue::new("Patient", json!({})),
+    );
     // Edge written, target node never written — a loader bug.
-    writer.put_edge(&mut batch, P1, DX, NodeId(100_777), ts(110), &EdgeValue::new(json!({})));
+    writer.put_edge(
+        &mut batch,
+        P1,
+        DX,
+        NodeId(100_777),
+        ts(110),
+        &EdgeValue::new(json!({})),
+    );
     store.write(batch).unwrap();
 
     let reader = SnapshotReader::new(&store, TraversalLimits::default());
