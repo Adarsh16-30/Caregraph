@@ -7,8 +7,7 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-4 complete and verified; Phase 5 in progress** (atomic
-commit + fault injection done, GAT incremental path outstanding). See
+**Status: Phases 1-5 complete and verified.** See
 [Build status](#build-status) for exactly what does and does not exist yet.
 
 ---
@@ -127,7 +126,7 @@ the failure mode Section 0 exists to prevent.
 | 2 | Temporal indexing, `as_of()` reads, windowed scans | complete — point-in-time read benchmark run against real clinical data |
 | 3 | Bounded traversal, snapshots, Neo4j/TerminusDB baseline harness | complete — 2-hop traversal benchmark passing; baseline harness built, not yet run against live baselines |
 | 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
-| 5 | GAT incremental path, atomic commit, fault injection | in progress — atomic commit + 100-run fault injection complete (Rule 5: 0 non-atomic states observed); GAT path not started |
+| 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection (Rule 5: 0 non-atomic states across 80 actual kills); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, same as Phase 4's GraphSAGE claim |
 | 6 | gRPC API, three-way benchmark harness | not started |
 | 7 | Encryption at rest, mTLS, live dashboards | not started |
 | 8 | Demo, patent hooks, paper draft | not started |
@@ -146,10 +145,13 @@ the failure mode Section 0 exists to prevent.
    rather than recorded (Rule 6). The IDPIP/UKPDS loader
    (`data/idpip_ukpds_loader.py`) is still implemented for when that source
    becomes available.
-3. **Phase 5's GAT path is not implemented.** Only the associative
-   (GraphSAGE/GCN) path commits atomically today; a GAT-routed mutation
-   panics rather than silently taking the wrong math (see
-   `src/embedding/pipeline.rs`).
+3. **CI's `embedding` and `fault-injection` jobs are configured but
+   unverified in real CI.** Both are wired with a Python + torch + torch_geometric
+   setup step and pass locally (2/2 embedding correctness tests, 100/100
+   fault-injection iterations), but this repository has no configured git
+   remote in the environment it was built in, so neither job has actually
+   run on GitHub's infrastructure. The config is ready for whenever one is
+   added; "wired" is not the same claim as "observed green in CI."
 4. **Phase 7 has not started.** Encryption at rest, mTLS, and live dashboards
    are all outstanding — Rules 8 and 9 remain `PENDING`.
 

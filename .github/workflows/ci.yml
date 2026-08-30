@@ -24,13 +24,17 @@ env:
   # against the 5x target (docs/benchmark_report.md §7). Rules 3 and 7 are
   # therefore live and enforced from here on.
   #
-  # Phase 5 is in progress, not complete: atomic_commit.rs lands the structural
-  # mutation and its embedding update in one WriteBatch, verified by a 100-run
-  # fault-injection suite (kill the committing process at a randomised point,
-  # 0 non-atomic states observed — see the fault-injection job below) — but
-  # the GAT incremental path is not implemented yet, so this stays at 4 until
-  # it is.
-  CAREGRAPH_PHASE: "4"
+  # At 5: atomic_commit.rs lands the structural mutation and its embedding
+  # update in one WriteBatch, verified by a 100-run fault-injection suite
+  # (kill the committing process at a randomised point, 0 non-atomic states
+  # observed across 80 actual kills). The GAT incremental path
+  # (gat_incremental.rs) is implemented and its own 50-sequence
+  # incremental-vs-full-recompute exactness check passes — the same claim
+  # Phase 4 makes for GraphSAGE, extended to GAT's non-associative attention
+  # aggregation. Rule 5 is fully satisfied by the static checks in
+  # check_rules.sh regardless of this value; raising it to 5 here records
+  # that both halves of Phase 5's scope are done, not just checked.
+  CAREGRAPH_PHASE: "5"
 
 jobs:
   rules:
