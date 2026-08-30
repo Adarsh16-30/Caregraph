@@ -30,6 +30,11 @@ pub type Db = DBWithThreadMode<MultiThreaded>;
 /// One key-value pair as returned by a scan.
 pub type Entry = (Vec<u8>, Vec<u8>);
 
+/// Callback signature shared by [`KvStore::scan_from`] and its variants —
+/// named so the signatures below read as one screen-width line rather than
+/// tripping clippy's `type_complexity` lint on the inlined closure type.
+pub type ScanVisitor<'a> = dyn FnMut(&[u8], &[u8]) -> ControlFlow<()> + 'a;
+
 /// The storage surface every higher layer is written against.
 pub trait KvStore: Send + Sync {
     fn put(&self, cf: &'static str, key: &[u8], value: &[u8]) -> Result<()>;
@@ -62,7 +67,7 @@ pub trait KvStore: Send + Sync {
         cf: &'static str,
         prefix: &[u8],
         seek_key: &[u8],
-        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<()>;
 
     /// Like [`scan_from`](Self::scan_from), for a `prefix` *narrower* than the
@@ -88,7 +93,7 @@ pub trait KvStore: Send + Sync {
         cf: &'static str,
         prefix: &[u8],
         seek_key: &[u8],
-        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<()> {
         self.scan_from(cf, prefix, seek_key, visit)
     }
@@ -180,7 +185,7 @@ impl RocksKv {
         prefix: &[u8],
         seek_key: &[u8],
         read_opts: ReadOptions,
-        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<()> {
         let handle = self.cf_handle(cf)?;
         let iter = self.db.iterator_cf_opt(
@@ -236,7 +241,7 @@ impl KvStore for RocksKv {
         cf: &'static str,
         prefix: &[u8],
         seek_key: &[u8],
-        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<()> {
         self.scan_from_with_opts(cf, prefix, seek_key, Self::prefix_read_opts(), visit)
     }
@@ -246,7 +251,7 @@ impl KvStore for RocksKv {
         cf: &'static str,
         prefix: &[u8],
         seek_key: &[u8],
-        visit: &mut dyn FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+        visit: &mut ScanVisitor<'_>,
     ) -> Result<()> {
         self.scan_from_with_opts(cf, prefix, seek_key, Self::narrow_prefix_read_opts(), visit)
     }

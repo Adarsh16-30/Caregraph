@@ -138,7 +138,10 @@ fn read_samples(trace: &std::path::Path, take: usize) -> Result<Vec<Sample>> {
     }
 
     if all.is_empty() {
-        bail!("{} has no add_edge records; nothing to sample", trace.display());
+        bail!(
+            "{} has no add_edge records; nothing to sample",
+            trace.display()
+        );
     }
 
     // Evenly spaced through the trace rather than the first N, so the sample
@@ -147,10 +150,11 @@ fn read_samples(trace: &std::path::Path, take: usize) -> Result<Vec<Sample>> {
     Ok(all.into_iter().step_by(step).take(take).collect())
 }
 
-fn build_full_graph<S: KvStore + ?Sized>(
-    store: &S,
-    trace: &std::path::Path,
-) -> Result<(Vec<NodeId>, Vec<(NodeId, NodeId)>)> {
+/// All node ids and all (src, dst) edges the trace file describes — named
+/// for clippy's `type_complexity` lint.
+type FullGraph = (Vec<NodeId>, Vec<(NodeId, NodeId)>);
+
+fn build_full_graph<S: KvStore + ?Sized>(store: &S, trace: &std::path::Path) -> Result<FullGraph> {
     let _ = store;
     let file = File::open(trace)?;
     let mut nodes = std::collections::HashSet::new();
@@ -174,7 +178,11 @@ fn build_full_graph<S: KvStore + ?Sized>(
                     r.get("dst").and_then(|v| v.as_u64()),
                 ) {
                     let (a, b) = (NodeId(s), NodeId(d));
-                    edges.insert(if a.as_u64() <= b.as_u64() { (a, b) } else { (b, a) });
+                    edges.insert(if a.as_u64() <= b.as_u64() {
+                        (a, b)
+                    } else {
+                        (b, a)
+                    });
                 }
             }
             Some("remove_edge") => {
@@ -183,7 +191,11 @@ fn build_full_graph<S: KvStore + ?Sized>(
                     r.get("dst").and_then(|v| v.as_u64()),
                 ) {
                     let (a, b) = (NodeId(s), NodeId(d));
-                    edges.remove(&if a.as_u64() <= b.as_u64() { (a, b) } else { (b, a) });
+                    edges.remove(&if a.as_u64() <= b.as_u64() {
+                        (a, b)
+                    } else {
+                        (b, a)
+                    });
                 }
             }
             _ => {}
@@ -257,13 +269,21 @@ struct Report {
 
 fn main() -> Result<()> {
     let args = parse_args()?;
-    let store = RocksKv::open(&args.db).with_context(|| format!("opening RocksDB at {}", args.db))?;
+    let store =
+        RocksKv::open(&args.db).with_context(|| format!("opening RocksDB at {}", args.db))?;
     let model = EmbeddingModel::spawn(&args.model)
         .with_context(|| format!("spawning embedding worker for {}", args.model))?;
 
-    eprintln!("building whole-graph reference input from {} ...", args.trace.display());
+    eprintln!(
+        "building whole-graph reference input from {} ...",
+        args.trace.display()
+    );
     let (all_nodes, all_edges) = build_full_graph(&store, &args.trace)?;
-    eprintln!("whole graph: {} nodes, {} live edges", all_nodes.len(), all_edges.len());
+    eprintln!(
+        "whole graph: {} nodes, {} live edges",
+        all_nodes.len(),
+        all_edges.len()
+    );
 
     let samples = read_samples(&args.trace, args.samples)?;
     eprintln!("sampled {} real mutations from the trace", samples.len());
@@ -281,11 +301,20 @@ fn main() -> Result<()> {
 
         let mut ctx = MutationContext::new(mutation, ModelKind::GraphSAGE);
         let t0 = Instant::now();
-        associative::incremental_aggregate(&mut ctx, &store, &model, FANOUT_CAP, MAX_EXPANDED_NODES)?;
+        associative::incremental_aggregate(
+            &mut ctx,
+            &store,
+            &model,
+            FANOUT_CAP,
+            MAX_EXPANDED_NODES,
+        )?;
         let incremental_elapsed = t0.elapsed();
 
         if ctx.fallback {
-            eprintln!("  skipping sample ({:?} -> {:?}): resolver fallback", s.src, s.dst);
+            eprintln!(
+                "  skipping sample ({:?} -> {:?}): resolver fallback",
+                s.src, s.dst
+            );
             continue;
         }
         if ctx.affected.len() > 2000 {
@@ -316,7 +345,12 @@ fn main() -> Result<()> {
         });
         eprintln!(
             "  {} -> {}: affected={} incremental={:.2}ms full={:.2}ms speedup={:.1}x",
-            s.src.as_u64(), s.dst.as_u64(), ctx.affected.len(), inc_ms, full_ms, full_ms / inc_ms.max(1e-9)
+            s.src.as_u64(),
+            s.dst.as_u64(),
+            ctx.affected.len(),
+            inc_ms,
+            full_ms,
+            full_ms / inc_ms.max(1e-9)
         );
     }
 
@@ -333,16 +367,22 @@ fn main() -> Result<()> {
 
     let mut notes = vec![format!(
         "{} of {} sampled mutations touched a >2000-node affected set (hub-adjacent)",
-        hub_touching, results.len()
+        hub_touching,
+        results.len()
     )];
     let provenance = Provenance {
-        generated_at_unix: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+        generated_at_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
         git_commit: git(&["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into()),
         git_dirty: git(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty()),
         command: std::env::args().collect::<Vec<_>>().join(" "),
     };
     if provenance.git_dirty {
-        notes.push("working tree was dirty at run time; not reproducible from the commit alone".into());
+        notes.push(
+            "working tree was dirty at run time; not reproducible from the commit alone".into(),
+        );
     }
 
     let report = Report {
@@ -360,10 +400,16 @@ fn main() -> Result<()> {
     };
 
     std::fs::create_dir_all(&args.out_dir)?;
-    let out = args.out_dir.join(format!("incremental_speedup_{}.json", report.provenance.generated_at_unix));
+    let out = args.out_dir.join(format!(
+        "incremental_speedup_{}.json",
+        report.provenance.generated_at_unix
+    ));
     std::fs::write(&out, serde_json::to_string_pretty(&report)? + "\n")?;
 
-    println!("incremental vs. full recompute ({} samples)", report.incremental.samples);
+    println!(
+        "incremental vs. full recompute ({} samples)",
+        report.incremental.samples
+    );
     println!(
         "  incremental  median {:.2} ms  p95 {:.2} ms",
         report.incremental.median_ms, report.incremental.p95_ms
@@ -372,14 +418,21 @@ fn main() -> Result<()> {
         "  full recompute median {:.2} ms  p95 {:.2} ms",
         report.full_recompute.median_ms, report.full_recompute.p95_ms
     );
-    println!("  median speedup: {:.1}x   target: >= {:.1}x", median_speedup, args.min_speedup);
+    println!(
+        "  median speedup: {:.1}x   target: >= {:.1}x",
+        median_speedup, args.min_speedup
+    );
     for note in &report.notes {
         println!("  note: {note}");
     }
     println!("  raw results: {}", out.display());
 
     if !passed {
-        bail!("median speedup {:.1}x is below the {:.1}x target", median_speedup, args.min_speedup);
+        bail!(
+            "median speedup {:.1}x is below the {:.1}x target",
+            median_speedup,
+            args.min_speedup
+        );
     }
     Ok(())
 }

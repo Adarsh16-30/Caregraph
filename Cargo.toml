@@ -29,6 +29,10 @@ path = "src/bin/bench_traversal.rs"
 name = "caregraph-bench-incremental"
 path = "src/bin/bench_incremental.rs"
 
+[[bin]]
+name = "caregraph-fault-injection-worker"
+path = "src/bin/fault_injection_worker.rs"
+
 [dependencies]
 # --- Storage & persistence (PRD 2.1) -----------------------------------------
 # NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the
@@ -73,6 +77,13 @@ path = "tests/unit/main.rs"
 [[test]]
 name = "embedding"
 path = "tests/embedding/main.rs"
+
+# Spawns and kills the caregraph-fault-injection-worker binary in a loop
+# (Rule 5); needs the worker built first and a real trained model on disk,
+# same preconditions as `embedding` above — not run by the default sweep.
+[[test]]
+name = "fault_injection"
+path = "tests/fault_injection/main.rs"
 
 [profile.release]
 lto = true

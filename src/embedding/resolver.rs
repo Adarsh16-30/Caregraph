@@ -227,8 +227,19 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
 /// Node-type one-hot dimensions. Must match `ml/train_graphsage.py::NODE_TYPES`
 /// exactly, in the same order — this is the interface contract between the
 /// Rust feature builder and the trained model's input layer.
-pub const NODE_TYPES: [&str; 6] =
-    ["Patient", "Condition", "Medication", "Provider", "LabResult", "Encounter"];
+pub const NODE_TYPES: [&str; 6] = [
+    "Patient",
+    "Condition",
+    "Medication",
+    "Provider",
+    "LabResult",
+    "Encounter",
+];
+
+/// `(node features, symmetric edge index as [src_idx, dst_idx], node id ->
+/// local row index)` — named for clippy's `type_complexity` lint and to give
+/// the shape a name at each of [`build_model_input`]'s call sites.
+pub type ModelInput = (Vec<Vec<f32>>, Vec<Vec<u32>>, HashMap<NodeId, usize>);
 
 /// Build the dense feature matrix and local-index edge list a forward pass
 /// needs, for an arbitrary node set. Structural features only — no clinical
@@ -239,7 +250,7 @@ pub fn build_model_input<S: KvStore + ?Sized>(
     nodes: &[NodeId],
     edges: &[(NodeId, NodeId)],
     as_of: Timestamp,
-) -> Result<(Vec<Vec<f32>>, Vec<Vec<u32>>, HashMap<NodeId, usize>)> {
+) -> Result<ModelInput> {
     let index = TemporalIndex::new(store);
     let local: HashMap<NodeId, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 

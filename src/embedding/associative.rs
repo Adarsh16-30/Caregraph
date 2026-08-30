@@ -16,7 +16,7 @@ use crate::embedding::resolver::{build_model_input, AffectedSubgraphResolver, Re
 use crate::embedding::state::MutationContext;
 use crate::error::Result;
 use crate::storage::KvStore;
-use crate::types::{ComputationPath, Embedding, ModelKind};
+use crate::types::{ComputationPath, Embedding, ModelKind, Timestamp};
 
 /// Resolve, then run the model over exactly the resolved subgraph.
 ///
@@ -25,6 +25,11 @@ use crate::types::{ComputationPath, Embedding, ModelKind};
 /// callers must check it, and the caller is `pipeline::run_mutation_pipeline`,
 /// which counts every fallback (Rule 7) rather than treating an empty result
 /// as "nothing to do".
+///
+/// Thin wrapper over [`aggregate_over_subgraph`]: resolves against whatever
+/// is currently committed, then delegates. `atomic_commit.rs` cannot use this
+/// directly — it needs to patch one not-yet-committed edge into the resolved
+/// subgraph first — so it calls `aggregate_over_subgraph` itself instead.
 pub fn incremental_aggregate<S: KvStore + ?Sized>(
     ctx: &mut MutationContext,
     store: &S,
@@ -32,16 +37,33 @@ pub fn incremental_aggregate<S: KvStore + ?Sized>(
     fanout_cap: usize,
     max_expanded_nodes: usize,
 ) -> Result<()> {
-    debug_assert!(
-        ctx.active_model.is_associative(),
-        "incremental_aggregate is the GraphSAGE/GCN path; GAT routes to gat_incremental_update (Phase 5)"
-    );
-
     let resolver = AffectedSubgraphResolver::new(store, fanout_cap, max_expanded_nodes);
     let subgraph = resolver.resolve(ctx.mutation)?;
+    let as_of = ctx.mutation.timestamp();
+    aggregate_over_subgraph(ctx, store, model, subgraph, as_of)
+}
+
+/// Run the model over an already-resolved subgraph and fill in `ctx`.
+///
+/// Split out from [`incremental_aggregate`] so `atomic_commit.rs` can resolve
+/// against pre-mutation state, patch in the one edge the mutation itself
+/// changes (a not-yet-committed write is invisible to the resolver's own
+/// reads — see `atomic_commit.rs`'s module doc), and only then run the
+/// forward pass this function performs.
+pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
+    ctx: &mut MutationContext,
+    store: &S,
+    model: &EmbeddingModel,
+    subgraph: ResolvedSubgraph,
+    as_of: Timestamp,
+) -> Result<()> {
+    debug_assert!(
+        ctx.active_model.is_associative(),
+        "the associative path is GraphSAGE/GCN; GAT routes to gat_incremental_update (Phase 5)"
+    );
+
     ctx.truncation = subgraph.truncation;
 
-    let as_of = ctx.mutation.timestamp();
     match run_forward_pass(store, model, &subgraph, ctx.active_model, as_of) {
         Ok(embeddings) => {
             ctx.affected = subgraph.affected;
@@ -87,7 +109,12 @@ fn run_forward_pass<S: KvStore + ?Sized>(
         .map(|(&node, vector)| {
             (
                 node,
-                Embedding::new(vector, model.model_id.clone(), active_model, ComputationPath::Associative),
+                Embedding::new(
+                    vector,
+                    model.model_id.clone(),
+                    active_model,
+                    ComputationPath::Associative,
+                ),
             )
         })
         .collect())
@@ -110,7 +137,10 @@ pub fn full_recompute<S: KvStore + ?Sized>(
     as_of: crate::types::Timestamp,
 ) -> Result<Vec<(crate::types::NodeId, Embedding)>> {
     let (features, edge_index, local) = build_model_input(store, all_nodes, all_edges, as_of)?;
-    let target_idx: Vec<usize> = targets.iter().filter_map(|n| local.get(n).copied()).collect();
+    let target_idx: Vec<usize> = targets
+        .iter()
+        .filter_map(|n| local.get(n).copied())
+        .collect();
     let vectors = model.forward(&features, &edge_index, &target_idx)?;
 
     Ok(targets
@@ -119,7 +149,12 @@ pub fn full_recompute<S: KvStore + ?Sized>(
         .map(|(&node, vector)| {
             (
                 node,
-                Embedding::new(vector, model.model_id.clone(), active_model, ComputationPath::Fallback),
+                Embedding::new(
+                    vector,
+                    model.model_id.clone(),
+                    active_model,
+                    ComputationPath::Fallback,
+                ),
             )
         })
         .collect())

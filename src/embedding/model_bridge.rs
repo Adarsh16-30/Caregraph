@@ -87,9 +87,11 @@ impl EmbeddingModel {
         // Block until the worker reports it has loaded the model, so the first
         // real request is never the one paying PyTorch's import cost.
         let mut ready_line = String::new();
-        stdout.read_line(&mut ready_line).map_err(CareGraphError::Io)?;
-        let ready: serde_json::Value = serde_json::from_str(ready_line.trim())
-            .map_err(CareGraphError::MalformedValue)?;
+        stdout
+            .read_line(&mut ready_line)
+            .map_err(CareGraphError::Io)?;
+        let ready: serde_json::Value =
+            serde_json::from_str(ready_line.trim()).map_err(CareGraphError::MalformedValue)?;
         if ready.get("ready") != Some(&serde_json::Value::Bool(true)) {
             return Err(CareGraphError::Io(std::io::Error::other(format!(
                 "embedding_server.py did not report ready: {ready_line}"
@@ -102,6 +104,14 @@ impl EmbeddingModel {
             stdout: Mutex::new(stdout),
             model_id: model_id.to_string(),
         })
+    }
+
+    /// The spawned worker's OS process id, for callers that need to manage
+    /// it from outside — e.g. `tests/fault_injection`, which kills a whole
+    /// process tree and needs this process's own child to clean up
+    /// precisely rather than by a broad `python.exe` name match.
+    pub fn worker_pid(&self) -> Option<u32> {
+        self.child.lock().ok().map(|c| c.id())
     }
 
     /// One real forward pass over `(node_features, edge_index)`, returning the
@@ -165,7 +175,9 @@ impl Drop for EmbeddingModel {
 /// deployed manifest and the running worker can be checked against each other
 /// (Rule 3's manifest requirement, from the serving side).
 pub fn manifest_json(model_id: &str) -> serde_json::Value {
-    let path = Path::new("ml/deployed").join(model_id).join("dataset_manifest.json");
+    let path = Path::new("ml/deployed")
+        .join(model_id)
+        .join("dataset_manifest.json");
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
