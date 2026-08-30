@@ -106,17 +106,56 @@ jobs:
   # Enabled as the phases that make them meaningful land. Each is listed here so
   # that the gap is visible in the workflow rather than forgotten.
 
-  fault-injection:
-    name: fault injection (Rule 5)
-    # tests/fault_injection/ exists and passed 100/100 locally (0 non-atomic
-    # states observed) — the suite itself is real and done, not a stub. Still
-    # disabled here for the same reason `cargo test --test embedding` isn't
-    # in CI either: it needs a real trained model on disk and a real Python +
-    # torch interpreter, and no CI image carries those yet.
-    if: false
+  embedding:
+    name: embedding correctness (Rules 3, 7)
+    # GraphSAGE (Phase 4) and GAT (Phase 5) incremental-vs-full-recompute
+    # exactness — both spawn ml/embedding_server.py, which needs a real
+    # Python + torch + torch_geometric interpreter, hence the setup below.
+    # Both deployed models are small (~tens of KB) and git-tracked
+    # (ml/deployed/**/*.pt is the one *.pt exception in .gitignore) so no
+    # training happens in CI — only inference against already-trained,
+    # already-committed weights.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install torch + torch_geometric (CPU wheels)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch_geometric
+      - run: cargo test --test embedding -- --test-threads=1
+
+  fault-injection:
+    name: fault injection (Rule 5)
+    # tests/fault_injection/ exists and passed 100/100 locally (0 non-atomic
+    # states observed). Needs the same real Python + torch interpreter as
+    # the embedding job above — the worker binary this suite spawns and
+    # kills makes a real GraphSAGE forward pass on its way to the commit
+    # being interrupted.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install torch + torch_geometric (CPU wheels)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch_geometric
       - run: cargo test --test fault_injection -- --test-threads=1
 
   # Still disabled at Phase 3, deliberately. The CareGraph-side benchmark has
