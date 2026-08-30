@@ -48,15 +48,16 @@
 use rocksdb::WriteBatch;
 
 use crate::embedding::associative::aggregate_over_subgraph;
+use crate::embedding::gat_incremental::gat_incremental_update;
 use crate::embedding::model_bridge::EmbeddingModel;
-use crate::embedding::resolver::{AffectedSubgraphResolver, ResolvedSubgraph};
+use crate::embedding::resolver::{patch_subgraph_for_mutation, AffectedSubgraphResolver};
 use crate::embedding::state::{GraphMutation, MutationContext};
 use crate::error::Result;
 use crate::storage::{cf, KvStore, RocksKv};
 use crate::temporal::keys::encode_embedding_key;
 use crate::temporal::record::EdgeValue;
 use crate::temporal::{TemporalIndex, TemporalWriter};
-use crate::types::{EdgeType, ModelKind};
+use crate::types::ModelKind;
 
 /// Commits one structural mutation and its embedding update as a single
 /// atomic write.
@@ -90,12 +91,6 @@ impl<'a> AtomicCommitter<'a> {
         fanout_cap: usize,
         max_expanded_nodes: usize,
     ) -> Result<MutationContext> {
-        debug_assert!(
-            active_model.is_associative(),
-            "AtomicCommitter::commit is the GraphSAGE/GCN path; a GAT-routed \
-             mutation needs gat_incremental_update, not yet implemented"
-        );
-
         let mut ctx = MutationContext::new(mutation, active_model);
         let as_of = mutation.timestamp();
 
@@ -104,9 +99,21 @@ impl<'a> AtomicCommitter<'a> {
         // graph as it stood the instant before it.
         let resolver = AffectedSubgraphResolver::new(self.store, fanout_cap, max_expanded_nodes);
         let mut subgraph = resolver.resolve(mutation)?;
-        self.patch_subgraph_for_mutation(&mut subgraph, mutation)?;
+        patch_subgraph_for_mutation(&mut subgraph, &self.index, mutation)?;
 
-        aggregate_over_subgraph(&mut ctx, self.store, model, subgraph, as_of)?;
+        // Resolution and patching are identical either way — only which
+        // aggregation ran, and therefore which ComputationPath tag the
+        // result carries, depends on the active model (see
+        // gat_incremental.rs's module doc for why GAT still shares this
+        // exact mechanism despite not being associative).
+        match active_model {
+            ModelKind::GraphSAGE | ModelKind::GCN => {
+                aggregate_over_subgraph(&mut ctx, self.store, model, subgraph, as_of)?;
+            }
+            ModelKind::GAT => {
+                gat_incremental_update(&mut ctx, self.store, model, subgraph, as_of)?;
+            }
+        }
 
         let mut batch = WriteBatch::default();
         self.stage_mutation(&mut batch, mutation, edge_value);
@@ -154,62 +161,6 @@ impl<'a> AtomicCommitter<'a> {
         for (node, embedding) in &ctx.embeddings_after {
             let key = encode_embedding_key(*node, ts);
             batch.put_cf(&embeddings_cf, &key, embedding.serialize());
-        }
-        Ok(())
-    }
-
-    /// Patch the one edge this mutation changes directly into a subgraph
-    /// resolved from pre-mutation state — see the module doc.
-    fn patch_subgraph_for_mutation(
-        &self,
-        subgraph: &mut ResolvedSubgraph,
-        mutation: GraphMutation,
-    ) -> Result<()> {
-        let (src, dst) = mutation.endpoints();
-        let pair = if src.as_u64() <= dst.as_u64() {
-            (src, dst)
-        } else {
-            (dst, src)
-        };
-
-        match mutation {
-            GraphMutation::AddEdge { .. } => {
-                // src and dst are always present in `subgraph.nodes` — resolve()
-                // seeds `affected` with both endpoints, and `nodes` starts from
-                // `affected`. Only the edge between them is missing, because
-                // resolve() read the graph before this mutation landed. The
-                // model's own topology is edge-type-agnostic
-                // (`build_model_input` symmetrises without regard to type — see
-                // resolver.rs), so adding the pair is correct regardless of
-                // which of the six edge types this mutation is.
-                if !subgraph.edges.contains(&pair) {
-                    subgraph.edges.push(pair);
-                }
-            }
-            GraphMutation::RemoveEdge { edge_type, .. } => {
-                // `pair` is already in `subgraph.edges` if resolve() discovered
-                // src and dst as each other's neighbours — the edge being
-                // removed was still live in the state resolve() read. Strip it
-                // only if no OTHER edge type still connects the same two node
-                // ids: two nodes related two different ways stay connected in
-                // the model's topology after removing just one relationship,
-                // and that case is cheap enough to check for that assuming it
-                // away is not worth the risk.
-                let ts = mutation.timestamp();
-                let mut still_connected = false;
-                for &other_type in EdgeType::ALL.iter() {
-                    if other_type == edge_type {
-                        continue;
-                    }
-                    if self.index.edge_as_of(src, other_type, dst, ts)?.is_some() {
-                        still_connected = true;
-                        break;
-                    }
-                }
-                if !still_connected {
-                    subgraph.edges.retain(|&e| e != pair);
-                }
-            }
         }
         Ok(())
     }

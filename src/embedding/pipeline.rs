@@ -1,10 +1,12 @@
 //! `run_mutation_pipeline` (PRD 4.3) — resolve, aggregate, persist, count.
 //!
-//! From Phase 5, "persist" is `AtomicCommitter::commit` (`atomic_commit.rs`):
-//! the structural mutation and its embedding update land in one `WriteBatch`,
-//! not two separately-durable writes. This module now owns orchestration and
-//! metrics only — timing the call, counting mutations and fallbacks (Rule 7)
-//! — not the write path itself.
+//! "Persist" is `AtomicCommitter::commit` (`atomic_commit.rs`): the
+//! structural mutation and its embedding update land in one `WriteBatch`,
+//! not two separately-durable writes, regardless of which model is active —
+//! `AtomicCommitter` itself dispatches between the associative
+//! (GraphSAGE/GCN) and GAT-constrained aggregations (`gat_incremental.rs`).
+//! This module owns orchestration and metrics only — timing the call,
+//! counting mutations and fallbacks (Rule 7) — not the write path itself.
 
 use std::time::Instant;
 
@@ -23,8 +25,7 @@ use crate::types::ModelKind;
 // gives up on the mutation's embedding update rather than silently retrying
 // against the whole graph: an affected node keeps its pre-mutation embedding,
 // stale rather than wrong, and `ctx.fallback` records that plainly so the
-// caller (and Rule 7's counter) can see it. Phase 5's GAT path is where an
-// automatic full-recompute fallback is expected to actually fire.
+// caller (and Rule 7's counter) can see it.
 
 /// `edge_value` carries the properties for an `AddEdge`; ignored for a
 /// `RemoveEdge`. `store` is concrete `RocksKv`, not generic over `KvStore` —
@@ -50,31 +51,19 @@ pub fn run_mutation_pipeline(
     let start = Instant::now();
     metrics.mutations_total.inc();
 
-    let ctx = match active_model {
-        ModelKind::GraphSAGE | ModelKind::GCN => {
-            let embed_start = Instant::now();
-            let committer = AtomicCommitter::new(store)?;
-            let ctx = committer.commit(
-                mutation,
-                edge_value,
-                active_model,
-                model,
-                fanout_cap,
-                max_expanded_nodes,
-            )?;
-            metrics
-                .embedding_update_latency_seconds
-                .observe(embed_start.elapsed().as_secs_f64());
-            ctx
-        }
-        ModelKind::GAT => {
-            // GATUpdatePath is Phase 5. Reaching here is a caller error, not a
-            // data condition — fail loudly rather than silently routing GAT
-            // through the associative path, which would be exactly the wrong
-            // math for a non-associative aggregator.
-            panic!("GAT incremental path is Phase 5; not implemented");
-        }
-    };
+    let embed_start = Instant::now();
+    let committer = AtomicCommitter::new(store)?;
+    let ctx = committer.commit(
+        mutation,
+        edge_value,
+        active_model,
+        model,
+        fanout_cap,
+        max_expanded_nodes,
+    )?;
+    metrics
+        .embedding_update_latency_seconds
+        .observe(embed_start.elapsed().as_secs_f64());
 
     if ctx.fallback {
         metrics.incremental_fallback_total.inc();

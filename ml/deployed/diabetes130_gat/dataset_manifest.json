@@ -1,0 +1,35 @@
+{
+  "model_id": "diabetes130_gat",
+  "architecture": "GAT",
+  "framework": "pytorch-geometric 2.7.0",
+  "torch": "2.11.0+cpu",
+  "trained_at": "2026-08-30T17:44:28.498271+00:00",
+  "objective": "unsupervised link prediction (positive edges vs negative sampling)",
+  "aggregation": "attention (softmax over each node's own neighbours)",
+  "is_associative": false,
+  "attention_heads": 4,
+  "layers": 2,
+  "embedding_dim": 32,
+  "epochs": 60,
+  "learning_rate": 0.005,
+  "seed": 42,
+  "final_loss": 0.45968782901763916,
+  "initial_loss": 0.7068806886672974,
+  "dataset": {
+    "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl",
+    "trace_sha256": "f755e44882055115677d1dcdb0ba70012cc4e99384024e40d8c669ea4628cfe4",
+    "nodes": 174298,
+    "live_edges": 515117,
+    "node_type_counts": {
+      "Patient": 71518,
+      "Condition": 915,
+      "Medication": 21,
+      "Provider": 72,
+      "LabResult": 6,
+      "Encounter": 101766
+    },
+    "as_of_us": null
+  },
+  "model_sha256": "7165a4a57d391dd8f7f151117736094ee7660983992a847b4a5153cd9e10613a",
+  "node_feature_encoding": "one-hot node type; no clinical attributes as features"
+}

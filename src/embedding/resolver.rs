@@ -33,7 +33,7 @@ use crate::embedding::state::{GraphMutation, ResolutionTruncation};
 use crate::error::Result;
 use crate::storage::KvStore;
 use crate::temporal::TemporalIndex;
-use crate::types::{NodeId, Timestamp};
+use crate::types::{EdgeType, NodeId, Timestamp};
 
 /// The induced subgraph a 2-layer model needs to recompute the affected set.
 pub struct ResolvedSubgraph {
@@ -276,4 +276,67 @@ pub fn build_model_input<S: KvStore + ?Sized>(
     }
 
     Ok((features, vec![src_idx, dst_idx], local))
+}
+
+/// Patch the one edge a mutation changes directly into a subgraph resolved
+/// from *pre*-mutation state — shared by every commit path in
+/// `atomic_commit.rs` (associative and GAT alike), since none of them can
+/// see the mutation itself when they call [`AffectedSubgraphResolver::resolve`]:
+/// the structural write hasn't landed yet (see `atomic_commit.rs`'s module
+/// doc for why not landing it yet is exactly the point).
+///
+/// Generic over `S` for the same reason [`build_model_input`] is — real
+/// callers always use `RocksKv`, but nothing here is RocksDB-specific.
+pub fn patch_subgraph_for_mutation<S: KvStore + ?Sized>(
+    subgraph: &mut ResolvedSubgraph,
+    index: &TemporalIndex<'_, S>,
+    mutation: GraphMutation,
+) -> Result<()> {
+    let (src, dst) = mutation.endpoints();
+    let pair = if src.as_u64() <= dst.as_u64() {
+        (src, dst)
+    } else {
+        (dst, src)
+    };
+
+    match mutation {
+        GraphMutation::AddEdge { .. } => {
+            // src and dst are always present in `subgraph.nodes` — resolve()
+            // seeds `affected` with both endpoints, and `nodes` starts from
+            // `affected`. Only the edge between them is missing, because
+            // resolve() read the graph before this mutation landed. The
+            // model's own topology is edge-type-agnostic (`build_model_input`
+            // symmetrises without regard to type), so adding the pair is
+            // correct regardless of which of the six edge types this
+            // mutation is, and regardless of which model will consume it.
+            if !subgraph.edges.contains(&pair) {
+                subgraph.edges.push(pair);
+            }
+        }
+        GraphMutation::RemoveEdge { edge_type, .. } => {
+            // `pair` is already in `subgraph.edges` if resolve() discovered
+            // src and dst as each other's neighbours — the edge being
+            // removed was still live in the state resolve() read. Strip it
+            // only if no OTHER edge type still connects the same two node
+            // ids: two nodes related two different ways stay connected in
+            // the model's topology after removing just one relationship,
+            // and that case is cheap enough to check for that assuming it
+            // away is not worth the risk.
+            let ts = mutation.timestamp();
+            let mut still_connected = false;
+            for &other_type in EdgeType::ALL.iter() {
+                if other_type == edge_type {
+                    continue;
+                }
+                if index.edge_as_of(src, other_type, dst, ts)?.is_some() {
+                    still_connected = true;
+                    break;
+                }
+            }
+            if !still_connected {
+                subgraph.edges.retain(|&e| e != pair);
+            }
+        }
+    }
+    Ok(())
 }

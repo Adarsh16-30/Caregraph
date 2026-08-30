@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 import torch
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import GATConv, SAGEConv
 
 
 class GraphSAGEEncoder(torch.nn.Module):
@@ -53,11 +53,44 @@ class GraphSAGEEncoder(torch.nn.Module):
         return self.conv2(h, edge_index)
 
 
-def load_model(model_dir: Path) -> GraphSAGEEncoder:
+class GATEncoder(torch.nn.Module):
+    """Must match ml/train_gat.py's GATEncoder exactly — same layers, same
+    heads. Dropout is inert here regardless of the trained value: `.eval()`
+    below disables it, which is what makes the forward pass deterministic —
+    load-bearing for `tests/embedding`'s incremental-vs-full-recompute
+    exactness comparison, the same reason GraphSAGE's server-side copy is
+    checked into eval mode too.
+    """
+
+    def __init__(self, in_dim: int, hidden_dim: int, out_dim: int, heads: int) -> None:
+        super().__init__()
+        self.conv1 = GATConv(in_dim, hidden_dim, heads=heads, dropout=0.6)
+        self.conv2 = GATConv(hidden_dim * heads, out_dim, heads=1, concat=False, dropout=0.6)
+
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+        import torch.nn.functional as F
+
+        h = F.elu(self.conv1(x, edge_index))
+        return self.conv2(h, edge_index)
+
+
+# EmbeddingModel::spawn (model_bridge.rs) passes only a model_id; the
+# checkpoint itself says which architecture to build, so this worker serves
+# whichever model — GraphSAGE (Phase 4) or GAT (Phase 5) — was deployed at
+# that path, without the Rust side needing to know or care.
+def load_model(model_dir: Path) -> torch.nn.Module:
     checkpoint = torch.load(model_dir / "model.pt", map_location="cpu", weights_only=True)
-    model = GraphSAGEEncoder(
-        checkpoint["in_dim"], checkpoint["hidden_dim"], checkpoint["out_dim"]
-    )
+    architecture = checkpoint.get("architecture", "GraphSAGE")
+
+    if architecture == "GAT":
+        model: torch.nn.Module = GATEncoder(
+            checkpoint["in_dim"], checkpoint["hidden_dim"], checkpoint["out_dim"], checkpoint["heads"]
+        )
+    elif architecture == "GraphSAGE":
+        model = GraphSAGEEncoder(checkpoint["in_dim"], checkpoint["hidden_dim"], checkpoint["out_dim"])
+    else:
+        raise ValueError(f"unknown architecture {architecture!r} in {model_dir / 'model.pt'}")
+
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()
     return model
