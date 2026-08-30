@@ -7,7 +7,8 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phase 1 of 8 (Infrastructure Foundation).** See
+**Status: Phases 1-4 complete and verified; Phase 5 in progress** (atomic
+commit + fault injection done, GAT incremental path outstanding). See
 [Build status](#build-status) for exactly what does and does not exist yet.
 
 ---
@@ -122,25 +123,35 @@ the failure mode Section 0 exists to prevent.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| 1 | Infrastructure, KV abstraction, column families | code complete, **not yet compiled** |
-| 2 | Temporal indexing, `as_of()` reads, windowed scans | code complete, **not yet compiled**; latency benchmark blocked on data |
-| 3 | Bounded traversal, snapshots, baseline harness | code complete, **not yet compiled**; benchmark blocked on data |
-| 3 | Graph semantics, traversal, first Neo4j benchmark | not started |
-| 4 | GraphSAGE/GCN incremental embeddings | not started |
-| 5 | GAT incremental path, atomic commit, fault injection | not started |
+| 1 | Infrastructure, KV abstraction, column families | complete — compiled, unit + integration tests passing |
+| 2 | Temporal indexing, `as_of()` reads, windowed scans | complete — point-in-time read benchmark run against real clinical data |
+| 3 | Bounded traversal, snapshots, Neo4j/TerminusDB baseline harness | complete — 2-hop traversal benchmark passing; baseline harness built, not yet run against live baselines |
+| 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
+| 5 | GAT incremental path, atomic commit, fault injection | in progress — atomic commit + 100-run fault injection complete (Rule 5: 0 non-atomic states observed); GAT path not started |
 | 6 | gRPC API, three-way benchmark harness | not started |
 | 7 | Encryption at rest, mTLS, live dashboards | not started |
 | 8 | Demo, patent hooks, paper draft | not started |
 
 ### Known gaps
 
-1. **Nothing has been compiled.** Written on a machine without a Rust toolchain.
-   Expect dependency-version drift on first `cargo build` — in particular the
-   RocksDB crate (see [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)).
-2. **No clinical data access.** The 100-patient Phase 1 smoke-test dataset
-   requires `IDPIP_DATABASE_URL`. Until that is available, Phase 1's data
-   deliverable is incomplete — and is reported as incomplete rather than filled
-   in with generated records.
+1. **Neo4j/TerminusDB baselines have never been run end to end.** The
+   CareGraph-side benchmarks in `docs/benchmark_report.md` are real and
+   measured; the three-way comparison is not. CI's `benchmarks` job stays
+   disabled until `benchmarks/run_baseline.sh` has completed against live
+   baselines at least once by hand (Rule 4).
+2. **Evaluation data is a substitute, disclosed as one.** The PRD names
+   IDPIP/UKPDS; that source was not reachable in this environment. Evaluation
+   instead runs on the Diabetes 130-US Hospitals dataset (UCI id 296) — see
+   `data/diabetes130_loader.py`'s module doc for exactly what is derived
+   rather than recorded (Rule 6). The IDPIP/UKPDS loader
+   (`data/idpip_ukpds_loader.py`) is still implemented for when that source
+   becomes available.
+3. **Phase 5's GAT path is not implemented.** Only the associative
+   (GraphSAGE/GCN) path commits atomically today; a GAT-routed mutation
+   panics rather than silently taking the wrong math (see
+   `src/embedding/pipeline.rs`).
+4. **Phase 7 has not started.** Encryption at rest, mTLS, and live dashboards
+   are all outstanding — Rules 8 and 9 remain `PENDING`.
 
 ## Repository layout
 
