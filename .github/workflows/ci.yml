@@ -34,6 +34,17 @@ env:
   # aggregation. Rule 5 is fully satisfied by the static checks in
   # check_rules.sh regardless of this value; raising it to 5 here records
   # that both halves of Phase 5's scope are done, not just checked.
+  #
+  # Phase 6 is in progress, not complete: the full gRPC API (mutation,
+  # traversal, snapshot, similar_care_pathways — proto/caregraph.proto,
+  # src/api/) is implemented, real bearer-token auth is enforced, and 5 RPCs
+  # are covered by real-server endpoint tests (tests/integration/api_endpoint_test.rs)
+  # — Rule 2 passes unconditionally now, the same way Rule 5 does. This stays
+  # at 5, not 6, because Phase 6's own success criteria also require
+  # extending benchmarks/run_baseline.sh to all five Section 1 metrics
+  # across all three systems with real, measured results — not started, and
+  # blocked on the same live Neo4j/TerminusDB containers this environment's
+  # Docker daemon was not running to provide (see README's Known gaps).
   CAREGRAPH_PHASE: "5"
 
 jobs:
@@ -53,10 +64,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Install RocksDB build dependencies
+      - name: Install RocksDB + protobuf build dependencies
+        # protobuf-compiler is build.rs's protoc — every Rust build needs it
+        # from Phase 6 on, not only jobs that touch src/api/: tonic_build
+        # runs unconditionally for the whole crate.
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev protobuf-compiler
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
@@ -67,10 +81,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install RocksDB build dependencies
+      - name: Install RocksDB + protobuf build dependencies
+        # protobuf-compiler is build.rs's protoc — every Rust build needs it
+        # from Phase 6 on, not only jobs that touch src/api/: tonic_build
+        # runs unconditionally for the whole crate.
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev protobuf-compiler
       - uses: Swatinem/rust-cache@v2
 
       - name: In-crate unit tests
@@ -123,10 +140,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install RocksDB build dependencies
+      - name: Install RocksDB + protobuf build dependencies
+        # protobuf-compiler is build.rs's protoc — every Rust build needs it
+        # from Phase 6 on, not only jobs that touch src/api/: tonic_build
+        # runs unconditionally for the whole crate.
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev protobuf-compiler
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
         with:
@@ -148,10 +168,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install RocksDB build dependencies
+      - name: Install RocksDB + protobuf build dependencies
+        # protobuf-compiler is build.rs's protoc — every Rust build needs it
+        # from Phase 6 on, not only jobs that touch src/api/: tonic_build
+        # runs unconditionally for the whole crate.
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev cmake llvm-dev
+          sudo apt-get install -y clang libclang-dev cmake llvm-dev protobuf-compiler
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
         with:
