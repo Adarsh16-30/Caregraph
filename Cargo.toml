@@ -67,7 +67,10 @@ prometheus = "0.14"
 # --- Query & API (PRD 2.4) ----------------------------------------------------
 # PRD names "tonic 0.11+"; pinned to the 0.12 line, the first that builds
 # cleanly against this toolchain's prost/protobuf transitive versions.
-tonic = "0.12"
+# "tls" enables rustls-backed mTLS (ServerTlsConfig/ClientTlsConfig, Phase 7) —
+# on both the server (src/main.rs) and, via this same shared dependency, the
+# client side the mTLS integration test uses to connect.
+tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
 
 [build-dependencies]
@@ -92,6 +95,10 @@ proptest = "1"
 # Real client for the Rule 2 endpoint test — connects to a real tonic server
 # over an in-memory transport, not a mocked RPC layer.
 tokio-stream = "0.1"
+# Generates real, ephemeral CA/server/client certificates in-process for the
+# mTLS integration test (Phase 7) — no committed cert files, no dependency on
+# an external `openssl` CLI being on PATH in every dev/CI environment.
+rcgen = "0.13"
 
 # Cargo only auto-discovers test crates at the top level of tests/. The PRD's
 # Section 10 layout puts them in subdirectories, so each suite is declared here.

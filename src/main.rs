@@ -11,7 +11,7 @@ use anyhow::{bail, Context};
 use caregraph::api::{AuthInterceptor, CareGraphApi};
 use caregraph::storage::{cf, decode_hex_key, RocksKv, ENCRYPTION_KEY_ENV};
 use caregraph::{db_path_from_env, Timestamp};
-use tonic::transport::Server;
+use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 
 /// Standard model directory names this build knows how to spawn. Neither is
 /// required to exist — a server with only one deployed still serves every
@@ -25,6 +25,57 @@ fn deployed(model_id: &str) -> bool {
         .join(model_id)
         .join("model.pt")
         .exists()
+}
+
+/// Environment variables that configure mTLS (Phase 7). All three are
+/// required together — a server cert without requiring a client cert back
+/// is one-way TLS, not the mutual TLS Phase 7 calls for, so partial config
+/// is refused rather than silently downgraded to something weaker than what
+/// was asked for.
+const TLS_CERT_ENV: &str = "CAREGRAPH_TLS_CERT";
+const TLS_KEY_ENV: &str = "CAREGRAPH_TLS_KEY";
+const TLS_CLIENT_CA_ENV: &str = "CAREGRAPH_TLS_CLIENT_CA";
+
+/// Builds mTLS config from `CAREGRAPH_TLS_CERT`/`_KEY`/`_CLIENT_CA` (PEM file
+/// paths) if `CAREGRAPH_TLS_CERT` is set, requiring the other two. Returns
+/// `None` if TLS is not configured at all — the server then serves plaintext
+/// gRPC, which is what every test and local dev invocation still uses.
+fn tls_config_from_env() -> anyhow::Result<Option<ServerTlsConfig>> {
+    let Some(cert_path) = std::env::var(TLS_CERT_ENV).ok().filter(|v| !v.is_empty()) else {
+        tracing::warn!(
+            "{TLS_CERT_ENV} is not set — the gRPC listener is plaintext, not mTLS. Set \
+             {TLS_CERT_ENV}, {TLS_KEY_ENV}, and {TLS_CLIENT_CA_ENV} (PEM file paths) to \
+             enable Phase 7's mutual TLS."
+        );
+        return Ok(None);
+    };
+
+    let key_path = std::env::var(TLS_KEY_ENV).with_context(|| {
+        format!(
+            "{TLS_CERT_ENV} is set, so {TLS_KEY_ENV} (the matching private key) is required too"
+        )
+    })?;
+    let client_ca_path = std::env::var(TLS_CLIENT_CA_ENV).with_context(|| {
+        format!(
+            "{TLS_CERT_ENV} is set, so {TLS_CLIENT_CA_ENV} is required too — mTLS means client \
+             certificates are verified, not just the server presenting one"
+        )
+    })?;
+
+    let cert = std::fs::read(&cert_path)
+        .with_context(|| format!("reading {TLS_CERT_ENV} at {cert_path}"))?;
+    let key =
+        std::fs::read(&key_path).with_context(|| format!("reading {TLS_KEY_ENV} at {key_path}"))?;
+    let client_ca = std::fs::read(&client_ca_path)
+        .with_context(|| format!("reading {TLS_CLIENT_CA_ENV} at {client_ca_path}"))?;
+
+    tracing::info!("mTLS enabled (Phase 7): client certificates will be required and verified");
+
+    Ok(Some(
+        ServerTlsConfig::new()
+            .identity(Identity::from_pem(cert, key))
+            .client_ca_root(Certificate::from_pem(client_ca)),
+    ))
 }
 
 #[tokio::main]
@@ -130,7 +181,14 @@ async fn main() -> anyhow::Result<()> {
             interceptor,
         );
 
-    Server::builder()
+    let mut server_builder = Server::builder();
+    if let Some(tls_config) = tls_config_from_env()? {
+        server_builder = server_builder
+            .tls_config(tls_config)
+            .context("configuring mTLS")?;
+    }
+
+    server_builder
         .add_service(service)
         .serve(addr)
         .await
