@@ -47,7 +47,26 @@ env:
   # five Section 1 metrics across all three systems — point-in-time read
   # latency and incremental-embedding speedup are still CareGraph-only, a
   # disclosed gap, not a silently dropped one (see README's Known gaps).
-  CAREGRAPH_PHASE: "6"
+  #
+  # At 7: all three of Phase 7's pieces are real and verified. Encryption at
+  # rest (Rule 8) — the rocksdb crate exposes no encryption API at all, so
+  # native/rocksdb_encryption/shim.cc bridges directly to RocksDB's real
+  # EncryptionProvider/NewEncryptedEnv C++ API with a from-scratch AES-256
+  # (verified against two independent FIPS-197 test vectors); proven by an
+  # integration test that reads raw on-disk SST bytes after a real flush and
+  # confirms a plaintext marker is genuinely absent, with an unencrypted
+  # control case proving the search itself is valid. mTLS on the gRPC
+  # listener — real TLS handshakes over a real ephemeral TCP port with
+  # rcgen-generated certificates: a trusted client cert completes an RPC, no
+  # cert and an untrusted-CA cert are both rejected. Live dashboards (Rule
+  # 9) — GET /metrics (src/metrics_server.rs) finally serves the Prometheus
+  # registry dev-stack.yml/prometheus.yml have pointed at since Phase 1;
+  # point_in_time_query_seconds/traversal_latency_seconds (src/api/metrics.rs)
+  # are new query-path series wired into the real RPC handlers, verified to
+  # record real nonzero values from a live gRPC call, not just exist as
+  # empty histograms; observability/grafana/dashboards/caregraph_section1.json
+  # is a real dashboard bound to the CareGraph-Prometheus datasource.
+  CAREGRAPH_PHASE: "7"
 
 jobs:
   rules:

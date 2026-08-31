@@ -46,6 +46,7 @@
 // rather than repeated on every function for the same one reason.
 #![allow(clippy::result_large_err)]
 
+pub mod metrics;
 pub mod similarity;
 
 pub mod proto {
@@ -55,6 +56,7 @@ pub mod proto {
 use serde_json::Value as JsonValue;
 use tonic::{Request, Response, Status};
 
+use crate::api::metrics::ApiMetrics;
 use crate::embedding::metrics::EmbeddingMetrics;
 use crate::embedding::model_bridge::EmbeddingModel;
 use crate::embedding::pipeline::run_mutation_pipeline;
@@ -164,6 +166,7 @@ struct Inner {
     graphsage_model: Option<EmbeddingModel>,
     gat_model: Option<EmbeddingModel>,
     metrics: EmbeddingMetrics,
+    api_metrics: ApiMetrics,
     limits: TraversalLimits,
 }
 
@@ -190,6 +193,8 @@ impl CareGraphApi {
         let gat_model = gat_model_id.map(EmbeddingModel::spawn).transpose()?;
         let metrics = EmbeddingMetrics::new(registry)
             .map_err(|e| CareGraphError::Io(std::io::Error::other(e.to_string())))?;
+        let api_metrics = ApiMetrics::new(registry)
+            .map_err(|e| CareGraphError::Io(std::io::Error::other(e.to_string())))?;
 
         Ok(CareGraphApi {
             inner: std::sync::Arc::new(Inner {
@@ -197,6 +202,7 @@ impl CareGraphApi {
                 graphsage_model,
                 gat_model,
                 metrics,
+                api_metrics,
                 limits: TraversalLimits::default(),
             }),
         })
@@ -332,7 +338,17 @@ impl CareGraphService for CareGraphApi {
         // *values* TraversalLimits clamps, never the limits themselves. See
         // this module's doc on result limits.
         let traverser = Traverser::new(&self.inner.store, self.inner.limits);
+        let started = std::time::Instant::now();
         let result = traverser.traverse(&traversal_request).map_err(internal)?;
+        // Labeled by the *effective* (server-clamped) hop count, not the
+        // client's requested value — a client asking for an absurd depth
+        // that gets clamped should not pollute a different label's series
+        // with a latency it never actually paid for.
+        self.inner
+            .api_metrics
+            .traversal_latency_seconds
+            .with_label_values(&[&result.effective_max_hops.to_string()])
+            .observe(started.elapsed().as_secs_f64());
 
         Ok(Response::new(TraverseResponse {
             start: result.start.as_u64(),
@@ -367,9 +383,15 @@ impl CareGraphService for CareGraphApi {
         };
 
         let reader = SnapshotReader::new(&self.inner.store, self.inner.limits);
+        let timer = self
+            .inner
+            .api_metrics
+            .point_in_time_query_seconds
+            .start_timer();
         let snapshot = reader
             .snapshot_of_types(NodeId(req.subject), Timestamp(req.as_of_us), &edge_types)
             .map_err(internal)?;
+        timer.observe_duration();
 
         let Some(snapshot) = snapshot else {
             return Ok(Response::new(SnapshotResponse {

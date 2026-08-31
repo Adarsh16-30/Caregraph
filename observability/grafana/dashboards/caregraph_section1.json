@@ -1,0 +1,186 @@
+{
+  "id": null,
+  "uid": "caregraph-section1",
+  "title": "CareGraph — Section 1 Targets",
+  "description": "Every panel here queries a series this codebase actually emits — src/embedding/metrics.rs (mutation path, live since Phase 4) and src/api/metrics.rs (query path, live since Phase 7) — through the recording rules in observability/prometheus/recording-rules.yaml. A panel with no matching series shows Grafana's own \"No data\", not a fabricated number; none of them are pre-filled with anything.",
+  "tags": ["caregraph", "section1"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Mutation latency p95 (target: no fixed ceiling, tracked for regression)",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "caregraph:mutation_latency_p95_seconds",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Embedding update latency p95, by computation path",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "caregraph:embedding_update_latency_p95_seconds",
+          "legendFormat": "{{computation_path}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Point-in-time query latency p95 (Section 1 target: < 20 ms)",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.02 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "caregraph:point_in_time_query_p95_seconds",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "2-hop bounded traversal latency p95 (Section 1 target: < 50 ms)",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "caregraph:traversal_2hop_p95_seconds",
+          "legendFormat": "p95, max_hops=2",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Incremental-fallback rate (Rule 7 target: < 5%)",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "drawStyle": "line" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "caregraph:incremental_fallback_rate",
+          "legendFormat": "fallback rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Mutations processed (5m rate)",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "sum(rate(mutations_total[5m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Incremental fallbacks (5m rate)",
+      "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "caregraph-prometheus" },
+          "expr": "sum(rate(incremental_fallback_total[5m]))",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

@@ -7,10 +7,11 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-6 complete and verified** (gRPC API + point-in-time
+**Status: Phases 1-7 complete and verified** (gRPC API + point-in-time
 similarity query, three-way benchmark harness against live Neo4j/TerminusDB,
-and CI now run for real on GitHub Actions). See [Build status](#build-status)
-for exactly what does and does not exist yet.
+CI run for real on GitHub Actions, real encryption at rest + mTLS + live
+Grafana dashboards). See [Build status](#build-status) for exactly what does
+and does not exist yet.
 
 ---
 
@@ -130,7 +131,7 @@ the failure mode Section 0 exists to prevent.
 | 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
 | 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection (Rule 5: 0 non-atomic states across 80 actual kills); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, same as Phase 4's GraphSAGE claim |
 | 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
-| 7 | Encryption at rest, mTLS, live dashboards | not started |
+| 7 | Encryption at rest, mTLS, live dashboards | complete — real RocksDB encryption at rest via a from-scratch C++/AES-256 shim (the `rocksdb` crate exposes no encryption API; Rule 8), verified by reading raw on-disk SST bytes after a flush; mutual TLS on the gRPC listener, verified against real TLS handshakes with rcgen-generated certificates; `GET /metrics` finally serves the Prometheus registry dev-stack.yml has pointed at since Phase 1, with new query-path series verified to record real nonzero values, and a real Grafana dashboard bound to the live datasource (Rule 9) |
 | 8 | Demo, patent hooks, paper draft | not started |
 
 ### Known gaps
@@ -159,8 +160,23 @@ the failure mode Section 0 exists to prevent.
    not just locally. The `benchmarks` job now runs too, now that
    `run_baseline.sh` has completed against live baselines at least once by
    hand (§8).
-4. **Phase 7 has not started.** Encryption at rest, mTLS, and live dashboards
-   are all outstanding — Rules 8 and 9 remain `PENDING`.
+4. **Phase 7's AES-256 implementation is from-scratch, not a vetted library.**
+   `native/rocksdb_encryption/aes256.h` exists because the `rocksdb` crate
+   has no encryption API to build on at all (see its own module doc) and
+   this build doesn't link OpenSSL. It's verified against two independent
+   FIPS-197 test vectors and exercised for real by the integration suite,
+   but it has not had independent cryptographic review — treat it as
+   correct-per-the-standard-test-vectors, not as audited production crypto.
+5. **mTLS is opt-in, not enforced.** `CAREGRAPH_TLS_CERT`/`_KEY`/`_CLIENT_CA`
+   unset means the gRPC listener is plaintext (with a logged warning) —
+   nothing in this build requires an operator to turn mTLS on. Same shape
+   as `CAREGRAPH_ENCRYPTION_KEY`: explicit and fail-loud when configured,
+   never silently downgraded, but not mandatory.
+6. **The Grafana dashboard covers Section 1's metrics, not a full production
+   dashboard suite.** One dashboard (`caregraph_section1.json`), seven
+   panels, all bound to real series — no alerting rules, no per-model or
+   per-column-family breakdowns beyond what `embedding_update_latency_seconds`'s
+   `computation_path` label already gives.
 
 ## Repository layout
 

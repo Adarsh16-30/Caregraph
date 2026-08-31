@@ -174,6 +174,23 @@ async fn main() -> anyhow::Result<()> {
         "caregraph gRPC service starting"
     );
 
+    // Phase 7: the Prometheus scrape target dev-stack.yml/prometheus.yml
+    // have pointed at :9100 since Phase 1 — this is the first thing that
+    // actually serves it. Runs on its own port/task alongside the gRPC
+    // server, not as a route on it: matches Prometheus's own convention and
+    // means a metrics-scrape failure can never take the gRPC listener with it.
+    let metrics_addr: std::net::SocketAddr = std::env::var("CAREGRAPH_METRICS_ADDR")
+        .unwrap_or_else(|_| "0.0.0.0:9100".to_string())
+        .parse()
+        .context("CAREGRAPH_METRICS_ADDR is not a valid socket address")?;
+    let metrics_registry = registry.clone();
+    tokio::spawn(async move {
+        if let Err(e) = caregraph::metrics_server::serve(metrics_addr, metrics_registry).await {
+            tracing::error!(%metrics_addr, error = %e, "metrics server exited");
+        }
+    });
+    tracing::info!(%metrics_addr, "serving GET /metrics");
+
     let interceptor = AuthInterceptor::new(api_key);
     let service =
         caregraph::api::proto::care_graph_service_server::CareGraphServiceServer::with_interceptor(

@@ -63,6 +63,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # --- Observability (PRD 2.8) -------------------------------------------------
 prometheus = "0.14"
+# Serves GET /metrics (Phase 7) — already in the dependency tree transitively
+# via tonic's "router" feature; declared directly here (matching tonic's own
+# "0.7" pin) so src/metrics_server.rs can use its handler/Router API.
+axum = "0.7"
 
 # --- Query & API (PRD 2.4) ----------------------------------------------------
 # PRD names "tonic 0.11+"; pinned to the 0.12 line, the first that builds

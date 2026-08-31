@@ -20,6 +20,7 @@ pub mod api;
 pub mod embedding;
 pub mod error;
 pub mod graph;
+pub mod metrics_server;
 pub mod storage;
 pub mod temporal;
 pub mod types;
