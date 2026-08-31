@@ -118,7 +118,12 @@ rule_2() {
     fi
 
     local rpcs endpoint_tests
-    rpcs="$(grep -c '^\s*rpc ' proto/*.proto 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
+    # `grep -c` only prefixes each result with "filename:" when given more
+    # than one file — with exactly one proto/*.proto (the common case) it
+    # prints a bare count, which silently zeroed the sum below via
+    # `awk -F: '{s+=$2}'` reading an empty $2. `-o` + `wc -l` counts total
+    # matching lines directly and is correct regardless of file count.
+    rpcs="$(grep -ohE '^\s*rpc ' proto/*.proto 2>/dev/null | wc -l)"
     endpoint_tests="$(find tests/integration -name '*endpoint*' -o -name '*api*' 2>/dev/null | wc -l)"
 
     if (( rpcs == 0 )); then
