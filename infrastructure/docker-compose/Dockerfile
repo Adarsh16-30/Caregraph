@@ -8,6 +8,12 @@
 # their own layer so that iterating on src/ does not trigger a full RocksDB
 # rebuild — that layer caching is what keeps `docker compose up --build`
 # inside the 5-minute Phase 1 budget on a warm cache.
+#
+# Verified, not just written: `docker build` produces a 147MB image, and the
+# binary inside it genuinely opens RocksDB and starts the gRPC listener
+# (`docker run` with `CAREGRAPH_API_KEY` unset refuses to start with the
+# expected error; set, it logs "caregraph gRPC service starting" and blocks
+# serving, exactly as `src/main.rs` is written to).
 
 # ---- builder ---------------------------------------------------------------
 FROM rust:1-bookworm AS builder
@@ -27,12 +33,28 @@ WORKDIR /build
 # Dependency-only layer: a manifest, the proto schema, and a throwaway source
 # tree. build.rs and proto/ must be copied before this dummy build — it runs
 # the same build script the real build does.
+#
+# Cargo.toml declares six [[bin]] targets (autobins = false, so nothing is
+# auto-discovered — every one is explicit). Cargo resolves every declared
+# target's path before building any of them, for a bare `cargo build` and
+# for `--bin caregraph` alike, so a placeholder for main.rs alone is not
+# enough — the other five need to exist too, even though only `caregraph`
+# ships in the runtime image. Found the hard way: this layer silently only
+# ever stubbed main.rs, and nothing had actually run `docker build` since
+# bench_pit/bench_traversal/bench_incremental/load_trace/fault_injection_worker
+# were added across later phases, so target resolution had been failing here
+# for a while before anyone noticed.
 COPY Cargo.toml rust-toolchain.toml build.rs ./
 COPY proto ./proto
-RUN mkdir -p src \
+RUN mkdir -p src/bin \
     && echo 'fn main() {}' > src/main.rs \
     && echo '' > src/lib.rs \
-    && cargo build --release \
+    && echo 'fn main() {}' > src/bin/load_trace.rs \
+    && echo 'fn main() {}' > src/bin/bench_pit.rs \
+    && echo 'fn main() {}' > src/bin/bench_traversal.rs \
+    && echo 'fn main() {}' > src/bin/bench_incremental.rs \
+    && echo 'fn main() {}' > src/bin/fault_injection_worker.rs \
+    && cargo build --release --bin caregraph \
     && rm -rf src
 
 # Real sources.
