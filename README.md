@@ -7,8 +7,10 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-5 complete and verified.** See
-[Build status](#build-status) for exactly what does and does not exist yet.
+**Status: Phases 1-5 complete and verified; Phase 6 in progress** (gRPC API +
+point-in-time similarity query done and verified, three-way benchmark harness
+extension outstanding). See [Build status](#build-status) for exactly what
+does and does not exist yet.
 
 ---
 
@@ -127,7 +129,7 @@ the failure mode Section 0 exists to prevent.
 | 3 | Bounded traversal, snapshots, Neo4j/TerminusDB baseline harness | complete — 2-hop traversal benchmark passing; baseline harness built, not yet run against live baselines |
 | 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
 | 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection (Rule 5: 0 non-atomic states across 80 actual kills); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, same as Phase 4's GraphSAGE claim |
-| 6 | gRPC API, three-way benchmark harness | not started |
+| 6 | gRPC API, three-way benchmark harness | in progress — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); three-way benchmark harness extension not started |
 | 7 | Encryption at rest, mTLS, live dashboards | not started |
 | 8 | Demo, patent hooks, paper draft | not started |
 
@@ -137,22 +139,43 @@ the failure mode Section 0 exists to prevent.
    CareGraph-side benchmarks in `docs/benchmark_report.md` are real and
    measured; the three-way comparison is not. CI's `benchmarks` job stays
    disabled until `benchmarks/run_baseline.sh` has completed against live
-   baselines at least once by hand (Rule 4).
-2. **Evaluation data is a substitute, disclosed as one.** The PRD names
+   baselines at least once by hand (Rule 4). Phase 6's task list also calls
+   for extending that script to cover all five Section 1 metrics across all
+   three systems and writing the full benchmark report generator — neither
+   has started. Docker was not running for most of this build (`docker ps`
+   failed to reach the daemon); once started, actually bringing up
+   `neo4j`/`terminusdb` and running the extended harness against them was
+   still not attempted this session — a real gap, not only an environmental
+   one.
+2. **The `docker build` fix below is unverified end to end.** `build.rs`
+   (Phase 6) needs `protoc` and `proto/` present for every `cargo build`
+   call, including the Dockerfile's own dependency-prewarm layer, which
+   didn't copy either — the image would not have built at all.
+   `infrastructure/docker-compose/Dockerfile` now installs
+   `protobuf-compiler` and copies `build.rs`/`proto/` before that layer.
+   A real `docker build` of the fixed image was started once Docker became
+   available mid-session; it was still compiling (RocksDB + tonic in
+   release mode with LTO is slow) when this was written, and its outcome
+   was not observed. The fix is correct by inspection — same shape as the
+   working `ci.yml` fix, verified — but "inspected" is not "built."
+3. **Evaluation data is a substitute, disclosed as one.** The PRD names
    IDPIP/UKPDS; that source was not reachable in this environment. Evaluation
    instead runs on the Diabetes 130-US Hospitals dataset (UCI id 296) — see
    `data/diabetes130_loader.py`'s module doc for exactly what is derived
    rather than recorded (Rule 6). The IDPIP/UKPDS loader
    (`data/idpip_ukpds_loader.py`) is still implemented for when that source
    becomes available.
-3. **CI's `embedding` and `fault-injection` jobs are configured but
-   unverified in real CI.** Both are wired with a Python + torch + torch_geometric
-   setup step and pass locally (2/2 embedding correctness tests, 100/100
-   fault-injection iterations), but this repository has no configured git
-   remote in the environment it was built in, so neither job has actually
-   run on GitHub's infrastructure. The config is ready for whenever one is
-   added; "wired" is not the same claim as "observed green in CI."
-4. **Phase 7 has not started.** Encryption at rest, mTLS, and live dashboards
+4. **No CI job has actually run on GitHub's infrastructure yet.** This
+   repository has no configured git remote in the environment it was built
+   in, so `ci.yml` itself — every job — is unverified beyond "the YAML is
+   well-formed and each job's commands pass when run by hand locally."
+   `embedding` and `fault-injection` carry one further gap on top of that:
+   both need a Python + torch + torch_geometric setup step, which is now
+   wired but, like the rest of the workflow, has never actually executed on
+   a GitHub runner. Both pass locally (2/2 embedding correctness tests,
+   100/100 fault-injection iterations). The config is ready for whenever a
+   remote is added; "wired" is not the same claim as "observed green in CI."
+5. **Phase 7 has not started.** Encryption at rest, mTLS, and live dashboards
    are all outstanding — Rules 8 and 9 remain `PENDING`.
 
 ## Repository layout
