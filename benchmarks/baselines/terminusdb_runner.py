@@ -151,11 +151,45 @@ def cmd_load(args) -> int:
 
     # Each batch is one commit, giving TerminusDB a real version history to
     # query point-in-time against.
+    #
+    # GraphEdge's document id is Lexical over (src, dst, edge_type) alone --
+    # no timestamp. The diabetes130 trace re-touches the same edge inside a
+    # single COMMIT_BATCH window often enough that a batch can contain, say,
+    # add then remove then add again for the identical (src, dst, edge_type)
+    # -- three records, one document id. Two real failures came from that,
+    # found by actually running this loader against the full trace rather
+    # than assuming batching this way would work:
+    #
+    # 1. TerminusDB refuses to mutate the same document id twice in one
+    #    transaction (SameDocumentIdsMutatedInOneTransaction) -- submitting
+    #    a batch's adds verbatim fails the moment any edge is touched more
+    #    than once inside a batch, which real clinical timelines do
+    #    routinely (a medication stopped and later resumed, a diagnosis
+    #    retracted as a correction and re-entered). Fixed by collapsing each
+    #    batch to every key's *last* operation before touching the API: a
+    #    commit-per-batch history represents state as of the batch boundary,
+    #    not every intra-batch flicker, and CareGraph/Neo4j are loaded the
+    #    same batched way for the same reason.
+    # 2. That alone still fails differently: a net "add" whose edge was
+    #    already inserted in an *earlier* batch (removed, then re-added,
+    #    inside one later batch -- the removal never reached the API because
+    #    step 1 collapsed it away) hits `insert_document`'s "document
+    #    already exists" error, since insert refuses to touch an existing
+    #    id. Fixed by using `replace_document(..., create=True)` instead --
+    #    upserts: creates the document if this is genuinely its first
+    #    appearance, updates it in place if TerminusDB already has it from
+    #    an earlier batch. Either way is the correct outcome for "this is
+    #    the edge's state as of the end of this batch."
     added = 0
     for i in range(0, len(mutations), COMMIT_BATCH):
         batch = mutations[i : i + COMMIT_BATCH]
-        docs, removals = [], []
+        net: dict[tuple[int, int, int], dict] = {}
         for record in batch:
+            key = (record["src"], record["dst"], record["edge_type"])
+            net[key] = record
+
+        docs, removals = [], []
+        for record in net.values():
             name = EDGE_TYPE_NAMES.get(record["edge_type"])
             if name is None:
                 raise BaselineUnavailable(
@@ -171,12 +205,22 @@ def cmd_load(args) -> int:
             (docs if record["op"] == "add_edge" else removals).append(doc)
 
         if docs:
-            c.insert_document(docs, commit_msg=f"edges up to {batch[-1]['timestamp_us']}")
+            c.replace_document(
+                docs, create=True, commit_msg=f"edges up to {batch[-1]['timestamp_us']}"
+            )
             added += len(docs)
         for doc in removals:
             # Retraction as a real commit, which is the capability TerminusDB is
-            # here to represent.
-            c.delete_document(doc, commit_msg=f"retraction at {doc['event_us']}")
+            # here to represent. A key that nets to a removal but was never
+            # actually live in TerminusDB (added and removed inside the same
+            # batch, so never reached the API above) has nothing to delete --
+            # skipped rather than treated as an error, since "never existed
+            # in this system's view" is exactly what net effect means.
+            try:
+                c.delete_document(doc, commit_msg=f"retraction at {doc['event_us']}")
+            except Exception as exc:  # noqa: BLE001 - see comment above
+                if "not found" not in str(exc).lower() and "does not exist" not in str(exc).lower():
+                    raise
 
     print(f"loaded {len(node_docs)} nodes and {added} edges into terminusdb")
     return 0
