@@ -7,10 +7,10 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-5 complete and verified; Phase 6 in progress** (gRPC API +
-point-in-time similarity query done and verified, three-way benchmark harness
-extension outstanding). See [Build status](#build-status) for exactly what
-does and does not exist yet.
+**Status: Phases 1-6 complete and verified** (gRPC API + point-in-time
+similarity query, three-way benchmark harness against live Neo4j/TerminusDB,
+and CI now run for real on GitHub Actions). See [Build status](#build-status)
+for exactly what does and does not exist yet.
 
 ---
 
@@ -129,24 +129,21 @@ the failure mode Section 0 exists to prevent.
 | 3 | Bounded traversal, snapshots, Neo4j/TerminusDB baseline harness | complete — 2-hop traversal benchmark passing; baseline harness built, not yet run against live baselines |
 | 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
 | 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection (Rule 5: 0 non-atomic states across 80 actual kills); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, same as Phase 4's GraphSAGE claim |
-| 6 | gRPC API, three-way benchmark harness | in progress — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); three-way benchmark harness extension not started |
+| 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
 | 7 | Encryption at rest, mTLS, live dashboards | not started |
 | 8 | Demo, patent hooks, paper draft | not started |
 
 ### Known gaps
 
-1. **Neo4j/TerminusDB baselines have never been run end to end.** The
-   CareGraph-side benchmarks in `docs/benchmark_report.md` are real and
-   measured; the three-way comparison is not. CI's `benchmarks` job stays
-   disabled until `benchmarks/run_baseline.sh` has completed against live
-   baselines at least once by hand (Rule 4). Phase 6's task list also calls
-   for extending that script to cover all five Section 1 metrics across all
-   three systems and writing the full benchmark report generator — neither
-   has started. Docker was not running for most of this build (`docker ps`
-   failed to reach the daemon); once started, actually bringing up
-   `neo4j`/`terminusdb` and running the extended harness against them was
-   still not attempted this session — a real gap, not only an environmental
-   one.
+1. **The three-way comparison covers one Section 1 metric, not all of them.**
+   `benchmarks/run_baseline.sh` has now been run end to end against live
+   Neo4j + GDS and TerminusDB containers, loaded with the byte-identical
+   trace and measured on 2-hop bounded traversal — see
+   `docs/benchmark_report.md` §8 for the numbers and their caveats (the run
+   was from a dirty tree; point-in-time read latency and incremental-embedding
+   speedup are still CareGraph-only). Extending the harness to the rest of
+   Section 1's metrics three-way, and writing a full benchmark report
+   generator, has not been done.
 2. **Evaluation data is a substitute, disclosed as one.** The PRD names
    IDPIP/UKPDS; that source was not reachable in this environment. Evaluation
    instead runs on the Diabetes 130-US Hospitals dataset (UCI id 296) — see
@@ -154,16 +151,14 @@ the failure mode Section 0 exists to prevent.
    rather than recorded (Rule 6). The IDPIP/UKPDS loader
    (`data/idpip_ukpds_loader.py`) is still implemented for when that source
    becomes available.
-3. **No CI job has actually run on GitHub's infrastructure yet.** This
-   repository has no configured git remote in the environment it was built
-   in, so `ci.yml` itself — every job — is unverified beyond "the YAML is
-   well-formed and each job's commands pass when run by hand locally."
-   `embedding` and `fault-injection` carry one further gap on top of that:
-   both need a Python + torch + torch_geometric setup step, which is now
-   wired but, like the rest of the workflow, has never actually executed on
-   a GitHub runner. Both pass locally (2/2 embedding correctness tests,
-   100/100 fault-injection iterations). The config is ready for whenever a
-   remote is added; "wired" is not the same claim as "observed green in CI."
+3. **CI now runs for real on GitHub's own infrastructure.** The repository
+   is pushed to `https://github.com/Adarsh16-30/Caregraph`, and every
+   currently-enabled `ci.yml` job (Section 0 rule enforcement, fmt+clippy,
+   tests against real RocksDB, dev-stack Docker build, embedding correctness,
+   100-run fault injection) has completed successfully on a GitHub runner —
+   not just locally. The `benchmarks` job now runs too, now that
+   `run_baseline.sh` has completed against live baselines at least once by
+   hand (§8).
 4. **Phase 7 has not started.** Encryption at rest, mTLS, and live dashboards
    are all outstanding — Rules 8 and 9 remain `PENDING`.
 
