@@ -201,8 +201,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose -f infrastructure/docker-compose/dev-stack.yml up -d neo4j terminusdb
+      # --wait blocks until neo4j's healthcheck passes and terminusdb reaches
+      # "running" (it has no healthcheck defined) — without this the next step
+      # can race container startup, since `up -d` alone returns as soon as the
+      # containers are created, not once they're actually serving.
+      - run: docker compose -f infrastructure/docker-compose/dev-stack.yml up -d --wait neo4j terminusdb
       - run: |
+          # Rule 10 requires a hardware spec for any benchmark number; run_baseline.sh
+          # hard-stops without one. GitHub-hosted runner specs vary by run and aren't
+          # published precisely, so this is disclosed as what it is rather than a
+          # fabricated number — this job is a regression smoke check anyway (see the
+          # job name), not a source for docs/benchmark_report.md's citable numbers.
+          export CAREGRAPH_HARDWARE="GitHub Actions ubuntu-latest hosted runner (spec varies by run, see https://github.com/actions/runner-images)"
           bash benchmarks/run_baseline.sh \
             --trace benchmarks/traces/diabetes130_smoke_100.jsonl \
             --hops 2 --queries 200
