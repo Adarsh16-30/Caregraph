@@ -9,7 +9,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context};
 use caregraph::api::{AuthInterceptor, CareGraphApi};
-use caregraph::storage::{cf, RocksKv};
+use caregraph::storage::{cf, decode_hex_key, RocksKv, ENCRYPTION_KEY_ENV};
 use caregraph::{db_path_from_env, Timestamp};
 use tonic::transport::Server;
 
@@ -42,7 +42,31 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("creating database directory {}", parent.display()))?;
     }
 
-    let store = RocksKv::open(&path).with_context(|| format!("opening RocksDB at {path}"))?;
+    // Rule 8: real encryption at rest, opt-in via CAREGRAPH_ENCRYPTION_KEY —
+    // same "explicit and fail loud, never silently insecure" shape as
+    // CAREGRAPH_API_KEY just below. Unset means unencrypted, which is what
+    // every test, benchmark, and local dev invocation still uses (see
+    // RocksKv::open_encrypted's doc comment); set-but-malformed is refused
+    // outright rather than silently falling back to unencrypted.
+    let store = match std::env::var(ENCRYPTION_KEY_ENV) {
+        Ok(hex) => {
+            let key = decode_hex_key(&hex).map_err(anyhow::Error::msg)?;
+            tracing::info!("encryption at rest enabled (AES-256-CTR, Rule 8)");
+            RocksKv::open_encrypted(&path, &key)
+                .with_context(|| format!("opening encrypted RocksDB at {path}"))?
+        }
+        Err(std::env::VarError::NotPresent) => {
+            tracing::warn!(
+                "{ENCRYPTION_KEY_ENV} is not set — database at {path} is unencrypted. \
+                 Set it to a real AES-256 key to enable Rule 8's encryption at rest:\n\n    \
+                 export {ENCRYPTION_KEY_ENV}=\"$(openssl rand -hex 32)\"\n"
+            );
+            RocksKv::open(&path).with_context(|| format!("opening RocksDB at {path}"))?
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            bail!("{ENCRYPTION_KEY_ENV} is set but is not valid UTF-8");
+        }
+    };
     for name in cf::ALL {
         store
             .cf_handle(name)

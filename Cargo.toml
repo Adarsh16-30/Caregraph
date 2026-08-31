@@ -40,6 +40,13 @@ path = "src/bin/fault_injection_worker.rs"
 # version line is 0.2x. Pinned to the canonical crate here so the build resolves.
 # Confirm against the intended fork at first `cargo build` (see docs/TOOLCHAIN.md).
 rocksdb = { version = "0.23", features = ["multi-threaded-cf", "lz4"] }
+# Needed directly (not just transitively via `rocksdb`) because `rocksdb::ffi`
+# is a private re-export (`use librocksdb_sys as ffi;`, not `pub use`) — the
+# encryption shim's extern "C" declaration in src/storage/encryption.rs needs
+# to name `rocksdb_env_t` itself. Version/features pinned to match `rocksdb`
+# 0.23's own dependency exactly so Cargo unifies both to one compiled crate
+# instance rather than building RocksDB's C++ core twice.
+librocksdb-sys = { version = "0.17.1", default-features = false, features = ["static"] }
 
 # --- Async runtime (PRD 2.2) -------------------------------------------------
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal"] }
@@ -65,6 +72,19 @@ prost = "0.13"
 
 [build-dependencies]
 tonic-build = "0.12"
+# --- Real RocksDB encryption at rest (Rule 8) --------------------------------
+# The `rocksdb` crate exposes no encryption API at all — its C API
+# (librocksdb-sys) never wraps rocksdb/env_encryption.h, even though the C++
+# core it statically links already compiles that file in. native/rocksdb_encryption/
+# bridges to it directly via a small C++ shim (see that directory's module doc)
+# that needs librocksdb-sys's vendored `rocksdb/include/` headers at compile
+# time. librocksdb-sys is pulled in transitively via the `rocksdb` dependency
+# above already (no direct dependency needed here) — build.rs locates its
+# exact resolved path via `cargo_metadata` rather than the `links`-propagated
+# DEP_ROCKSDB_* env vars, which turned out not to be visible from this crate's
+# build script in practice (verified empirically: printed zero DEP_* vars).
+cc = "1"
+cargo_metadata = "0.18"
 
 [dev-dependencies]
 tempfile = "3"

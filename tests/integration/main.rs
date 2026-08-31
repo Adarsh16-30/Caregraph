@@ -5,5 +5,6 @@
 //! success criterion and the Rule 1 boundary.
 
 mod api_endpoint_test;
+mod encryption_at_rest;
 mod storage_kv;
 mod temporal_pit;

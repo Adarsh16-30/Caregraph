@@ -27,4 +27,7 @@ pub enum CareGraphError {
 
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("encryption: {0}")]
+    Encryption(String),
 }

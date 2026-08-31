@@ -46,6 +46,11 @@ WORKDIR /build
 # for a while before anyone noticed.
 COPY Cargo.toml rust-toolchain.toml build.rs ./
 COPY proto ./proto
+# build.rs unconditionally compiles native/rocksdb_encryption/shim.cc (Rule 8)
+# on every build, prewarm included — same class of bug this comment already
+# documents once for the [[bin]] stubs: a layer that only copies what *looks*
+# sufficient breaks the moment build.rs needs something else unconditionally.
+COPY native ./native
 RUN mkdir -p src/bin \
     && echo 'fn main() {}' > src/main.rs \
     && echo '' > src/lib.rs \

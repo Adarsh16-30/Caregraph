@@ -134,9 +134,27 @@ pub struct RocksKv {
 }
 
 impl RocksKv {
-    /// Open (creating if absent) a CareGraph database at `path`.
+    /// Open (creating if absent) a CareGraph database at `path`, unencrypted.
+    ///
+    /// This is what every test, benchmark, and dev-mode invocation uses —
+    /// forcing an encryption key onto every `RocksKv::open` call in the
+    /// codebase would be a much bigger, unrelated change. Production callers
+    /// that want Rule 8's real encryption at rest use
+    /// [`RocksKv::open_encrypted`] instead; see `main.rs`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let db = Db::open_cf_descriptors(&cf::db_options(), path, cf::descriptors())?;
+        Ok(RocksKv { db })
+    }
+
+    /// Open (creating if absent) a CareGraph database at `path` with every
+    /// file RocksDB writes — SST files, WAL, MANIFEST — encrypted on disk
+    /// under AES-256 in CTR mode (PRD Section 0, Rule 8; see
+    /// `src/storage/encryption.rs`).
+    pub fn open_encrypted(path: impl AsRef<Path>, key: &[u8]) -> Result<Self> {
+        let env = crate::storage::encryption::open_encrypted_env(key)?;
+        let mut opts = cf::db_options();
+        opts.set_env(&env);
+        let db = Db::open_cf_descriptors(&opts, path, cf::descriptors())?;
         Ok(RocksKv { db })
     }
 
