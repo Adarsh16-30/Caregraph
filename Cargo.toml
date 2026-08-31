@@ -57,9 +57,21 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # --- Observability (PRD 2.8) -------------------------------------------------
 prometheus = "0.14"
 
+# --- Query & API (PRD 2.4) ----------------------------------------------------
+# PRD names "tonic 0.11+"; pinned to the 0.12 line, the first that builds
+# cleanly against this toolchain's prost/protobuf transitive versions.
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
+
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+# Real client for the Rule 2 endpoint test — connects to a real tonic server
+# over an in-memory transport, not a mocked RPC layer.
+tokio-stream = "0.1"
 
 # Cargo only auto-discovers test crates at the top level of tests/. The PRD's
 # Section 10 layout puts them in subdirectories, so each suite is declared here.

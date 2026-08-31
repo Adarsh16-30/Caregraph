@@ -134,6 +134,88 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         Ok(self.node_as_of(node, as_of)?.is_some())
     }
 
+    /// Every node's embedding at `as_of` — the candidate pool
+    /// `similar_care_pathways` (PRD 5.3, Contribution 5) ranks by cosine
+    /// similarity. PRD names this `embeddings::scan_as_of`.
+    ///
+    /// # Why this can't be one seek per node, or one seek at all
+    ///
+    /// [`embedding_as_of`](Self::embedding_as_of) answers "this node's
+    /// embedding at `as_of`" with a single seek because it already knows
+    /// which node to seek to. Here the whole point is discovering every node
+    /// that *has* an embedding — there is no prefix to seek to, only the
+    /// entire `CF_EMBEDDINGS` column family. So this walks it once, start to
+    /// end, in ascending key order (`[node_id | timestamp_desc]`): within one
+    /// node's own key range that order is newest-version-first (the inverted
+    /// timestamp), so the first entry seen for a node is its current newest
+    /// version — if that version's timestamp is already `<= as_of`, it's the
+    /// answer immediately; if not, the walk continues *within that same
+    /// node's range* until it finds the first version that qualifies (or
+    /// runs out of that node's versions entirely, meaning the node did not
+    /// exist yet at `as_of`), then moves on to the next node. One entry read
+    /// per node's true point-in-time answer, but the walk itself still has
+    /// to cross the *whole* column family — there is no way to skip a node's
+    /// history without reading through it, unlike a single-node point read.
+    ///
+    /// No result cap: the caller (`similar_care_pathways`) needs every live
+    /// candidate to rank them, the same reason `SnapshotReader` scans a
+    /// subject's adjacency exhaustively rather than capping it (see
+    /// `graph/snapshot.rs`) — a capped candidate pool would silently bias
+    /// similarity ranking toward whichever nodes happened to sort first,
+    /// not toward the nodes that are actually most similar.
+    pub fn all_embeddings_as_of(&self, as_of: Timestamp) -> Result<Vec<(NodeId, Embedding)>> {
+        let mut out = Vec::new();
+        let mut current_node: Option<NodeId> = None;
+        let mut current_resolved = false;
+        let mut failure: Option<CareGraphError> = None;
+
+        // Empty prefix and seek key: `key.starts_with(&[])` is always true,
+        // so the manual boundary check in `scan_from_with_opts` never breaks
+        // early — this walks every key in the family. `scan_from_narrow_prefix`
+        // is what makes that safe against the CF's own fixed-prefix bloom
+        // filter, which has nothing to bind against a prefix this wide (see
+        // `storage/kv.rs`'s doc on `scan_from_narrow_prefix`).
+        self.store
+            .scan_from_narrow_prefix(cf::CF_EMBEDDINGS, &[], &[], &mut |key, value| {
+                let Some((node, timestamp)) = decode_node_key(key) else {
+                    failure = Some(CareGraphError::MalformedKey {
+                        cf: cf::CF_EMBEDDINGS,
+                        expected: NODE_KEY_LEN,
+                        found: key.len(),
+                    });
+                    return ControlFlow::Break(());
+                };
+
+                if current_node != Some(node) {
+                    current_node = Some(node);
+                    current_resolved = false;
+                }
+                if current_resolved {
+                    return ControlFlow::Continue(()); // already answered for this node
+                }
+                if timestamp > as_of {
+                    return ControlFlow::Continue(()); // this version postdates as_of; keep walking
+                }
+
+                match Embedding::deserialize(value) {
+                    Ok(embedding) => {
+                        out.push((node, embedding));
+                        current_resolved = true;
+                        ControlFlow::Continue(())
+                    }
+                    Err(e) => {
+                        failure = Some(e.into());
+                        ControlFlow::Break(())
+                    }
+                }
+            })?;
+
+        if let Some(e) = failure {
+            return Err(e);
+        }
+        Ok(out)
+    }
+
     // -----------------------------------------------------------------------
     // Adjacency reconstruction — one seek, then a walk back through time
     // -----------------------------------------------------------------------

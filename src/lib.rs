@@ -8,14 +8,15 @@
 //! | 1. Storage | [`storage`] | Phase 1 — implemented |
 //! | 2. Temporal indexing | [`temporal`] | Phase 2 — implemented |
 //! | 3. Graph semantics | [`graph`] | Phase 3 — implemented |
-//! | 4. Incremental embedding | `embedding` | Phases 4–5 |
-//! | 5. Query & API | `api` | Phase 6 |
+//! | 4. Incremental embedding | [`embedding`] | Phases 4–5 — implemented |
+//! | 5. Query & API | [`api`] | Phase 6 — implemented |
 //! | 6. Observability & compliance | `observability` | Phase 7 |
 //!
 //! Modules for later phases are deliberately absent rather than stubbed. A stub
 //! that compiles is indistinguishable from an implementation to anything except
 //! a reader, which is precisely the failure mode Section 0 exists to prevent.
 
+pub mod api;
 pub mod embedding;
 pub mod error;
 pub mod graph;

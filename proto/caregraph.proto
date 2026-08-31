@@ -1,0 +1,198 @@
+// CareGraph gRPC schema (PRD Section 2.4, Phase 6).
+//
+// One service, four capability groups: mutation, traversal, snapshot,
+// similarity — the "full gRPC API surface" Phase 6's Goals name explicitly.
+// Every RPC reads or writes through the real Rust layers underneath
+// (src/api/mod.rs) — Rule 2 forbids a response built from literals rather
+// than a real graph read.
+
+syntax = "proto3";
+
+package caregraph.v1;
+
+service CareGraphService {
+  // --- Mutation --------------------------------------------------------------
+  // Rule 5: the structural change and its embedding update commit atomically
+  // (AtomicCommitter, src/embedding/atomic_commit.rs) — this is that path's
+  // first live caller anywhere in the system.
+  rpc AddEdge(AddEdgeRequest) returns (MutationResponse);
+  rpc RemoveEdge(RemoveEdgeRequest) returns (MutationResponse);
+
+  // --- Traversal (PRD Phase 3) -------------------------------------------------
+  rpc Traverse(TraverseRequest) returns (TraverseResponse);
+
+  // --- Snapshot (PRD Phase 3) --------------------------------------------------
+  rpc Snapshot(SnapshotRequest) returns (SnapshotResponse);
+
+  // --- Similarity (Contribution 5, Section 5.3) ------------------------------
+  rpc SimilarCarePathways(SimilarCarePathwaysRequest) returns (SimilarCarePathwaysResponse);
+}
+
+// Mirrors src/types.rs::EdgeType exactly — discriminants are load-bearing on
+// the Rust side and must never be renumbered.
+enum EdgeType {
+  EDGE_TYPE_UNSPECIFIED = 0;
+  EDGE_TYPE_DIAGNOSED_WITH = 1;
+  EDGE_TYPE_PRESCRIBED_MEDICATION = 2;
+  EDGE_TYPE_UNDERWENT_PROCEDURE = 3;
+  EDGE_TYPE_TREATED_BY_PROVIDER = 4;
+  EDGE_TYPE_HAS_LAB_RESULT = 5;
+  EDGE_TYPE_HAS_ENCOUNTER = 6;
+}
+
+// Mirrors src/types.rs::ModelKind. MODEL_KIND_GCN is a declared, not a
+// deployed, model — see src/api/mod.rs's model dispatch for why a GCN
+// request returns a clear error rather than silently running GraphSAGE's
+// weights under a different name.
+enum ModelKind {
+  MODEL_KIND_UNSPECIFIED = 0;
+  MODEL_KIND_GRAPHSAGE = 1;
+  MODEL_KIND_GCN = 2;
+  MODEL_KIND_GAT = 3;
+}
+
+message AddEdgeRequest {
+  uint64 src = 1;
+  uint64 dst = 2;
+  EdgeType edge_type = 3;
+  uint64 timestamp_us = 4;
+  // Arbitrary JSON object, stored verbatim as the edge's properties
+  // (EdgeValue::properties). Empty string means "{}".
+  string properties_json = 5;
+  ModelKind model = 6;
+}
+
+message RemoveEdgeRequest {
+  uint64 src = 1;
+  uint64 dst = 2;
+  EdgeType edge_type = 3;
+  uint64 timestamp_us = 4;
+  ModelKind model = 5;
+}
+
+message MutationResponse {
+  // Node ids the resolver named as affected — see
+  // AffectedSubgraphResolver::resolve.
+  repeated uint64 affected_nodes = 1;
+  // Rule 7: true if the embedding update fell back rather than completing
+  // incrementally. Never silently absorbed into "succeeded".
+  bool fallback = 2;
+  bool fanout_capped = 3;
+  uint64 neighbors_dropped = 4;
+  bool expansion_capped = 5;
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_OUTGOING = 1;
+  DIRECTION_INCOMING = 2;
+  DIRECTION_BOTH = 3;
+}
+
+message TraverseRequest {
+  uint64 start = 1;
+  uint64 as_of_us = 2;
+  // Server-clamped against TraversalLimits::max_hops regardless of what's
+  // requested here — see src/graph/limits.rs.
+  uint32 max_hops = 3;
+  Direction direction = 4;
+  // Empty means every EdgeType.
+  repeated EdgeType edge_types = 5;
+  // Both zero means "no window filter". A non-zero window restricts to
+  // edges whose live-at-as_of version was written in [window_from_us,
+  // window_to_us] — see TraversalRequest::window's doc for what that means.
+  uint64 window_from_us = 6;
+  uint64 window_to_us = 7;
+  // Server-clamped against TraversalLimits::max_result_nodes/edges. Zero
+  // means "unspecified", which yields the server default, not zero results.
+  uint64 max_nodes = 8;
+  uint64 max_edges = 9;
+}
+
+message VisitedNodeMsg {
+  uint64 node_id = 1;
+  uint32 hops = 2;
+}
+
+message EdgeMsg {
+  uint64 src = 1;
+  uint64 dst = 2;
+  EdgeType edge_type = 3;
+  uint64 timestamp_us = 4;
+  string properties_json = 5;
+}
+
+message TruncationMsg {
+  bool hit_node_limit = 1;
+  bool hit_edge_limit = 2;
+  bool hit_expansion_limit = 3;
+  uint64 fanout_capped_nodes = 4;
+  // A lower bound while truncated — see Truncation::fanout_dropped_neighbors's
+  // doc for why this can undercount but never overcounts.
+  uint64 fanout_dropped_neighbors = 5;
+}
+
+message TraverseResponse {
+  uint64 start = 1;
+  uint64 as_of_us = 2;
+  repeated VisitedNodeMsg nodes = 3;
+  repeated EdgeMsg edges = 4;
+  // The hop bound actually applied, after server-side clamping — may be
+  // lower than TraverseRequest.max_hops asked for.
+  uint32 effective_max_hops = 5;
+  TruncationMsg truncation = 6;
+}
+
+message SnapshotRequest {
+  uint64 subject = 1;
+  uint64 as_of_us = 2;
+  // Empty means every EdgeType.
+  repeated EdgeType edge_types = 3;
+}
+
+message NodeMsg {
+  uint64 node_id = 1;
+  string node_type = 2;
+  uint64 timestamp_us = 3;
+  string properties_json = 4;
+}
+
+message RelatedEntityMsg {
+  EdgeMsg edge = 1;
+  // Absent means the edge's target had no version at or before as_of — a
+  // loader wrote the edge before its target. Surfaced, not hidden; see
+  // RelatedEntity::node's doc.
+  NodeMsg node = 2;
+}
+
+message SnapshotResponse {
+  // False means the subject did not exist at as_of — never enrolled, or
+  // retracted at or before that instant. `subject`/`related` are empty then.
+  bool found = 1;
+  NodeMsg subject = 2;
+  uint64 as_of_us = 3;
+  repeated RelatedEntityMsg related = 4;
+  TruncationMsg truncation = 5;
+}
+
+message SimilarCarePathwaysRequest {
+  uint64 node_id = 1;
+  uint64 as_of_us = 2;
+  uint32 top_k = 3;
+}
+
+message SimilarPathwayMatch {
+  uint64 node_id = 1;
+  float similarity = 2;
+}
+
+message SimilarCarePathwaysResponse {
+  // Ranked descending by similarity. The query node itself is excluded —
+  // see src/api/similarity.rs's module doc for why that's a deliberate
+  // departure from the PRD's literal pseudocode, not an oversight.
+  repeated SimilarPathwayMatch matches = 1;
+  // The query node had no embedding recorded at or before as_of — it either
+  // did not exist yet, or has never been through the mutation pipeline.
+  // `matches` is empty when true.
+  bool query_node_has_no_embedding = 2;
+}
