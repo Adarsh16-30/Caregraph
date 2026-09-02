@@ -195,11 +195,15 @@ jobs:
 
   fault-injection:
     name: fault injection (Rule 5)
-    # tests/fault_injection/ exists and passed 100/100 locally (0 non-atomic
-    # states observed). Needs the same real Python + torch interpreter as
-    # the embedding job above — the worker binary this suite spawns and
-    # kills makes a real GraphSAGE forward pass on its way to the commit
-    # being interrupted.
+    # tests/fault_injection/ now runs two suites, one per `AtomicCommitter`
+    # dispatch arm — a GraphSAGE run (`aggregate_over_subgraph`) and a GAT
+    # run (`gat_incremental_update`), each 100 kills, 0 non-atomic states
+    # locally. `cargo test --test fault_injection` picks up both `#[test]`
+    # functions in the binary with no filter change needed here. Needs the
+    # same real Python + torch interpreter as the embedding job above — the
+    # worker binary this suite spawns and kills makes a real forward pass
+    # (GraphSAGE or GAT, per suite) on its way to the commit being
+    # interrupted.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

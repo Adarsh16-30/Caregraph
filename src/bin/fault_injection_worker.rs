@@ -22,9 +22,19 @@ use caregraph::storage::RocksKv;
 use caregraph::temporal::record::EdgeValue;
 use caregraph::types::{EdgeType, ModelKind, NodeId, Timestamp};
 
+fn parse_model_kind(s: &str) -> Result<ModelKind> {
+    Ok(match s {
+        "graphsage" => ModelKind::GraphSAGE,
+        "gcn" => ModelKind::GCN,
+        "gat" => ModelKind::GAT,
+        other => bail!("unknown --model-kind {other} (expected graphsage, gcn, or gat)"),
+    })
+}
+
 struct Args {
     db: String,
     model_id: String,
+    model_kind: ModelKind,
     src: u64,
     dst: u64,
     edge_type: EdgeType,
@@ -47,6 +57,7 @@ fn parse_edge_type(s: &str) -> Result<EdgeType> {
 fn parse_args() -> Result<Args> {
     let mut db = None;
     let mut model_id = None;
+    let mut model_kind = ModelKind::GraphSAGE;
     let mut src = None;
     let mut dst = None;
     let mut edge_type = EdgeType::DiagnosedWith;
@@ -59,6 +70,7 @@ fn parse_args() -> Result<Args> {
         match arg.as_str() {
             "--db" => db = Some(next()?),
             "--model" => model_id = Some(next()?),
+            "--model-kind" => model_kind = parse_model_kind(&next()?)?,
             "--src" => src = Some(next()?.parse()?),
             "--dst" => dst = Some(next()?.parse()?),
             "--edge-type" => edge_type = parse_edge_type(&next()?)?,
@@ -71,6 +83,7 @@ fn parse_args() -> Result<Args> {
     Ok(Args {
         db: db.context("--db is required")?,
         model_id: model_id.context("--model is required")?,
+        model_kind,
         src: src.context("--src is required")?,
         dst: dst.context("--dst is required")?,
         edge_type,
@@ -114,7 +127,7 @@ fn main() -> Result<()> {
     committer.commit(
         mutation,
         &EdgeValue::new(serde_json::json!({})),
-        ModelKind::GraphSAGE,
+        args.model_kind,
         &model,
         512,
         1_500,

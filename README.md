@@ -40,27 +40,46 @@ bash scripts/run_demo.sh      # Phase 8: live end-to-end demo, see below
 
 ## Loading the clinical graph
 
-CareGraph evaluates on the real IDPIP UKPDS-derived clinical graph (5,102 T2DM
-patients, 20-year follow-up). Loading is two steps: export a mutation trace from
-IDPIP's TimescaleDB, then apply it.
+The PRD names the IDPIP UKPDS-derived clinical graph (5,102 T2DM patients,
+20-year follow-up) as the evaluation dataset; that source is not reachable in
+this environment (Known gap #2), so every trace, benchmark, and demo in this
+repository actually runs on the **Diabetes 130-US Hospitals** dataset (UCI
+id 296) instead — a real, cited, public substitute, not synthetic data. Use
+this path to reproduce anything in `docs/benchmark_report.md` or
+`scripts/run_demo.sh`:
+
+```bash
+python data/diabetes130_loader.py \
+    --csv data/raw/diabetic_data.csv \
+    --out benchmarks/traces/diabetes130_full.jsonl
+
+cargo run --release --bin caregraph-load -- \
+    --trace benchmarks/traces/diabetes130_full.jsonl \
+    --db data/db/diabetes130
+```
+
+`data/diabetes130_loader.py`'s own module doc lists exactly what is derived
+rather than read verbatim from the source file (encounter dates, provider
+identity) — read it before citing a number from this data (Rule 6).
+
+If IDPIP's TimescaleDB source becomes reachable, `data/idpip_ukpds_loader.py`
+implements the loader the PRD actually names, producing a byte-identical
+trace format so the same `caregraph-load` command and the same three-way
+Neo4j/TerminusDB comparison apply unchanged:
 
 ```bash
 export IDPIP_DATABASE_URL='postgresql://user@host:5432/idpip'
 python data/idpip_ukpds_loader.py --limit-patients 100 \
     --out benchmarks/traces/ukpds_smoke_100.jsonl
 
-cargo run --bin caregraph-load -- \
+cargo run --release --bin caregraph-load -- \
     --trace benchmarks/traces/ukpds_smoke_100.jsonl \
     --db data/db/caregraph
 ```
 
-The intermediate trace exists so the byte-identical input can be replayed into
-CareGraph, Neo4j+GDS, and TerminusDB — which is what makes the comparison
-apples-to-apples.
-
-**There is no synthetic mode.** The loader exits non-zero if it cannot reach a
-real clinical source (Rule 6). A benchmark measured on invented data is not a
-measurement.
+**Neither loader has a synthetic mode.** Both exit non-zero if they cannot
+reach their real source (Rule 6). A benchmark measured on invented data is
+not a measurement.
 
 ## Live demo
 
@@ -148,22 +167,29 @@ the failure mode Section 0 exists to prevent.
 | 2 | Temporal indexing, `as_of()` reads, windowed scans | complete — point-in-time read benchmark run against real clinical data |
 | 3 | Bounded traversal, snapshots, Neo4j/TerminusDB baseline harness | complete — 2-hop traversal benchmark passing; baseline harness built, not yet run against live baselines |
 | 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
-| 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection (Rule 5: 0 non-atomic states across 80 actual kills); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, same as Phase 4's GraphSAGE claim |
+| 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection against **both** `AtomicCommitter` dispatch arms (GraphSAGE: 49 actual kills, 0 non-atomic states; GAT: 78 actual kills, 0 non-atomic states — Rule 5); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, 8.1x median incremental speedup (p95 latency misses the 100ms target on the full graph, same as Phase 4's GraphSAGE finding — see `docs/benchmark_report.md` §2.3-§2.4) |
 | 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
 | 7 | Encryption at rest, mTLS, live dashboards | complete — real RocksDB encryption at rest via a from-scratch C++/AES-256 shim (the `rocksdb` crate exposes no encryption API; Rule 8), verified by reading raw on-disk SST bytes after a flush; mutual TLS on the gRPC listener, verified against real TLS handshakes with rcgen-generated certificates; `GET /metrics` finally serves the Prometheus registry dev-stack.yml has pointed at since Phase 1, with new query-path series verified to record real nonzero values, and a real Grafana dashboard bound to the live datasource (Rule 9) |
 | 8 | Demo, patent hooks, paper draft | complete for what an agent in this repository can do — `scripts/run_demo.sh` runs a real end-to-end demo (live mutation, traversal, snapshot, similarity) start to finish with no manual steps; `docs/patent_hooks.md` states five benchmark-cited claims (Rule 10) plus a real, newly-run Rule 5 fault-injection result; `docs/novelty_analysis.md` gives the per-claim prior-art comparison; `docs/paper_draft.md` is a CIDR/ICDE/SIGMOD/VLDB-shaped draft citing the same real numbers. The university IDF-B filing and the Palantir/Pinterest/LinkedIn patent-literature cross-check are explicitly **not done** — see Known gaps below and `docs/novelty_analysis.md` §4 |
 
 ### Known gaps
 
-1. **The three-way comparison covers one Section 1 metric, not all of them.**
-   `benchmarks/run_baseline.sh` has now been run end to end against live
-   Neo4j + GDS and TerminusDB containers, loaded with the byte-identical
-   trace and measured on 2-hop bounded traversal — see
+1. **The three-way *baseline comparison* covers one Section 1 metric, not
+   all of them.** `benchmarks/run_baseline.sh` has been run end to end
+   against live Neo4j + GDS and TerminusDB containers, loaded with the
+   byte-identical trace and measured on 2-hop bounded traversal — see
    `docs/benchmark_report.md` §8 for the numbers and their caveats (the run
-   was from a dirty tree; point-in-time read latency and incremental-embedding
-   speedup are still CareGraph-only). Extending the harness to the rest of
-   Section 1's metrics three-way, and writing a full benchmark report
-   generator, has not been done.
+   was from a dirty tree). Point-in-time read latency, incremental-embedding
+   speedup, and sustained ingestion throughput are all now measured
+   (`docs/benchmark_report.md` §2), but only CareGraph-side — extending
+   `run_baseline.sh` to run all of Section 1's metrics three-way against
+   Neo4j and TerminusDB, and writing a full benchmark report generator,
+   has not been done. Two of the CareGraph-only numbers are themselves a
+   **miss** against their Section 1 target, not just an incomplete
+   comparison: incremental embedding update p95 latency is ~15x over
+   target for both GraphSAGE and GAT on the full 174,298-node graph — see
+   `docs/benchmark_report.md` §2.3-§2.4 for the honest number and why the
+   miss is scale-dependent, not a defect in the incremental path.
 2. **Evaluation data is a substitute, disclosed as one.** The PRD names
    IDPIP/UKPDS; that source was not reachable in this environment. Evaluation
    instead runs on the Diabetes 130-US Hospitals dataset (UCI id 296) — see
@@ -218,6 +244,16 @@ the failure mode Section 0 exists to prevent.
    script exited. Fixed by resolving the real PID through MSYS `ps`'s own
    WINPID column first; re-run and confirmed via `Get-Process` that nothing
    was left behind afterward.
+10. **Two Section 2/10 stack entries are unused, not substituted.** ONNX
+    Runtime (§2.3) never appears anywhere in this build — `ml/embedding_server.py`
+    fills its role instead (see `docs/benchmark_report.md` §7.1). Section 10's
+    `ml/embedding/gat_incremental.py` and `ml/ripple_plus_reference/` paths
+    don't exist either: the GAT incremental logic lives in
+    `src/embedding/gat_incremental.rs`, and there is no vendored RIPPLE++
+    checkout, only its operator-decoupling technique reimplemented directly.
+    Creating stub files at those two paths to match the directory listing
+    would itself be placeholder content — not done, disclosed here and in
+    `docs/benchmark_report.md` §7.1 instead.
 
 ## Repository layout
 

@@ -88,12 +88,15 @@ after it, both are — there is no code path that can observe one without
 the other.
 
 **Evidence.** 100 fault-injection iterations killed the committing worker
-process at a randomised point racing its own commit call; 37 kills
-actually landed inside the race window, and across all 100 iterations
-(committed, uncommitted, or killed) 0 non-atomic states were observed —
-every reopened database showed either the structural edge with both
-endpoints' embeddings, or neither.
-[benchmark: benchmarks/results/gate/phase5_fault_injection.log]
+process at a randomised point racing its own commit call, against the
+GraphSAGE dispatch arm; 49 kills actually landed inside the race window,
+and across all 100 iterations (committed, uncommitted, or killed) 0
+non-atomic states were observed — every reopened database showed either
+the structural edge with both endpoints' embeddings, or neither.
+[benchmark: benchmarks/results/gate/phase5_fault_injection.log] The same
+suite run against the GAT dispatch arm (`gat_incremental_update`, §4.3)
+landed 78 kills in 100 iterations, again 0 non-atomic states.
+[benchmark: benchmarks/results/gate/phase5_fault_injection_gat.log]
 
 ## 4. Incremental embedding computation
 
@@ -124,6 +127,16 @@ median 6210.12 ms — **7.79x** median speedup against a 5.0x target, with
 correctness-test mutations both before and after the resolver fix above.
 [benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
 
+**A genuine latency miss, not previously stated here.** Section 1's own
+`< 100 ms` p95 target for this metric is separate from the 5x-speedup bar
+above and was not checked against it in an earlier version of this draft:
+p95 on that same run is 1548.96 ms, roughly 15x over target, on the full
+174,298-node graph.
+[benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
+`scripts/run_demo.sh`'s live mutations land in 9-57 ms on its much smaller
+~370-node seeded graph, so the miss is scale-dependent, not a defect in the
+bounded-subgraph approach itself — see `docs/benchmark_report.md` §2.3.
+
 Bounding the receptive field's *total size* (not just each node's own
 fan-out) was necessary to keep this fast: an unbounded ring-two expansion
 was observed to pull a 49,165-node subgraph for one 521-node affected set
@@ -139,9 +152,20 @@ problem. `src/embedding/gat_incremental.rs` recomputes attention-weighted
 aggregation for the affected neighbourhood only, without a full forward
 pass. Correctness (exact match against full recompute, float32 tolerance)
 is verified on 50 randomised mutation sequences
-(`tests/embedding/gat_correctness_test.rs`); a GAT-specific
-incremental-vs-recompute *speedup* number has not been measured this
-session (see §7).
+(`tests/embedding/gat_correctness_test.rs`).
+
+**Evidence (speedup).** 30 real `add_edge` mutations sampled across the same
+174,298-node / 599,497-edge clinical graph §5.1 describes, timed through
+`gat_incremental_update`: incremental median 517.36 ms vs. full-recompute
+median 8209.36 ms — **8.1x** median speedup, above the 5x target, with
+`incremental_fallback_total` at 0 across all 30 samples.
+[benchmark: benchmarks/results/gate/phase5_gat_incremental_speedup.json]
+
+**Evidence (latency, and a genuine miss).** p95 GAT incremental latency is
+1531.04 ms on this graph size — roughly 15x over the PRD's own 100 ms
+target for this metric, the same scale-dependent shape as §4.2's
+GraphSAGE latency finding above. This is a real miss, not a measurement
+gap this draft previously left open (see §7).
 
 ## 5. Evaluation
 
@@ -215,10 +239,17 @@ per-claim comparison and its own disclosed limits.
   in §5 comes from one uncooled laptop CPU, sometimes one run. §5.3's own
   citation of the thermal-variance finding applies to every other number in
   this section too.
-- **GAT has no incremental-speedup number**, only a correctness result
-  (§4.3) — the PRD's own "up to ~100ms" GAT latency figure is a design
-  target stated in the build brief, not something measured and repeated
-  here as a result.
+- **GAT's incremental update misses the PRD's own p95 latency target**
+  (§4.3): 1531.04 ms measured against a 100 ms target, the same
+  scale-dependent shape as §4.2's GraphSAGE miss. The speedup ratio (8.1x)
+  passes; the absolute latency does not, on this graph size.
+- **The Rule 5 fault-injection suite now covers both dispatch arms of
+  `AtomicCommitter::commit`** — an earlier version of this draft's §3
+  evidence cited only the GraphSAGE run (`ModelKind::GraphSAGE`), leaving
+  the GAT arm (`gat_incremental_update`) architecturally identical but
+  never actually exercised under a kill. Both are now run and cited in §3
+  above (`benchmarks/results/gate/phase5_fault_injection.log` and
+  `..._gat.log`).
 - **Similarity search has no latency benchmark.** `similar_care_pathways`
   is exercised functionally (real client, real varying responses) but was
   not one of the metrics extended to a percentile measurement this

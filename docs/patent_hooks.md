@@ -27,7 +27,8 @@ versioning with incremental embedding maintenance in the same transaction.
 
 **Measured evidence:**
 
-- 100 fault-injection iterations raced a randomised kill against the worker's own commit call — 37 of the 100 actually landed a kill (the rest finished naturally before the jitter window elapsed), leaving 68 fully-committed and 32 fully-uncommitted outcomes and 0 non-atomic states: every reopened database showed either both the structural edge and both endpoints' embeddings, or neither. [benchmark: benchmarks/results/gate/phase5_fault_injection.log]
+- 100 fault-injection iterations raced a randomised kill against the worker's own commit call, against `AtomicCommitter`'s GraphSAGE dispatch arm — 49 of the 100 actually landed a kill (the rest finished naturally before the jitter window elapsed), leaving 59 fully-committed and 41 fully-uncommitted outcomes and 0 non-atomic states: every reopened database showed either both the structural edge and both endpoints' embeddings, or neither. [benchmark: benchmarks/results/gate/phase5_fault_injection.log]
+- The same 100-iteration suite, run separately against `AtomicCommitter`'s other dispatch arm (`gat_incremental_update`, Claim 4) — 78 of 100 landed a kill, 26 fully-committed, 74 fully-uncommitted, 0 non-atomic states. This arm is a materially different function, not just a different weight file, and was never exercised under a kill before this pass. [benchmark: benchmarks/results/gate/phase5_fault_injection_gat.log]
 - The commit path used in that test is the same `atomic_commit.rs` code the
   live gRPC `AddEdge`/`RemoveEdge` RPCs call — not a test-only stand-in
   (`src/api/mod.rs::run_mutation`).
@@ -111,13 +112,13 @@ incremental-GNN literature flags this case as an open problem (PRD §6.2).
   `cargo test --test embedding`; not a timed benchmark
   [benchmark: N/A — correctness test, see docs/benchmark_report.md §7.4 for
   why exactness, not a percentage, is the relevant claim here].
+- 30 real `add_edge` mutations sampled from the same 174,298-node full clinical graph Claim 3 uses, timed through `gat_incremental_update` instead of the associative path: incremental median 517.36 ms vs. full-recompute median 8209.36 ms — **8.1x** median speedup, above Rule 7's 5x bar. [benchmark: benchmarks/results/gate/phase5_gat_incremental_speedup.json]
+- `incremental_fallback_total` stayed at zero across every one of those sampled mutations — the exactness claim above is unaffected by the disclosed gap below. [benchmark: benchmarks/results/gate/phase5_gat_incremental_speedup.json]
 
-**Disclosed gap:** unlike Claim 3, no GAT-specific incremental-vs-recompute
-*speedup* number has been measured this session — only exactness. The PRD's
-GAT latency figure (§3.2, step 6) is a design target stated in the
-build brief, not a measured result, and is not repeated here as one. A GAT
-speedup benchmark analogous to `phase4_incremental_speedup.json` would need
-to be run and cited before any such number could appear in this document.
+**Disclosed gap:** the PRD's own Phase 5 success criterion — p95 GAT incremental latency under 100ms — is measured here for the first time and is **not met**: p95 1531.04 ms on this graph size, roughly 15x over target. [benchmark: benchmarks/results/gate/phase5_gat_incremental_speedup.json] Same scale-dependent
+shape as Claim 3's own GraphSAGE miss (see `docs/benchmark_report.md`
+§2.3-§2.4) — this is a genuine miss on this graph size, not a fallback or
+a measurement gap.
 
 ---
 
