@@ -66,7 +66,22 @@ env:
   # record real nonzero values from a live gRPC call, not just exist as
   # empty histograms; observability/grafana/dashboards/caregraph_section1.json
   # is a real dashboard bound to the CareGraph-Prometheus datasource.
-  CAREGRAPH_PHASE: "7"
+  #
+  # At 8: Rule 10 goes live (RULE_LIVE_FROM[10]=8 in check_rules.sh) —
+  # docs/patent_hooks.md states five claims, each citing a real,
+  # already-committed benchmark file, including a newly-run 100-iteration
+  # Rule 5 fault-injection result (benchmarks/results/gate/phase5_fault_injection.log:
+  # 37 kills landed, 0 non-atomic states) that had never been captured as a
+  # citable artifact before this phase. scripts/run_demo.sh
+  # (src/bin/demo_client.rs) is a real, runnable end-to-end demo — verified
+  # by actually running it twice against a real built server, including
+  # catching and fixing a real teardown bug (Git Bash/MSYS's `$!` is not the
+  # real Windows PID `taskkill` needs) between the two runs.
+  # docs/novelty_analysis.md and docs/paper_draft.md are the remaining two
+  # Phase 8 deliverables; the IDF-B filing and patent-literature cross-check
+  # are explicitly not done (README's Known gaps) — Rule 10 requires
+  # citation traceability, not that a filing has occurred.
+  CAREGRAPH_PHASE: "8"
 
 jobs:
   rules:

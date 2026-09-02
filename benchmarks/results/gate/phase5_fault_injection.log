@@ -1,0 +1,18 @@
+CareGraph Rule 5 fault-injection suite — real run
+Command: cargo test --release --test fault_injection -- --test-threads=1 --nocapture
+Commit: 75689eeb2d455fbae99a797c48cabb18a13314d4
+Run started (UTC): 2026-08-31T18:32:52Z
+Test: atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime
+Model: ml/deployed/diabetes130_graphsage (real trained GraphSAGE, Rule 3)
+
+running 1 test
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime ... 100 iterations: 37 killed, 68 fully committed, 32 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+Note: the harness's own wall-clock "finished in Ns" figure for this run
+reflects the host machine sleeping mid-run (a real background session on a
+personal laptop, not a hang or a slow test) and is not reported here as a
+timing claim — this file is evidence for the 0-non-atomic-states invariant,
+not for how long 100 iterations take on quiescent hardware.
