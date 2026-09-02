@@ -64,7 +64,6 @@ const ITERATIONS: u32 = 100;
 const SRC: NodeId = NodeId(1);
 const DST: NodeId = NodeId(2);
 const EDGE_TYPE: EdgeType = EdgeType::DiagnosedWith;
-const MODEL_ID: &str = "diabetes130_graphsage";
 /// Generous: covers Python interpreter start plus a cold PyTorch import.
 const MODEL_READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Generous: only reached if a kill was somehow missed entirely.
@@ -156,7 +155,21 @@ fn cleanup_python_child(pid: u32) {
 /// commit, verify the resulting database state. Returns the outcome and
 /// whether this iteration actually killed the worker (vs. it finishing
 /// naturally before the kill delay elapsed).
-fn run_one_iteration(iteration: u32, rng: &mut Rng) -> (Outcome, bool) {
+///
+/// `model_id` is the deployed model directory (`ml/deployed/<model_id>`);
+/// `model_kind` is `AtomicCommitter::commit`'s dispatch key ("graphsage" or
+/// "gat" — see `fault_injection_worker.rs`'s own `--model-kind` flag). The
+/// two travel together: `atomic_commit.rs` matches on `ModelKind` to choose
+/// between the associative aggregation path and `gat_incremental_update`, so
+/// running the suite with `model_kind="gat"` and a GraphSAGE-shaped model
+/// would call the wrong forward pass — the worker itself does not check
+/// this, callers must keep them paired correctly.
+fn run_one_iteration(
+    iteration: u32,
+    rng: &mut Rng,
+    model_id: &str,
+    model_kind: &str,
+) -> (Outcome, bool) {
     let dir = seed_fresh_db();
     let db_path = dir.path().join("caregraph");
     let ts = 1_000_000 + iteration as u64;
@@ -166,7 +179,9 @@ fn run_one_iteration(iteration: u32, rng: &mut Rng) -> (Outcome, bool) {
         .arg("--db")
         .arg(&db_path)
         .arg("--model")
-        .arg(MODEL_ID)
+        .arg(model_id)
+        .arg("--model-kind")
+        .arg(model_kind)
         .arg("--src")
         .arg(SRC.as_u64().to_string())
         .arg("--dst")
@@ -311,15 +326,19 @@ fn run_one_iteration(iteration: u32, rng: &mut Rng) -> (Outcome, bool) {
     (outcome, killed)
 }
 
-#[test]
-fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime() {
-    let mut rng = Rng::new(0xFA07_1E5EC0FFEEu64);
+/// Shared body for both model suites below — same race, same invariant,
+/// only the deployed model (and therefore which `AtomicCommitter::commit`
+/// dispatch arm runs) differs. `seed` keeps the two suites' jitter sequences
+/// independent, the same convention `associative_correctness_test.rs` and
+/// `gat_correctness_test.rs` use for the same reason.
+fn run_suite(model_id: &str, model_kind: &str, seed: u64) {
+    let mut rng = Rng::new(seed);
     let mut committed = 0u32;
     let mut uncommitted = 0u32;
     let mut killed_count = 0u32;
 
     for i in 0..ITERATIONS {
-        let (outcome, killed) = run_one_iteration(i, &mut rng);
+        let (outcome, killed) = run_one_iteration(i, &mut rng, model_id, model_kind);
         match outcome {
             Outcome::FullyCommitted => committed += 1,
             Outcome::FullyUncommitted => uncommitted += 1,
@@ -330,8 +349,9 @@ fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime() {
     }
 
     eprintln!(
-        "{ITERATIONS} iterations: {killed_count} killed, {committed} fully committed, \
-         {uncommitted} fully uncommitted, 0 non-atomic (a violation would have panicked above)"
+        "model={model_id} ({model_kind}): {ITERATIONS} iterations: {killed_count} killed, \
+         {committed} fully committed, {uncommitted} fully uncommitted, 0 non-atomic \
+         (a violation would have panicked above)"
     );
 
     // The invariant itself is checked per-iteration inside run_one_iteration
@@ -342,5 +362,26 @@ fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime() {
     assert!(
         killed_count > 0,
         "no iteration was actually killed — the race never exercised anything"
+    );
+}
+
+#[test]
+fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime() {
+    run_suite("diabetes130_graphsage", "graphsage", 0xFA07_1E5EC0FFEEu64);
+}
+
+/// Rule 5's "one WriteBatch, regardless of which model is active" claim,
+/// exercised against `atomic_commit.rs`'s other dispatch arm
+/// (`gat_incremental_update`) — the associative-model suite above only ever
+/// runs the `aggregate_over_subgraph` arm, so it proves nothing about GAT's
+/// own code path, which is a materially different function, not just a
+/// different weight file. Distinct seed from the suite above so the two
+/// runs' jitter sequences never coincidentally match.
+#[test]
+fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat() {
+    run_suite(
+        "diabetes130_gat",
+        "gat",
+        0xFA07_1E5EC0FFEEu64 ^ 0x9E37_79B9_7F4A_7C15,
     );
 }

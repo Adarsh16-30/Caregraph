@@ -1,0 +1,36 @@
+CareGraph Rule 5 fault-injection suite — real run, GAT dispatch arm
+Command: cargo test --release --test fault_injection -- --test-threads=1 --nocapture
+Commit: 256dc0d3360224be01cbca12c7e60c5e50cd3366 (dirty — this pass added the
+        --model-kind parameterisation itself; the invariant under test,
+        AtomicCommitter's single WriteBatch write, is unchanged by that)
+Run started (UTC): 2026-09-02T19:08:32Z
+Test: atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat
+Model: ml/deployed/diabetes130_gat (real trained GAT, Rule 3)
+
+This is the GAT counterpart to phase5_fault_injection.log. Both suites now
+run in the same test binary (`cargo test --test fault_injection` executes
+both `#[test]` functions with no filter change), exercising
+AtomicCommitter::commit's two dispatch arms separately:
+aggregate_over_subgraph (GraphSAGE/GCN) and gat_incremental_update (GAT).
+Before this pass, the fault-injection worker hardcoded ModelKind::GraphSAGE
+regardless of which model was deployed, so GAT's own dispatch arm — a
+materially different function, not just a different weight file — had
+never actually been exercised under a kill. See
+docs/benchmark_report.md and README's Known gap list for that history.
+
+running 1 test
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat ... 100 iterations: 78 killed, 26 fully committed, 74 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+Note: this suite killed the worker more often (78/100) than the GraphSAGE
+suite in the same run (49/100, see phase5_fault_injection.log) — GAT's
+attention-weighted aggregation takes measurably longer per commit than
+GraphSAGE's mean aggregation (see phase5_gat_incremental_speedup.json),
+which widens the window the same 0-8ms jitter has to land a kill inside.
+Both suites ran back to back in one `cargo test` invocation; the combined
+wall-clock time (2001.51s) reflects real Python/PyTorch subprocess startup
+cost across 200 total iterations on shared hardware also running other
+benchmark work in this session, not a hang — same caveat
+phase5_fault_injection.log's own note makes about its own wall-clock figure.

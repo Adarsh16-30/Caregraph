@@ -17,10 +17,23 @@
 //! mutation touching a high-degree node is the case where that gap narrows,
 //! honestly, rather than disappearing into an averaged number.
 //!
+//! `--model-kind` selects which incremental path is timed:
+//! GraphSAGE/GCN go through [`associative::incremental_aggregate`]; GAT goes
+//! through the same resolve-then-patch sequence
+//! `AtomicCommitter::commit` runs (see `atomic_commit.rs`), followed by
+//! [`gat_incremental::gat_incremental_update`] instead — mirroring exactly
+//! how `tests/embedding/gat_correctness_test.rs` exercises the GAT path,
+//! for the same reason: `incremental_aggregate` is associative-model-only,
+//! it does not dispatch on `ModelKind` itself.
+//!
 //! Usage:
 //!     caregraph-bench-incremental --db data/db/diabetes130 \
 //!         --trace benchmarks/traces/diabetes130_full.jsonl \
 //!         --model diabetes130_graphsage --samples 30
+//!
+//!     caregraph-bench-incremental --db data/db/diabetes130 \
+//!         --trace benchmarks/traces/diabetes130_full.jsonl \
+//!         --model diabetes130_gat --model-kind gat --samples 30
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -29,9 +42,11 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
+use caregraph::embedding::resolver::{patch_subgraph_for_mutation, AffectedSubgraphResolver};
 use caregraph::embedding::state::{GraphMutation, MutationContext};
-use caregraph::embedding::{associative, EmbeddingModel};
+use caregraph::embedding::{associative, gat_incremental, EmbeddingModel};
 use caregraph::storage::{KvStore, RocksKv};
+use caregraph::temporal::TemporalIndex;
 use caregraph::types::{EdgeType, ModelKind, NodeId, Timestamp};
 use serde::Serialize;
 
@@ -51,15 +66,26 @@ struct Args {
     db: String,
     trace: PathBuf,
     model: String,
+    model_kind: ModelKind,
     samples: usize,
     out_dir: PathBuf,
     min_speedup: f64,
+}
+
+fn parse_model_kind(s: &str) -> Result<ModelKind> {
+    Ok(match s {
+        "graphsage" => ModelKind::GraphSAGE,
+        "gcn" => ModelKind::GCN,
+        "gat" => ModelKind::GAT,
+        other => bail!("unknown --model-kind {other} (expected graphsage, gcn, or gat)"),
+    })
 }
 
 fn parse_args() -> Result<Args> {
     let mut db = "data/db/diabetes130".to_string();
     let mut trace = None;
     let mut model = "diabetes130_graphsage".to_string();
+    let mut model_kind = ModelKind::GraphSAGE;
     let mut samples = 30usize;
     let mut out_dir = PathBuf::from("benchmarks/results");
     let mut min_speedup = DEFAULT_MIN_SPEEDUP;
@@ -71,13 +97,15 @@ fn parse_args() -> Result<Args> {
             "--db" => db = next()?,
             "--trace" => trace = Some(PathBuf::from(next()?)),
             "--model" => model = next()?,
+            "--model-kind" => model_kind = parse_model_kind(&next()?)?,
             "--samples" => samples = next()?.parse()?,
             "--out-dir" => out_dir = PathBuf::from(next()?),
             "--min-speedup" => min_speedup = next()?.parse()?,
             "-h" | "--help" => {
                 println!(
                     "usage: caregraph-bench-incremental --trace <file.jsonl> [--db <path>] \
-                     [--model <name>] [--samples N] [--out-dir DIR] [--min-speedup X]"
+                     [--model <name>] [--model-kind graphsage|gcn|gat] [--samples N] \
+                     [--out-dir DIR] [--min-speedup X]"
                 );
                 std::process::exit(0);
             }
@@ -89,6 +117,7 @@ fn parse_args() -> Result<Args> {
         db,
         trace: trace.context("--trace is required: it supplies the mutation sample")?,
         model,
+        model_kind,
         samples,
         out_dir,
         min_speedup,
@@ -258,6 +287,7 @@ struct Report {
     prd_target: &'static str,
     provenance: Provenance,
     model: String,
+    model_kind: &'static str,
     incremental: Percentiles,
     full_recompute: Percentiles,
     median_speedup: f64,
@@ -273,6 +303,7 @@ fn main() -> Result<()> {
         RocksKv::open(&args.db).with_context(|| format!("opening RocksDB at {}", args.db))?;
     let model = EmbeddingModel::spawn(&args.model)
         .with_context(|| format!("spawning embedding worker for {}", args.model))?;
+    let index = TemporalIndex::new(&store);
 
     eprintln!(
         "building whole-graph reference input from {} ...",
@@ -299,15 +330,34 @@ fn main() -> Result<()> {
             ts: s.ts,
         };
 
-        let mut ctx = MutationContext::new(mutation, ModelKind::GraphSAGE);
+        let mut ctx = MutationContext::new(mutation, args.model_kind);
         let t0 = Instant::now();
-        associative::incremental_aggregate(
-            &mut ctx,
-            &store,
-            &model,
-            FANOUT_CAP,
-            MAX_EXPANDED_NODES,
-        )?;
+        match args.model_kind {
+            ModelKind::GraphSAGE | ModelKind::GCN => {
+                associative::incremental_aggregate(
+                    &mut ctx,
+                    &store,
+                    &model,
+                    FANOUT_CAP,
+                    MAX_EXPANDED_NODES,
+                )?;
+            }
+            ModelKind::GAT => {
+                // Mirrors `AtomicCommitter::commit`'s own sequence (and
+                // `gat_correctness_test.rs`'s exercise of it): resolve
+                // against committed state, patch in the one edge this
+                // mutation adds, then run GAT's non-associative aggregation
+                // over exactly that subgraph. `incremental_aggregate` above
+                // is the associative-model shortcut for the first two steps
+                // plus `aggregate_over_subgraph`; GAT needs the same first
+                // two steps but a different aggregation call.
+                let resolver =
+                    AffectedSubgraphResolver::new(&store, FANOUT_CAP, MAX_EXPANDED_NODES);
+                let mut subgraph = resolver.resolve(mutation)?;
+                patch_subgraph_for_mutation(&mut subgraph, &index, mutation)?;
+                gat_incremental::gat_incremental_update(&mut ctx, &store, &model, subgraph, s.ts)?;
+            }
+        }
         let incremental_elapsed = t0.elapsed();
 
         if ctx.fallback {
@@ -328,7 +378,7 @@ fn main() -> Result<()> {
             &all_nodes,
             &all_edges,
             &ctx.affected,
-            ModelKind::GraphSAGE,
+            args.model_kind,
             s.ts,
         )?;
         let full_elapsed = t0.elapsed();
@@ -370,6 +420,19 @@ fn main() -> Result<()> {
         hub_touching,
         results.len()
     )];
+    if args.model_kind == ModelKind::GAT {
+        notes.push(format!(
+            "Phase 5 success criterion is p95 GAT incremental latency < 100ms on the \
+             benchmark graph, separate from this file's own 5x-speedup gate: measured \
+             p95 here is {:.2}ms ({})",
+            incremental_p.p95_ms,
+            if incremental_p.p95_ms < 100.0 {
+                "PASS"
+            } else {
+                "MISS"
+            }
+        ));
+    }
     let provenance = Provenance {
         generated_at_unix: SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -385,11 +448,34 @@ fn main() -> Result<()> {
         );
     }
 
+    let (benchmark, prd_target, file_prefix, model_kind_str) = match args.model_kind {
+        ModelKind::GAT => (
+            "gat_incremental_vs_full_recompute",
+            "Phase 5: GAT incremental embedding update at least 5x faster than full \
+             recompute, p95 latency under 100ms",
+            "gat_incremental_speedup",
+            "gat",
+        ),
+        ModelKind::GraphSAGE => (
+            "incremental_vs_full_recompute",
+            "Phase 4: incremental embedding update at least 5x faster than full recompute",
+            "incremental_speedup",
+            "graphsage",
+        ),
+        ModelKind::GCN => (
+            "incremental_vs_full_recompute",
+            "Phase 4: incremental embedding update at least 5x faster than full recompute",
+            "incremental_speedup",
+            "gcn",
+        ),
+    };
+
     let report = Report {
-        benchmark: "incremental_vs_full_recompute",
-        prd_target: "Phase 4: incremental embedding update at least 5x faster than full recompute",
+        benchmark,
+        prd_target,
         provenance,
         model: args.model.clone(),
+        model_kind: model_kind_str,
         incremental: incremental_p,
         full_recompute: full_p,
         median_speedup,
@@ -401,7 +487,7 @@ fn main() -> Result<()> {
 
     std::fs::create_dir_all(&args.out_dir)?;
     let out = args.out_dir.join(format!(
-        "incremental_speedup_{}.json",
+        "{file_prefix}_{}.json",
         report.provenance.generated_at_unix
     ));
     std::fs::write(&out, serde_json::to_string_pretty(&report)? + "\n")?;

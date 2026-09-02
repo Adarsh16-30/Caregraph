@@ -1,18 +1,31 @@
 CareGraph Rule 5 fault-injection suite — real run
 Command: cargo test --release --test fault_injection -- --test-threads=1 --nocapture
-Commit: 75689eeb2d455fbae99a797c48cabb18a13314d4
-Run started (UTC): 2026-08-31T18:32:52Z
+Commit: 256dc0d3360224be01cbca12c7e60c5e50cd3366 (dirty — this pass added the
+        --model-kind parameterisation itself; the invariant under test,
+        AtomicCommitter's single WriteBatch write, is unchanged by that)
+Run started (UTC): 2026-09-02T19:08:32Z
 Test: atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime
 Model: ml/deployed/diabetes130_graphsage (real trained GraphSAGE, Rule 3)
 
 running 1 test
-test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime ... 100 iterations: 37 killed, 68 fully committed, 32 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime ... 100 iterations: 49 killed, 59 fully committed, 41 fully uncommitted, 0 non-atomic (a violation would have panicked above)
 ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
+Note: this replaces an earlier run (37 killed, 68 committed, 32 uncommitted,
+same 0-non-atomic result) recorded against commit 75689ee. The invariant's
+own RNG seed is fixed, but which iterations actually land a kill (vs. the
+worker finishing naturally before the jitter window elapses) depends on
+real wall-clock timing against Python/PyTorch startup and the forward pass
+itself, not on the seed alone — a different kill count between two runs of
+identical code is expected non-determinism in the race, not a regression.
+See phase5_fault_injection_gat.log for the GAT dispatch arm, run in the
+same `cargo test` invocation as this file.
+
 Note: the harness's own wall-clock "finished in Ns" figure for this run
-reflects the host machine sleeping mid-run (a real background session on a
-personal laptop, not a hang or a slow test) and is not reported here as a
-timing claim — this file is evidence for the 0-non-atomic-states invariant,
-not for how long 100 iterations take on quiescent hardware.
+reflects real Python/PyTorch subprocess startup cost across 200 total
+iterations (both this suite and the GAT suite ran back to back) on hardware
+also running other benchmark work in this session, not a hang — same
+caveat the previous version of this file made about its own wall-clock
+figure.

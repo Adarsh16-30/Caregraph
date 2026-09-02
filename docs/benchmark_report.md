@@ -63,11 +63,22 @@ comparable, but it is a substitution and every number here inherits that.
 
 ## 2. Results against Section 1 targets
 
+Section 1 names six metrics. All six now have a real, measured number below —
+three pass with wide margin, one (incremental update latency, GraphSAGE) is a
+genuine miss on this graph size, and two (GAT incremental latency, sustained
+ingestion throughput) are newly measured in this pass and were not
+previously in this table at all; see each subsection for what "embedding
+staleness eliminated" is checked against, since it isn't a benchmarked
+latency number the way the other five are.
+
 | Metric | Target | Measured | Verdict |
 |---|---|---|---|
 | Point-in-time node read (p95) | < 20 ms | **0.192 ms** | PASS |
 | Point-in-time edge read (p95) | < 20 ms | **0.240 ms** | PASS |
 | 2-hop bounded traversal (p95) | < 50 ms | **13.026 ms** | PASS |
+| Incremental embedding update (p95), GraphSAGE | < 100 ms | **1548.96 ms** | **MISS** — see §2.3 |
+| Incremental embedding update (p95), GAT | < 100 ms | **1531.04 ms** | **MISS** — see §2.4 |
+| Sustained ingestion throughput | 10,000-50,000 edges/sec | **216,865 edges/sec** | PASS — see §2.5 |
 
 ### 2.1 Point-in-time reads — passes with ~100x headroom
 
@@ -129,6 +140,83 @@ The bounds were **not** tuned to reach this. Both runs use the same default
 
 Node count rose slightly (1316.5 → 1366.9) because the surviving neighbours
 changed — see the semantic caveat in §5.
+
+### 2.3 Incremental embedding update latency (GraphSAGE) — a genuine miss
+
+[benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
+
+§7.8 measures this same run's **speedup ratio** against full recompute
+(7.79x median, passing Rule 7's 5x bar) but never checks the absolute
+number against Section 1's separate `< 100 ms` p95 latency target — an
+omission this report previously left uncorrected. Read directly from that
+file:
+
+```
+incremental  median 820.27 ms   p95 1548.96 ms
+```
+
+**p95 1548.96 ms is ~15x over the 100 ms target.** This is the honest number
+on the full 174,298-node / 599,497-edge graph the PRD's Phase 4/6 sections
+mean; it is not a contradiction of `scripts/run_demo.sh`'s own live mutations
+landing in 9-57 ms (§Live demo, README) — the demo runs against a ~370-node
+seeded graph, where the same bounded-subgraph forward pass has far less to
+resolve, and passes the 100 ms target easily. The miss is scale-dependent,
+not a defect in the incremental path itself: `incremental_fallback_total`
+stayed at 0 across all 30 samples (§7.8), so nothing here is a fallback to
+full recompute in disguise. Closing this gap would mean revisiting
+`MAX_EXPANDED_NODES` and `FANOUT_CAP` (§7.6-§7.7) specifically for latency,
+not just for the speedup ratio they were originally tuned against.
+
+### 2.4 Incremental embedding update latency (GAT)
+
+[benchmark: benchmarks/results/gate/phase5_gat_incremental_speedup.json]
+
+Phase 5's own success criterion — "p95 GAT incremental update latency under
+100ms on the benchmark graph" — was previously asserted nowhere in this
+report; only correctness (§4.3 of `docs/paper_draft.md`,
+`tests/embedding/gat_correctness_test.rs`) had ever been measured. Measured
+here for the first time, same 30-sample-from-the-full-trace method §7 uses,
+through `gat_incremental_update` rather than the associative path (see
+`caregraph-bench-incremental --model-kind gat`, added this pass):
+
+```
+incremental     median 517.36 ms   p95 1531.04 ms
+full recompute  median 8209.36 ms   p95 9935.94 ms
+median speedup: 8.1x     target: >= 5.0x     8.1_VERDICT
+```
+
+**p95 1531.04 ms against the 100 ms target: MISS.** GAT's
+non-associative attention aggregation (§4.3, `gat_incremental.rs`) does
+strictly more work per affected node than GraphSAGE's mean aggregation for
+the same subgraph, so a higher latency here than §2.3's GraphSAGE number,
+run on the same graph and sampling method, is the expected direction, not a
+surprise.
+
+### 2.5 Sustained ingestion throughput
+
+[benchmark: benchmarks/results/gate/phase1_ingest_throughput.json]
+
+Not previously measured at all. `caregraph-load` (Phase 1's bulk ingestion
+path — structural writes only, no embedding computation; see that binary's
+own module doc for why) now accepts `--out-dir` to time its own read-plus-
+batch-write loop and emit a raw-results file. Loading the full trace fresh:
+
+```
+599,497 edges, 174,298 nodes, 10,989 removals in 2.764s
+216,865 edges/sec (283,892 total mutations/sec)
+target: 10,000-50,000 edges/sec — PASS, and above the target's own upper end
+```
+
+Passing comfortably above even the target range's upper bound is expected,
+not suspicious: this number is structural writes only, on a single-node
+embedded RocksDB instance with no network hop and no embedding computation
+in the loop (that computation is what makes the Phase 4/5/6 live-mutation
+path, measured in §2.3/§2.4 and in `scripts/run_demo.sh`, orders of
+magnitude slower per edge) — bulk-loading bare structure was always going to
+be the fastest path this system has, and Section 1's range appears written
+with a mixed live-mutation workload in mind, not this specific bulk-load
+case. Single machine, single run — §3's thermal-variance finding applies
+here as much as it does to §2.1/§2.2's numbers.
 
 ---
 
@@ -304,6 +392,29 @@ available Python version. PyTorch Geometric is used instead, which Rule 3
 names as an equally acceptable implementation; the deviation is from task
 wording, not from the rule that gates the phase. `torch 2.11.0+cpu`,
 `torch_geometric 2.7.0`.
+
+Two smaller Section 2 stack entries are affected by the same substitution
+and were not previously called out:
+
+- **ONNX Runtime (§2.3)** is not used anywhere in this build. The PRD names
+  it for "serving the trained embedding model at low latency from the Rust
+  query path" — that role is filled instead by `ml/embedding_server.py`, a
+  persistent subprocess worker (§7.2 explains why a subprocess and not a
+  bound library at all). No code path exports a model to ONNX or loads an
+  ONNX Runtime session; `grep -ri onnx` across `src/`, `ml/`, and `Cargo.toml`
+  returns nothing.
+- **Directory layout**: Section 10 names `ml/embedding/gat_incremental.py`
+  and `ml/ripple_plus_reference/`. Neither exists as a separate path — the
+  GAT incremental logic lives in `src/embedding/gat_incremental.rs` (Rust,
+  not the PyO3-called Python the PRD's Section 6.2 code sample sketches;
+  see §7.2 for why PyO3 itself was dropped) and there is no vendored
+  RIPPLE++ reference checkout, only the operator-decoupling *technique*
+  RIPPLE++ describes, reimplemented directly in Rust and Python across
+  `src/embedding/gat_incremental.rs`, `src/embedding/associative.rs`, and
+  `ml/embedding_server.py`. Creating empty or stub files at those two paths
+  purely to satisfy the directory listing would itself be the kind of
+  placeholder content Section 10 says not to leave — not done, disclosed
+  here instead.
 
 ### 7.2 Calling mechanism substitution
 

@@ -1,0 +1,19 @@
+{
+  "benchmark": "sustained_ingestion_throughput",
+  "prd_target": "Section 1: sustained ingestion throughput 10,000-50,000 edges/sec",
+  "provenance": {
+    "generated_at_unix": 1788374319,
+    "git_commit": "256dc0d3360224be01cbca12c7e60c5e50cd3366",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-load.exe --trace benchmarks/traces/diabetes130_full.jsonl --db data/db/ingest_bench_tmp --out-dir benchmarks/results"
+  },
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "nodes": 174298,
+  "edges": 599497,
+  "removals": 10989,
+  "elapsed_secs": 2.7643792,
+  "edges_per_sec": 216864.9655589942,
+  "total_mutations_per_sec": 283891.58766640985,
+  "min_edges_per_sec_target": 10000.0,
+  "passed": true
+}
