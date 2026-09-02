@@ -53,6 +53,27 @@ docker compose version
 winget install Kitware.CMake
 ```
 
+### 5. protoc
+
+From Phase 6 on, `build.rs` runs `tonic_build` unconditionally for the
+whole crate (not only when touching `src/api/`), and that needs a real
+`protoc` binary on `PATH` — verified the hard way: a from-scratch build on
+a machine with the rest of this toolchain already installed still fails
+with `Could not find 'protoc'` until this step is done. There is no
+Windows package manager entry as reliable as the other tools above, so
+install it manually:
+
+1. Download `protoc-<version>-win64.zip` from
+   <https://github.com/protocolbuffers/protobuf/releases> (any recent
+   release; this repository has been built against 29.x).
+2. Unzip it somewhere permanent and add its `bin/` directory to `PATH`, or
+   set `PROTOC` to the full path of `protoc.exe` directly — `tonic-build`
+   (via `prost-build`) checks `PROTOC` before searching `PATH`.
+
+```bash
+protoc --version   # should print "libprotoc <version>"
+```
+
 ### Verify
 
 From the repository root:
@@ -73,11 +94,13 @@ $env:LIBCLANG_PATH = "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\V
 ## Linux / macOS
 
 ```bash
-# Debian/Ubuntu
-sudo apt-get install -y clang libclang-dev cmake llvm-dev pkg-config libssl-dev
+# Debian/Ubuntu — protobuf-compiler is protoc, needed unconditionally from
+# Phase 6 on (see the Windows section's own note on this); ci.yml installs
+# the same package for the same reason.
+sudo apt-get install -y clang libclang-dev cmake llvm-dev pkg-config libssl-dev protobuf-compiler
 
 # macOS
-brew install cmake llvm
+brew install cmake llvm protobuf
 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```

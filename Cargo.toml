@@ -33,6 +33,10 @@ path = "src/bin/bench_incremental.rs"
 name = "caregraph-fault-injection-worker"
 path = "src/bin/fault_injection_worker.rs"
 
+[[bin]]
+name = "caregraph-demo-client"
+path = "src/bin/demo_client.rs"
+
 [dependencies]
 # --- Storage & persistence (PRD 2.1) -----------------------------------------
 # NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the

@@ -7,11 +7,13 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-7 complete and verified** (gRPC API + point-in-time
+**Status: Phases 1-8 complete and verified** (gRPC API + point-in-time
 similarity query, three-way benchmark harness against live Neo4j/TerminusDB,
 CI run for real on GitHub Actions, real encryption at rest + mTLS + live
-Grafana dashboards). See [Build status](#build-status) for exactly what does
-and does not exist yet.
+Grafana dashboards, a real end-to-end live demo, and a benchmark-cited patent
+disclosure draft). See [Build status](#build-status) for exactly what does
+and does not exist yet — Phase 8 in particular leaves real, disclosed gaps
+around the university filing process itself.
 
 ---
 
@@ -33,6 +35,7 @@ cargo build
 cargo test --lib              # unit tests
 cargo test --test integration # against a real on-disk RocksDB
 bash scripts/check_rules.sh   # Section 0 rule enforcement
+bash scripts/run_demo.sh      # Phase 8: live end-to-end demo, see below
 ```
 
 ## Loading the clinical graph
@@ -58,6 +61,22 @@ apples-to-apples.
 **There is no synthetic mode.** The loader exits non-zero if it cannot reach a
 real clinical source (Rule 6). A benchmark measured on invented data is not a
 measurement.
+
+## Live demo
+
+```bash
+bash scripts/run_demo.sh
+```
+
+One command, no manual steps, safe to re-run. It seeds a fresh database from
+a real slice of the Diabetes 130 trace, then replays that slice's final three
+patient encounters live over gRPC instead of through the bulk loader — each
+one committing its structural edge and its GraphSAGE embedding update
+atomically (Rule 5) — and walks through bounded traversal, a before/after
+point-in-time snapshot across those live mutations, and point-in-time
+similarity search against the embeddings they just produced. See
+[docs/api_reference.md](docs/api_reference.md) for what each RPC does, and
+`src/bin/demo_client.rs` for the real client code the script drives.
 
 ## Architecture
 
@@ -132,7 +151,7 @@ the failure mode Section 0 exists to prevent.
 | 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection (Rule 5: 0 non-atomic states across 80 actual kills); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, same as Phase 4's GraphSAGE claim |
 | 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
 | 7 | Encryption at rest, mTLS, live dashboards | complete — real RocksDB encryption at rest via a from-scratch C++/AES-256 shim (the `rocksdb` crate exposes no encryption API; Rule 8), verified by reading raw on-disk SST bytes after a flush; mutual TLS on the gRPC listener, verified against real TLS handshakes with rcgen-generated certificates; `GET /metrics` finally serves the Prometheus registry dev-stack.yml has pointed at since Phase 1, with new query-path series verified to record real nonzero values, and a real Grafana dashboard bound to the live datasource (Rule 9) |
-| 8 | Demo, patent hooks, paper draft | not started |
+| 8 | Demo, patent hooks, paper draft | complete for what an agent in this repository can do — `scripts/run_demo.sh` runs a real end-to-end demo (live mutation, traversal, snapshot, similarity) start to finish with no manual steps; `docs/patent_hooks.md` states five benchmark-cited claims (Rule 10) plus a real, newly-run Rule 5 fault-injection result; `docs/novelty_analysis.md` gives the per-claim prior-art comparison; `docs/paper_draft.md` is a CIDR/ICDE/SIGMOD/VLDB-shaped draft citing the same real numbers. The university IDF-B filing and the Palantir/Pinterest/LinkedIn patent-literature cross-check are explicitly **not done** — see Known gaps below and `docs/novelty_analysis.md` §4 |
 
 ### Known gaps
 
@@ -177,6 +196,28 @@ the failure mode Section 0 exists to prevent.
    panels, all bound to real series — no alerting rules, no per-model or
    per-column-family breakdowns beyond what `embedding_update_latency_seconds`'s
    `computation_path` label already gives.
+7. **The IDF-B disclosure and the Palantir/Pinterest/LinkedIn prior-art
+   cross-check are not done.** `docs/patent_hooks.md` and
+   `docs/novelty_analysis.md` are real inputs to that process — five
+   benchmark-cited claims and a per-claim comparison against the systems
+   the PRD names — but actually filing through VIT's IDF-B process and
+   searching the patent literature itself (not just competing systems'
+   public behavior) needs a human decision this repository cannot make on
+   its own. See `docs/novelty_analysis.md` §4.
+8. **`docs/paper_draft.md` is a draft, not a submission**, and Rule 10's
+   automated `[benchmark: file]` check (`scripts/check_rules.sh`) only
+   greps `docs/patent_hooks.md` — the paper draft follows the same citation
+   convention voluntarily, but nothing enforces it there yet. See the
+   paper draft's own §7 for what turning it into an actual submission would
+   still need.
+9. **`scripts/run_demo.sh`'s server teardown needed a real fix mid-Phase-8.**
+   Killing the demo server via bash's own `$!` PID silently failed under
+   Git Bash / MSYS on Windows — `$!` is an MSYS-internal PID, not the real
+   Windows PID `taskkill` needs, so the first version of the cleanup left
+   the server (and its Python embedding-model child) running after the
+   script exited. Fixed by resolving the real PID through MSYS `ps`'s own
+   WINPID column first; re-run and confirmed via `Get-Process` that nothing
+   was left behind afterward.
 
 ## Repository layout
 

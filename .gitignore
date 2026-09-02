@@ -5,6 +5,10 @@ Cargo.lock
 # Local RocksDB instances and benchmark output
 /data/db/
 /data/*.db/
+
+# scripts/run_demo.sh's own scratch space (trace split, server log) —
+# regenerated fresh on every run, never anything to keep.
+/.demo_tmp/
 /benchmarks/results/*
 /results/
 
