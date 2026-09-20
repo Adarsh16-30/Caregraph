@@ -46,6 +46,7 @@
 // rather than repeated on every function for the same one reason.
 #![allow(clippy::result_large_err)]
 
+pub mod diff;
 pub mod metrics;
 pub mod similarity;
 
@@ -57,6 +58,7 @@ use serde_json::Value as JsonValue;
 use tonic::{Request, Response, Status};
 
 use crate::api::metrics::ApiMetrics;
+use crate::embedding::caps::CapController;
 use crate::embedding::metrics::EmbeddingMetrics;
 use crate::embedding::model_bridge::EmbeddingModel;
 use crate::embedding::pipeline::run_mutation_pipeline;
@@ -70,18 +72,10 @@ use crate::types::{EdgeType, ModelKind, NodeId, Timestamp};
 use proto::care_graph_service_server::CareGraphService;
 use proto::{
     AddEdgeRequest, EdgeMsg, MutationResponse, NodeMsg, RelatedEntityMsg, RemoveEdgeRequest,
-    SimilarCarePathwaysRequest, SimilarCarePathwaysResponse, SimilarPathwayMatch, SnapshotRequest,
+    SimilarCarePathwaysRequest, SimilarCarePathwaysResponse, SimilarPathwayMatch,
+    SimilarityDeltaMatch, SimilarityDeltaRequest, SimilarityDeltaResponse, SnapshotRequest,
     SnapshotResponse, TraverseRequest, TraverseResponse, TruncationMsg, VisitedNodeMsg,
 };
-
-/// Fan-out cap and receptive-field backstop for every mutation this service
-/// processes. Matches the production default in `bench_incremental.rs` and
-/// `AtomicCommitter`'s other real caller so far (the fault-injection worker)
-/// — re-declared locally rather than imported, the same local-constant
-/// convention every other binary in this crate already uses for these two
-/// numbers.
-const FANOUT_CAP: usize = 512;
-const MAX_EXPANDED_NODES: usize = 1_500;
 
 fn internal(err: CareGraphError) -> Status {
     Status::internal(err.to_string())
@@ -168,6 +162,12 @@ struct Inner {
     metrics: EmbeddingMetrics,
     api_metrics: ApiMetrics,
     limits: TraversalLimits,
+    /// Self-tuning receptive-field caps (Phase 9, Feature 2) — replaces the
+    /// fixed `FANOUT_CAP`/`MAX_EXPANDED_NODES` constants this service used to
+    /// declare locally. `Mutex`-guarded because every concurrent mutation RPC
+    /// shares one controller, the same reason `store` and the model workers
+    /// are shared rather than per-request.
+    caps: std::sync::Mutex<CapController>,
 }
 
 /// The tonic service implementation. Cheap to clone — tonic clones the
@@ -204,6 +204,7 @@ impl CareGraphApi {
                 metrics,
                 api_metrics,
                 limits: TraversalLimits::default(),
+                caps: std::sync::Mutex::new(CapController::new()),
             }),
         })
     }
@@ -228,6 +229,7 @@ impl CareGraphApi {
         mutation: GraphMutation,
         edge_value: &EdgeValue,
         model_kind: ModelKind,
+        explain: bool,
     ) -> Result<MutationResponse, Status> {
         // GCN has no trained, deployed model anywhere in this codebase (only
         // GraphSAGE and GAT were ever trained — see ml/train_graphsage.py,
@@ -247,8 +249,8 @@ impl CareGraphApi {
             &self.inner.store,
             model,
             &self.inner.metrics,
-            FANOUT_CAP,
-            MAX_EXPANDED_NODES,
+            &self.inner.caps,
+            explain,
         )
         .map_err(internal)?;
 
@@ -279,7 +281,12 @@ impl CareGraphService for CareGraphApi {
             edge_type,
             ts: Timestamp(req.timestamp_us),
         };
-        let response = self.run_mutation(mutation, &EdgeValue::new(properties), model_kind)?;
+        let response = self.run_mutation(
+            mutation,
+            &EdgeValue::new(properties),
+            model_kind,
+            req.explain,
+        )?;
         Ok(Response::new(response))
     }
 
@@ -299,7 +306,12 @@ impl CareGraphService for CareGraphApi {
         };
         // Ignored for a removal (a tombstone is staged instead) — see
         // AtomicCommitter::stage_mutation.
-        let response = self.run_mutation(mutation, &EdgeValue::new(JsonValue::Null), model_kind)?;
+        let response = self.run_mutation(
+            mutation,
+            &EdgeValue::new(JsonValue::Null),
+            model_kind,
+            req.explain,
+        )?;
         Ok(Response::new(response))
     }
 
@@ -454,6 +466,51 @@ impl CareGraphService for CareGraphApi {
                 })
                 .collect(),
             query_node_has_no_embedding: false,
+        }))
+    }
+
+    async fn similarity_delta(
+        &self,
+        request: Request<SimilarityDeltaRequest>,
+    ) -> Result<Response<SimilarityDeltaResponse>, Status> {
+        let req = request.into_inner();
+        let top_k = if req.top_k == 0 {
+            10
+        } else {
+            req.top_k as usize
+        };
+
+        let timer = self
+            .inner
+            .api_metrics
+            .similarity_delta_seconds
+            .start_timer();
+        let result = diff::similarity_delta(
+            &self.inner.store,
+            NodeId(req.node_id),
+            Timestamp(req.from_us),
+            Timestamp(req.to_us),
+            req.min_abs_delta,
+            top_k,
+        )
+        .map_err(internal)?;
+        timer.observe_duration();
+
+        Ok(Response::new(SimilarityDeltaResponse {
+            matches: result
+                .matches
+                .into_iter()
+                .map(|m| SimilarityDeltaMatch {
+                    node_id: m.node_id.as_u64(),
+                    similarity_from: m.similarity_from,
+                    similarity_to: m.similarity_to,
+                    delta: m.delta,
+                    present_at_from: m.present_at_from,
+                    present_at_to: m.present_at_to,
+                })
+                .collect(),
+            query_node_has_no_embedding_at_from: result.query_missing_at_from,
+            query_node_has_no_embedding_at_to: result.query_missing_at_to,
         }))
     }
 }

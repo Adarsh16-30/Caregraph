@@ -13,14 +13,22 @@ fn open() -> (TempDir, RocksKv) {
 }
 
 #[test]
-fn all_four_column_families_are_open() {
+fn all_column_families_are_open() {
     let (_dir, store) = open();
     for name in cf::ALL {
         store
             .cf_handle(name)
             .unwrap_or_else(|e| panic!("column family {name} should be open: {e}"));
     }
-    assert_eq!(cf::ALL.len(), 4, "PRD 3.3 defines exactly four families");
+    // PRD 3.3 defines exactly four; Phase 9 deliberately adds a fifth
+    // (`CF_COMMIT_META`) beyond the PRD's original schema, to carry
+    // per-mutation dispatch/cap/attribution provenance. This assertion count
+    // is a documented, intentional deviation, not drift.
+    assert_eq!(
+        cf::ALL.len(),
+        5,
+        "PRD 3.3's four families plus Phase 9's CF_COMMIT_META"
+    );
 }
 
 #[test]

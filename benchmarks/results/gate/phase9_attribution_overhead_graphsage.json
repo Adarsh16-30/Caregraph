@@ -1,0 +1,209 @@
+{
+  "benchmark": "attribution_overhead",
+  "prd_target": "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+  "provenance": {
+    "generated_at_unix": 1789723238,
+    "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-attribution.exe --db data/db/diabetes130_bench_scratch --trace benchmarks/traces/diabetes130_full.jsonl --model diabetes130_graphsage --samples 15 --out-dir benchmarks/results/gate"
+  },
+  "model": "diabetes130_graphsage",
+  "model_kind": "graphsage",
+  "steps": 16,
+  "top_k": 20,
+  "incremental_only": {
+    "samples": 15,
+    "min_ms": 10.608899999999998,
+    "median_ms": 680.0271,
+    "p95_ms": 917.6185999999999,
+    "max_ms": 917.6185999999999
+  },
+  "incremental_plus_attribution": {
+    "samples": 15,
+    "min_ms": 146.4171,
+    "median_ms": 24377.272399999998,
+    "p95_ms": 42538.1385,
+    "max_ms": 42538.1385
+  },
+  "attribution_overhead": {
+    "samples": 15,
+    "min_ms": 135.8082,
+    "median_ms": 23599.6267,
+    "p95_ms": 41812.3262,
+    "max_ms": 41812.3262
+  },
+  "completeness_residual_relative_max": 0.05908415,
+  "per_sample": [
+    {
+      "src": 1,
+      "dst": 600000,
+      "incremental_only_ms": 10.608899999999998,
+      "incremental_plus_attribution_ms": 146.4171,
+      "attribution_overhead_ms": 135.8082,
+      "delta_norm": 0.39408723,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.0012488374,
+      "completeness_residual_relative": 0.0031689366
+    },
+    {
+      "src": 290,
+      "dst": 100001,
+      "incremental_only_ms": 731.8465,
+      "incremental_plus_attribution_ms": 15524.1209,
+      "attribution_overhead_ms": 14792.2744,
+      "delta_norm": 0.08109964,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.00084518373,
+      "completeness_residual_relative": 0.010421548
+    },
+    {
+      "src": 10799,
+      "dst": 100035,
+      "incremental_only_ms": 719.2642000000001,
+      "incremental_plus_attribution_ms": 23291.3209,
+      "attribution_overhead_ms": 22572.0567,
+      "delta_norm": 0.11587031,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.0023439312,
+      "completeness_residual_relative": 0.02022892
+    },
+    {
+      "src": 6160,
+      "dst": 620259,
+      "incremental_only_ms": 219.9024,
+      "incremental_plus_attribution_ms": 13012.7156,
+      "attribution_overhead_ms": 12792.813199999999,
+      "delta_norm": 0.07581906,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.000107290325,
+      "completeness_residual_relative": 0.0014150838
+    },
+    {
+      "src": 20089,
+      "dst": 100111,
+      "incremental_only_ms": 588.656,
+      "incremental_plus_attribution_ms": 30393.492599999998,
+      "attribution_overhead_ms": 29804.836600000002,
+      "delta_norm": 0.11587031,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.00234394,
+      "completeness_residual_relative": 0.020228997
+    },
+    {
+      "src": 25244,
+      "dst": 100244,
+      "incremental_only_ms": 726.4103,
+      "incremental_plus_attribution_ms": 37683.825,
+      "attribution_overhead_ms": 36957.4147,
+      "delta_norm": 0.11587031,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.002343928,
+      "completeness_residual_relative": 0.02022889
+    },
+    {
+      "src": 30298,
+      "dst": 639849,
+      "incremental_only_ms": 124.2881,
+      "incremental_plus_attribution_ms": 11054.393,
+      "attribution_overhead_ms": 10930.1049,
+      "delta_norm": 0.39408723,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.0012488363,
+      "completeness_residual_relative": 0.0031689338
+    },
+    {
+      "src": 35616,
+      "dst": 200004,
+      "incremental_only_ms": 725.8122999999999,
+      "incremental_plus_attribution_ms": 42538.1385,
+      "attribution_overhead_ms": 41812.3262,
+      "delta_norm": 0.23156585,
+      "baseline_delta": 0.0,
+      "completeness_residual": -0.0021314276,
+      "completeness_residual_relative": 0.009204413
+    },
+    {
+      "src": 40884,
+      "dst": 653595,
+      "incremental_only_ms": 45.150299999999994,
+      "incremental_plus_attribution_ms": 6656.479799999999,
+      "attribution_overhead_ms": 6611.3295,
+      "delta_norm": 0.39408723,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.00124884,
+      "completeness_residual_relative": 0.003168943
+    },
+    {
+      "src": 30114,
+      "dst": 400007,
+      "incremental_only_ms": 917.6185999999999,
+      "incremental_plus_attribution_ms": 34328.6985,
+      "attribution_overhead_ms": 33411.0799,
+      "delta_norm": 0.020499168,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.00058257254,
+      "completeness_residual_relative": 0.028419327
+    },
+    {
+      "src": 49952,
+      "dst": 100035,
+      "incremental_only_ms": 680.0271,
+      "incremental_plus_attribution_ms": 35027.863600000004,
+      "attribution_overhead_ms": 34347.8365,
+      "delta_norm": 0.1022784,
+      "baseline_delta": 0.0,
+      "completeness_residual": -0.0030321146,
+      "completeness_residual_relative": 0.0296457
+    },
+    {
+      "src": 54153,
+      "dst": 200006,
+      "incremental_only_ms": 624.6760999999999,
+      "incremental_plus_attribution_ms": 34262.717899999996,
+      "attribution_overhead_ms": 33638.041800000006,
+      "delta_norm": 0.3383298,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.0029765225,
+      "completeness_residual_relative": 0.008797696
+    },
+    {
+      "src": 58452,
+      "dst": 100347,
+      "incremental_only_ms": 767.4984999999999,
+      "incremental_plus_attribution_ms": 30086.8208,
+      "attribution_overhead_ms": 29319.3223,
+      "delta_norm": 0.11587031,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.0023439364,
+      "completeness_residual_relative": 0.020228963
+    },
+    {
+      "src": 29781,
+      "dst": 100008,
+      "incremental_only_ms": 777.6457,
+      "incremental_plus_attribution_ms": 24377.272399999998,
+      "attribution_overhead_ms": 23599.6267,
+      "delta_norm": 0.03983647,
+      "baseline_delta": 0.0,
+      "completeness_residual": -0.002353704,
+      "completeness_residual_relative": 0.05908415
+    },
+    {
+      "src": 56802,
+      "dst": 200004,
+      "incremental_only_ms": 503.22900000000004,
+      "incremental_plus_attribution_ms": 18280.6453,
+      "attribution_overhead_ms": 17777.416299999997,
+      "delta_norm": 0.071775936,
+      "baseline_delta": 0.0,
+      "completeness_residual": 0.00007457235,
+      "completeness_residual_relative": 0.0010389604
+    }
+  ],
+  "notes": [
+    "no PRD target exists for attribution overhead — this is a Phase 9 addition; reported as a measurement, not a pass/fail gate",
+    "attribution computed for the mutation's two endpoints only, not every affected node — see src/embedding/attribution.rs's module doc for the cost this bounds",
+    "this run wrote real removal tombstones ahead of each sampled edge (one microsecond earlier) so replaying it as AddEdge was a genuine topology change rather than a structural no-op against the already-fully-loaded trace — run against a scratch copy of the database, not one relied on by other benchmarks",
+    "working tree was dirty at run time; not reproducible from the commit alone"
+  ]
+}

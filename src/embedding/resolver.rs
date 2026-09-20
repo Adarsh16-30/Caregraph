@@ -215,10 +215,28 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
             ring = next_ring;
         }
 
+        // Phase 9 (Feature 1): sorted, not left in `HashSet` iteration order.
+        // Two reasons, not one: (1) an attribution record is meant to be
+        // re-derivable from the same mutation replayed against the same
+        // starting state, and a `HashSet`'s iteration order is not stable
+        // across process runs; (2) less obviously, `edge_index` column order
+        // is the order a forward pass's scatter/mean aggregation sums
+        // neighbour messages in, and float32 addition is not associative — an
+        // unstable order means the model's own output could differ in its
+        // last bits between two runs of the identical mutation, which would
+        // make the exactness tests' tolerances (`docs/benchmark_report.md`
+        // §7.4) load-bearing against noise this sort removes for free.
+        let mut affected: Vec<NodeId> = affected.into_iter().collect();
+        affected.sort();
+        let mut nodes: Vec<NodeId> = nodes.into_iter().collect();
+        nodes.sort();
+        let mut edges: Vec<(NodeId, NodeId)> = edge_set.into_iter().collect();
+        edges.sort();
+
         Ok(ResolvedSubgraph {
-            affected: affected.into_iter().collect(),
-            nodes: nodes.into_iter().collect(),
-            edges: edge_set.into_iter().collect(),
+            affected,
+            nodes,
+            edges,
             truncation,
         })
     }
@@ -311,6 +329,10 @@ pub fn patch_subgraph_for_mutation<S: KvStore + ?Sized>(
             // mutation is, and regardless of which model will consume it.
             if !subgraph.edges.contains(&pair) {
                 subgraph.edges.push(pair);
+                // Keep the sorted invariant `resolve()` establishes (see its
+                // own comment on why) — a plain `push` would otherwise leave
+                // exactly one call's output in insertion order instead.
+                subgraph.edges.sort();
             }
         }
         GraphMutation::RemoveEdge { edge_type, .. } => {

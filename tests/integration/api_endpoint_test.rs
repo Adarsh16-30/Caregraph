@@ -21,7 +21,8 @@ use caregraph::api::proto::care_graph_service_client::CareGraphServiceClient;
 use caregraph::api::proto::care_graph_service_server::CareGraphServiceServer;
 use caregraph::api::proto::{
     AddEdgeRequest, Direction as ProtoDirection, EdgeType as ProtoEdgeType,
-    ModelKind as ProtoModelKind, SimilarCarePathwaysRequest, SnapshotRequest, TraverseRequest,
+    ModelKind as ProtoModelKind, SimilarCarePathwaysRequest, SimilarityDeltaRequest,
+    SnapshotRequest, TraverseRequest,
 };
 use caregraph::api::{AuthInterceptor, CareGraphApi};
 use caregraph::storage::{cf, KvStore, RocksKv};
@@ -42,15 +43,25 @@ const PATIENT_A: NodeId = NodeId(2);
 const PATIENT_B: NodeId = NodeId(3);
 const ISOLATED: NodeId = NodeId(4);
 
+/// Timestamps at which the fixture below writes a *second* version of
+/// `PATIENT_A`'s and `PATIENT_B`'s embeddings — used by
+/// `similarity_delta_varies_with_the_requested_window` to give the diff
+/// query something real to detect a change in.
+const DELTA_T1: u64 = 20;
+const DELTA_T2: u64 = 30;
+
 /// Seeds a small fixture: `HUB` (a Condition) shared by two patients, plus
 /// an isolated node with no edges — enough shape for hop-count and
-/// existence to produce genuinely different responses. Also writes one
-/// directly-constructed embedding for `PATIENT_A`, clearly labelled as
-/// fixture data (`model_id: "test-fixture-model"`), so the similarity RPC
-/// has something real to read without needing a spawned model — the same
-/// role a hand-picked vector plays in `src/api/similarity.rs`'s own unit
-/// tests, just written through the real storage layer instead of called as
-/// a bare function.
+/// existence to produce genuinely different responses. Also writes
+/// directly-constructed embeddings, clearly labelled as fixture data
+/// (`model_id: "test-fixture-model"`), so the similarity RPCs have something
+/// real to read without needing a spawned model — the same role a
+/// hand-picked vector plays in `src/api/similarity.rs`'s own unit tests, just
+/// written through the real storage layer instead of called as a bare
+/// function. `PATIENT_B`'s embedding is deliberately identical to
+/// `PATIENT_A`'s at `DELTA_T1` and orthogonal to it at `DELTA_T2`, so a
+/// similarity-delta query between those two timestamps has a genuine,
+/// non-zero change to find.
 fn seed_fixture() -> (TempDir, RocksKv) {
     let dir = TempDir::new().expect("temp dir");
     let store = RocksKv::open(dir.path().join("caregraph")).expect("open rocksdb");
@@ -99,19 +110,41 @@ fn seed_fixture() -> (TempDir, RocksKv) {
         &caregraph::temporal::record::EdgeValue::new(json!({})),
     );
 
-    let embedding = Embedding::new(
-        vec![1.0, 0.0, 0.0],
-        "test-fixture-model",
-        DomainModelKind::GraphSAGE,
-        caregraph::types::ComputationPath::Associative,
+    let embeddings_cf = store.cf_handle(cf::CF_EMBEDDINGS).expect("cf handle");
+    let fixture_embedding = |vector: Vec<f32>| {
+        Embedding::new(
+            vector,
+            "test-fixture-model",
+            DomainModelKind::GraphSAGE,
+            caregraph::types::ComputationPath::Associative,
+        )
+    };
+
+    // PATIENT_A (the query node throughout this file) keeps the same
+    // embedding at both delta timestamps.
+    for ts in [DELTA_T1, DELTA_T2] {
+        batch.put_cf(
+            &embeddings_cf,
+            encode_embedding_key(PATIENT_A, Timestamp(ts)),
+            fixture_embedding(vec![1.0, 0.0, 0.0]).serialize(),
+        );
+    }
+    // PATIENT_B starts identical to PATIENT_A (similarity 1.0 at DELTA_T1)
+    // and moves to orthogonal (similarity 0.0 at DELTA_T2) — a real,
+    // non-fabricated delta for similarity_delta to report.
+    batch.put_cf(
+        &embeddings_cf,
+        encode_embedding_key(PATIENT_B, Timestamp(DELTA_T1)),
+        fixture_embedding(vec![1.0, 0.0, 0.0]).serialize(),
     );
     batch.put_cf(
-        &store.cf_handle(cf::CF_EMBEDDINGS).expect("cf handle"),
-        encode_embedding_key(PATIENT_A, Timestamp(20)),
-        embedding.serialize(),
+        &embeddings_cf,
+        encode_embedding_key(PATIENT_B, Timestamp(DELTA_T2)),
+        fixture_embedding(vec![0.0, 1.0, 0.0]).serialize(),
     );
 
     drop(writer);
+    drop(embeddings_cf);
     store.write(batch).expect("commit fixture");
     (dir, store)
 }
@@ -287,6 +320,84 @@ async fn similar_care_pathways_varies_with_embedding_presence() {
 }
 
 #[tokio::test]
+async fn similarity_delta_varies_with_the_requested_window() {
+    let (_dir, store) = seed_fixture();
+    let (mut client, _server) = spawn_test_server(store).await;
+
+    // Same timestamp on both sides of the window: every candidate's delta is
+    // exactly 0.0 (comparing a snapshot to itself), so a non-zero
+    // min_abs_delta filters every one of them out — a real "nothing changed"
+    // answer, not an unimplemented endpoint returning nothing regardless.
+    let no_change = client
+        .similarity_delta(authed(SimilarityDeltaRequest {
+            node_id: PATIENT_A.as_u64(),
+            from_us: DELTA_T1,
+            to_us: DELTA_T1,
+            min_abs_delta: 0.05,
+            top_k: 10,
+        }))
+        .await
+        .expect("similarity_delta over a zero-width window")
+        .into_inner();
+
+    // The real window: PATIENT_B moved from identical to orthogonal between
+    // DELTA_T1 and DELTA_T2, a genuine delta of magnitude 1.0.
+    let real_change = client
+        .similarity_delta(authed(SimilarityDeltaRequest {
+            node_id: PATIENT_A.as_u64(),
+            from_us: DELTA_T1,
+            to_us: DELTA_T2,
+            min_abs_delta: 0.05,
+            top_k: 10,
+        }))
+        .await
+        .expect("similarity_delta over the real window")
+        .into_inner();
+
+    assert!(
+        no_change.matches.is_empty(),
+        "a zero-width window should report no candidate past the delta threshold, got {:?}",
+        no_change.matches
+    );
+    assert!(
+        !real_change.matches.is_empty(),
+        "PATIENT_B's embedding genuinely changed between DELTA_T1 and DELTA_T2 — \
+         response did not vary with the requested window"
+    );
+    let patient_b = real_change
+        .matches
+        .iter()
+        .find(|m| m.node_id == PATIENT_B.as_u64())
+        .expect("PATIENT_B should be reported as a delta candidate");
+    assert!(patient_b.present_at_from);
+    assert!(patient_b.present_at_to);
+    assert!(
+        (patient_b.delta - (-1.0)).abs() < 1e-5,
+        "expected similarity to drop from 1.0 to 0.0 (delta -1.0), got {}",
+        patient_b.delta
+    );
+    assert!(!real_change.query_node_has_no_embedding_at_from);
+    assert!(!real_change.query_node_has_no_embedding_at_to);
+
+    // A query node with no embedding at either endpoint is reported via the
+    // explicit flags, not conflated with "zero candidates changed."
+    let no_query_embedding = client
+        .similarity_delta(authed(SimilarityDeltaRequest {
+            node_id: ISOLATED.as_u64(),
+            from_us: DELTA_T1,
+            to_us: DELTA_T2,
+            min_abs_delta: 0.0,
+            top_k: 10,
+        }))
+        .await
+        .expect("similarity_delta for a node with no embedding at either end")
+        .into_inner();
+    assert!(no_query_embedding.query_node_has_no_embedding_at_from);
+    assert!(no_query_embedding.query_node_has_no_embedding_at_to);
+    assert!(no_query_embedding.matches.is_empty());
+}
+
+#[tokio::test]
 async fn requests_without_a_valid_bearer_token_are_rejected() {
     let (_dir, store) = seed_fixture();
     let (mut client, _server) = spawn_test_server(store).await;
@@ -347,6 +458,7 @@ async fn add_edge_rejects_an_invalid_request_before_touching_any_model() {
             timestamp_us: 100,
             properties_json: String::new(),
             model: ProtoModelKind::Graphsage as i32,
+            explain: false,
         }))
         .await;
     assert_eq!(
@@ -366,6 +478,7 @@ async fn add_edge_rejects_an_invalid_request_before_touching_any_model() {
             timestamp_us: 100,
             properties_json: String::new(),
             model: ProtoModelKind::Graphsage as i32,
+            explain: false,
         }))
         .await;
     assert_eq!(

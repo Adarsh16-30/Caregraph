@@ -158,13 +158,22 @@ impl ModelKind {
 /// Which code path actually produced an embedding update.
 ///
 /// Persisted alongside every embedding so that a `Fallback` can never be
-/// silently reported as incremental (Rule 7).
+/// silently reported as incremental (Rule 7). `#[repr(u8)]` discriminants are
+/// part of this on-disk format and must never be renumbered — only appended
+/// to, exactly like [`EdgeType`]'s own discriminants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum ComputationPath {
     Associative = 1,
     GatConstrained = 2,
     Fallback = 3,
+    /// Phase 9: a manifest-declared non-associative aggregation that isn't
+    /// GAT specifically. `GatConstrained` is kept as its own discriminant
+    /// (rather than folded into this one) so every embedding stored before
+    /// Phase 9 keeps its exact original meaning; this variant only ever
+    /// applies to a model deployed after the manifest-driven dispatch in
+    /// `atomic_commit.rs` decided its architecture wasn't `"GAT"`.
+    NonAssociative = 4,
 }
 
 impl ComputationPath {
@@ -173,6 +182,7 @@ impl ComputationPath {
             ComputationPath::Associative => "associative",
             ComputationPath::GatConstrained => "gat_constrained",
             ComputationPath::Fallback => "fallback",
+            ComputationPath::NonAssociative => "non_associative",
         }
     }
 }

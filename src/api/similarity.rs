@@ -99,7 +99,11 @@ fn rank_by_cosine_similarity(
 /// `0.0` for a zero vector rather than `NaN` — a node with an all-zero
 /// embedding (never observed in practice, but not ruled out by the type)
 /// is reported as maximally dissimilar to everything, not as an error.
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+///
+/// `pub(crate)` (Phase 9) so `src/api/diff.rs`'s point-in-time similarity
+/// delta can reuse the exact same scoring function rather than a second,
+/// possibly-diverging copy.
+pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();

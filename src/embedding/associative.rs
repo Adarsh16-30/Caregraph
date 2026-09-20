@@ -59,7 +59,8 @@ pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
 ) -> Result<()> {
     debug_assert!(
         ctx.active_model.is_associative(),
-        "the associative path is GraphSAGE/GCN; GAT routes to gat_incremental_update (Phase 5)"
+        "the associative path is GraphSAGE/GCN; a non-associative model routes to \
+         staged_incremental_update instead (Phase 9 manifest-driven dispatch)"
     );
 
     ctx.truncation = subgraph.truncation;

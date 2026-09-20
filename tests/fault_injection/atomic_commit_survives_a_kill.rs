@@ -157,13 +157,17 @@ fn cleanup_python_child(pid: u32) {
 /// naturally before the kill delay elapsed).
 ///
 /// `model_id` is the deployed model directory (`ml/deployed/<model_id>`);
-/// `model_kind` is `AtomicCommitter::commit`'s dispatch key ("graphsage" or
-/// "gat" — see `fault_injection_worker.rs`'s own `--model-kind` flag). The
-/// two travel together: `atomic_commit.rs` matches on `ModelKind` to choose
-/// between the associative aggregation path and `gat_incremental_update`, so
-/// running the suite with `model_kind="gat"` and a GraphSAGE-shaped model
-/// would call the wrong forward pass — the worker itself does not check
-/// this, callers must keep them paired correctly.
+/// `model_kind` is the `ModelKind` passed to `AtomicCommitter::commit` (
+/// "graphsage" or "gat" — see `fault_injection_worker.rs`'s own
+/// `--model-kind` flag). As of Phase 9, `atomic_commit.rs` no longer matches
+/// on `ModelKind` to choose the aggregation path — it reads
+/// `model.manifest.is_associative` instead, and hard-errors if that manifest
+/// flag disagrees with `model_kind.is_associative()`. Running the suite with
+/// `model_kind="gat"` against a GraphSAGE-shaped model directory is therefore
+/// caught explicitly (both at `EmbeddingModel::spawn`, which cross-checks the
+/// manifest against the checkpoint's own self-reported architecture, and
+/// again at `commit`'s consistency check) rather than silently calling the
+/// wrong forward pass, which is what this comment used to warn about.
 fn run_one_iteration(
     iteration: u32,
     rng: &mut Rng,
@@ -372,7 +376,7 @@ fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime() {
 
 /// Rule 5's "one WriteBatch, regardless of which model is active" claim,
 /// exercised against `atomic_commit.rs`'s other dispatch arm
-/// (`gat_incremental_update`) — the associative-model suite above only ever
+/// (`staged_incremental_update`) — the associative-model suite above only ever
 /// runs the `aggregate_over_subgraph` arm, so it proves nothing about GAT's
 /// own code path, which is a materially different function, not just a
 /// different weight file. Distinct seed from the suite above so the two

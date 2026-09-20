@@ -81,7 +81,40 @@ env:
   # Phase 8 deliverables; the IDF-B filing and patent-literature cross-check
   # are explicitly not done (README's Known gaps) — Rule 10 requires
   # citation traceability, not that a filing has occurred.
-  CAREGRAPH_PHASE: "8"
+  #
+  # At 9: four additions beyond the original PRD, gated by the same ten
+  # rules (no new rule was added — Rule 5's "exactly one batch write" and
+  # Rule 10's citation check both apply unchanged to the new code and
+  # claims). Integrated-gradients edge attribution is committed into a new
+  # CF_COMMIT_META column family, staged into the same WriteBatch as the
+  # structural mutation and the embedding it explains — verified by a real
+  # completeness identity on both deployed architectures
+  # (tests/embedding/attribution_completeness_test.rs) and, separately, by
+  # re-running the Rule 5 fault-injection suite against the new three-way
+  # write (benchmarks/results/gate/phase9_fault_injection.log,
+  # phase9_fault_injection_gat.log). A discrete self-tuning cap controller
+  # (src/embedding/caps.rs) replaces the fixed FANOUT_CAP/MAX_EXPANDED_NODES
+  # constants, measuring a real 1.46x p95 reduction
+  # (docs/benchmark_report.md §2.7). A SimilarityDelta RPC adds a
+  # point-in-time similarity-change query Contribution 5 did not offer.
+  # Manifest-driven dispatch (src/embedding/manifest.rs) replaces the
+  # hardcoded ModelKind match in atomic_commit.rs, closing a previously-
+  # disclosed, unchecked model/manifest mismatch footgun. Two severe
+  # findings are disclosed rather than smoothed over: attribution overhead
+  # on the real graph is 100-300x larger than an initial small-subgraph
+  # estimate (tens of seconds per request — docs/benchmark_report.md §2.6),
+  # and one real GAT mutation's completeness residual reached 22.35%, over
+  # 3x the correctness suite's own synthetic-fixture tolerance.
+  CAREGRAPH_PHASE: "9"
+
+  # docs/patent_hooks.md, docs/novelty_analysis.md and docs/paper_draft.md are
+  # intentionally not committed to this public repository (IP-confidentiality —
+  # see README Known gaps); they are maintained privately instead. A fresh
+  # checkout (this one) therefore cannot run Rule 10's citation check itself.
+  # This flag makes check_rules.sh name that gap explicitly (EXCLUDED) rather
+  # than report an unexplained PENDING/FAIL for a file that looks simply
+  # missing. It changes nothing about the rule's own enforcement logic.
+  CAREGRAPH_PATENT_DOCS_EXCLUDED: "1"
 
 jobs:
   rules:

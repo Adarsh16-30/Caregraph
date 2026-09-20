@@ -27,8 +27,8 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
+use crate::embedding::manifest::ModelManifest;
 use crate::error::{CareGraphError, Result};
 
 #[derive(Serialize)]
@@ -36,12 +36,74 @@ struct ForwardRequest<'a> {
     node_features: &'a [Vec<f32>],
     edge_index: &'a [Vec<u32>],
     target_indices: &'a [usize],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attribution: Option<AttributionRequestWire<'a>>,
+}
+
+/// Wire shape of an attribution request — purely additive to the base
+/// forward-pass request (Phase 9, Feature 1): a caller that never sets this
+/// gets exactly the pre-Phase-9 protocol back, unchanged.
+#[derive(Serialize)]
+struct AttributionRequestWire<'a> {
+    targets: &'a [usize],
+    edge_index_before: &'a [Vec<u32>],
+    steps: u32,
+    top_k: usize,
+}
+
+/// Row indices and IG step/candidate-count parameters for one
+/// [`EmbeddingModel::forward_with_attribution`] call. `targets` are indices
+/// into the same local row space as `target_indices`/`edge_index` — the
+/// caller (`src/embedding/attribution.rs`) is responsible for having built
+/// `edge_index_before` from the *same* node ordering as `edge_index`, so a
+/// row index means the same node on both sides.
+pub struct AttributionRequest<'a> {
+    pub targets: &'a [usize],
+    pub edge_index_before: &'a [Vec<u32>],
+    pub steps: u32,
+    pub top_k: usize,
+}
+
+/// One target node's integrated-gradients result, exactly as
+/// `embedding_server.py::_attribute_one_target` returns it — row indices, not
+/// yet mapped back to `NodeId`s (that mapping needs the caller's `local` map,
+/// which this module has no visibility into).
+#[derive(Debug, Deserialize)]
+pub struct RawAttributionEntry {
+    pub target_index: usize,
+    pub delta_norm: f32,
+    pub baseline_delta: f32,
+    pub completeness_residual: f32,
+    pub edges_total: usize,
+    /// `[src_row, dst_row, value]`, ranked by `|value|` descending, already
+    /// truncated to the request's `top_k` by the worker.
+    pub edges: Vec<(u32, u32, f32)>,
+    pub rest_sum: f32,
+    pub rest_count: usize,
 }
 
 #[derive(Deserialize)]
 struct ForwardResponse {
     embeddings: Option<Vec<Vec<f32>>>,
+    #[serde(default)]
+    attribution: Option<Vec<RawAttributionEntry>>,
     error: Option<String>,
+}
+
+/// What `embedding_server.py` self-reports about the checkpoint it actually
+/// loaded, read from `model.pt` itself rather than trusted from the caller —
+/// the independent half of the Phase 9 manifest cross-check in
+/// [`EmbeddingModel::spawn`]. Before this existed, Rust never learned which
+/// architecture the worker actually got; a `model_id`/`ModelKind` mismatch was
+/// a documented but unchecked footgun (see `tests/fault_injection`'s own doc
+/// comment on the subject).
+#[derive(Debug, Clone, Deserialize)]
+struct ReadyHandshake {
+    ready: bool,
+    #[serde(default)]
+    architecture: Option<String>,
+    #[serde(default)]
+    is_associative: Option<bool>,
 }
 
 /// A running `embedding_server.py`, one model directory per instance.
@@ -55,6 +117,16 @@ pub struct EmbeddingModel {
     stdin: Mutex<ChildStdin>,
     stdout: Mutex<BufReader<ChildStdout>>,
     pub model_id: String,
+    /// `ml/deployed/<model_id>/dataset_manifest.json`, typed and cross-checked
+    /// at spawn time against what the worker process self-reports about the
+    /// checkpoint it actually loaded.
+    pub manifest: ModelManifest,
+    /// Architecture the worker self-reported from `model.pt` at handshake
+    /// time. `None` only if a deployed worker predates the handshake
+    /// extension and never reported one — the manifest's own `architecture`
+    /// field is what dispatch actually relies on; this is corroborating
+    /// evidence, kept on the record for auditability.
+    pub checkpoint_architecture: Option<String>,
 }
 
 impl EmbeddingModel {
@@ -90,12 +162,39 @@ impl EmbeddingModel {
         stdout
             .read_line(&mut ready_line)
             .map_err(CareGraphError::Io)?;
-        let ready: serde_json::Value =
+        let handshake: ReadyHandshake =
             serde_json::from_str(ready_line.trim()).map_err(CareGraphError::MalformedValue)?;
-        if ready.get("ready") != Some(&serde_json::Value::Bool(true)) {
+        if !handshake.ready {
             return Err(CareGraphError::Io(std::io::Error::other(format!(
                 "embedding_server.py did not report ready: {ready_line}"
             ))));
+        }
+
+        // Phase 9: load the manifest, then cross-check it against what the
+        // worker just self-reported about the checkpoint it loaded from
+        // model.pt. A missing manifest, or a manifest that disagrees with the
+        // running process, is a hard error — the whole point of introspected
+        // dispatch (Feature 4) is that atomic_commit.rs trusts this flag
+        // instead of a per-ModelKind match, so it must not be silently wrong.
+        let manifest = ModelManifest::load(model_id)?;
+        let checkpoint_architecture = handshake.architecture.clone();
+        if let Some(arch) = &handshake.architecture {
+            if arch != &manifest.architecture {
+                return Err(CareGraphError::Io(std::io::Error::other(format!(
+                    "{model_id}: dataset_manifest.json declares architecture {:?}, \
+                     but the running worker loaded model.pt as {arch:?}",
+                    manifest.architecture
+                ))));
+            }
+        }
+        if let Some(assoc) = handshake.is_associative {
+            if assoc != manifest.is_associative {
+                return Err(CareGraphError::Io(std::io::Error::other(format!(
+                    "{model_id}: dataset_manifest.json says is_associative={}, \
+                     but the running worker's checkpoint self-reports {assoc}",
+                    manifest.is_associative
+                ))));
+            }
         }
 
         Ok(EmbeddingModel {
@@ -103,6 +202,8 @@ impl EmbeddingModel {
             stdin: Mutex::new(stdin),
             stdout: Mutex::new(stdout),
             model_id: model_id.to_string(),
+            manifest,
+            checkpoint_architecture,
         })
     }
 
@@ -127,8 +228,60 @@ impl EmbeddingModel {
             node_features,
             edge_index,
             target_indices,
+            attribution: None,
         };
-        let line = serde_json::to_string(&request).map_err(CareGraphError::MalformedValue)?;
+        let response = self.round_trip(&request)?;
+        response.embeddings.ok_or_else(|| {
+            CareGraphError::Io(std::io::Error::other(
+                "embedding_server.py returned neither embeddings nor an error",
+            ))
+        })
+    }
+
+    /// A forward pass exactly like [`Self::forward`], plus an integrated-
+    /// gradients edge attribution for each row in `attribution.targets`
+    /// (Phase 9, Feature 1). Returns full embeddings for `target_indices` as
+    /// always, plus one attribution entry per row the worker could compute a
+    /// well-defined direction for (see
+    /// `embedding_server.py::_attribute_one_target`'s delta_norm guard — a
+    /// target whose embedding did not change is simply absent, not an error).
+    pub fn forward_with_attribution(
+        &self,
+        node_features: &[Vec<f32>],
+        edge_index: &[Vec<u32>],
+        target_indices: &[usize],
+        attribution: AttributionRequest<'_>,
+    ) -> Result<(Vec<Vec<f32>>, Vec<RawAttributionEntry>)> {
+        let request = ForwardRequest {
+            node_features,
+            edge_index,
+            target_indices,
+            attribution: Some(AttributionRequestWire {
+                targets: attribution.targets,
+                edge_index_before: attribution.edge_index_before,
+                steps: attribution.steps,
+                top_k: attribution.top_k,
+            }),
+        };
+        let response = self.round_trip(&request)?;
+        let embeddings = response.embeddings.ok_or_else(|| {
+            CareGraphError::Io(std::io::Error::other(
+                "embedding_server.py returned neither embeddings nor an error",
+            ))
+        })?;
+        let attribution = response.attribution.ok_or_else(|| {
+            CareGraphError::Io(std::io::Error::other(
+                "embedding_server.py returned embeddings but no attribution for an attribution request",
+            ))
+        })?;
+        Ok((embeddings, attribution))
+    }
+
+    /// Write one request line, read one response line, parse it, and surface
+    /// a worker-reported error as `Err` — the round trip [`Self::forward`]
+    /// and [`Self::forward_with_attribution`] both need, identically.
+    fn round_trip(&self, request: &ForwardRequest<'_>) -> Result<ForwardResponse> {
+        let line = serde_json::to_string(request).map_err(CareGraphError::MalformedValue)?;
 
         let mut stdin = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
         writeln!(stdin, "{line}").map_err(CareGraphError::Io)?;
@@ -155,11 +308,7 @@ impl EmbeddingModel {
                 "embedding_server.py: {err}"
             ))));
         }
-        response.embeddings.ok_or_else(|| {
-            CareGraphError::Io(std::io::Error::other(
-                "embedding_server.py returned neither embeddings nor an error",
-            ))
-        })
+        Ok(response)
     }
 }
 
@@ -169,17 +318,4 @@ impl Drop for EmbeddingModel {
             let _ = child.kill();
         }
     }
-}
-
-/// Written to `dataset_manifest.json` by the trainer; read back here so the
-/// deployed manifest and the running worker can be checked against each other
-/// (Rule 3's manifest requirement, from the serving side).
-pub fn manifest_json(model_id: &str) -> serde_json::Value {
-    let path = Path::new("ml/deployed")
-        .join(model_id)
-        .join("dataset_manifest.json");
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| json!({}))
 }

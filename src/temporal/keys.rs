@@ -68,6 +68,15 @@ pub fn encode_embedding_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
     encode_node_key(node, ts)
 }
 
+/// Versioned commit-metadata key for `CF_COMMIT_META`: `[node_id | timestamp_desc]`.
+///
+/// Shares the node/embedding key layout (Phase 9) so that a point-in-time read
+/// of a node, its embedding, and the provenance record explaining that
+/// embedding's most recent change are all the same single-seek shape.
+pub fn encode_commit_meta_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
+    encode_node_key(node, ts)
+}
+
 /// The `[src_id | edge_type]` prefix that bounds a single adjacency list.
 pub fn edge_prefix(src: NodeId, edge_type: EdgeType) -> Vec<u8> {
     let mut prefix = Vec::with_capacity(EDGE_PREFIX_LEN);

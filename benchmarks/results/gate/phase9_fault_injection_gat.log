@@ -1,0 +1,35 @@
+CareGraph Rule 5 fault-injection suite — Phase 9 re-verification, GAT dispatch arm
+Command: cargo test --release --test fault_injection -- --test-threads=1 --nocapture
+Commit: 5c2529d7f603c2c686a248eeeab8d129c6a1b60b (dirty — see phase9_fault_injection.log)
+Run started (UTC): 2026-09-18 (session-local clock; see git commit above for
+        exact code state)
+Test: atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat
+Model: ml/deployed/diabetes130_gat (real trained GAT, Rule 3)
+
+This is the GAT counterpart to phase9_fault_injection.log — see that file
+for why this re-verification exists (CF_COMMIT_META joining the atomic
+WriteBatch as a third write target alongside the structural edge and the
+embedding). Exercises AtomicCommitter::commit's non-associative dispatch
+arm (staged_incremental_update, Phase 9's rename/generalization of the
+former gat_incremental_update).
+
+running 1 test
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat ... model=diabetes130_gat (gat): 100 iterations: 94 killed, 6 fully committed, 94 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+Note: 94/100 kills here vs. 78/100 in the Phase 5 run, and markedly more
+than this same run's GraphSAGE arm (57/100, phase9_fault_injection.log) —
+consistent with the Phase 5 log's own explanation: GAT's attention-weighted
+aggregation takes measurably longer per commit than GraphSAGE's mean
+aggregation, widening the window the same 0-8ms jitter has to land a kill
+inside. The near-total kill rate (94/100) means this run exercised the race
+against a commit-in-progress far more often than not — a strong, not a
+marginal, exercise of the atomicity invariant. 0 non-atomic states held
+across all 94 actual kills.
+
+Both suites ran in the same `cargo test` invocation as
+phase9_fault_injection.log; the combined wall-clock time (3823.67s) is
+recorded there, with the same "elevated vs. Phase 5, not a hang" caveat
+Phase 5's own GAT log made about its figure.

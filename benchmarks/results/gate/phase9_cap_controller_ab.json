@@ -1,0 +1,42 @@
+{
+  "benchmark": "cap_controller_ab",
+  "prd_target": "informational: does the Feature 2 controller reduce p95 vs. the Phase 4/5 pinned default",
+  "provenance": {
+    "generated_at_unix": 1789723733,
+    "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-caps.exe --db data/db/diabetes130 --trace benchmarks/traces/diabetes130_full.jsonl --model diabetes130_graphsage --samples 30 --out-dir benchmarks/results/gate"
+  },
+  "model": "diabetes130_graphsage",
+  "model_kind": "graphsage",
+  "pinned": {
+    "latency": {
+      "samples": 30,
+      "min_ms": 1.8448,
+      "median_ms": 570.9925999999999,
+      "p95_ms": 1165.5324,
+      "max_ms": 1225.1819
+    },
+    "fallbacks": 0,
+    "expansion_capped_count": 19,
+    "expansion_capped_rate": 0.6333333333333333
+  },
+  "adaptive": {
+    "latency": {
+      "samples": 30,
+      "min_ms": 3.7641,
+      "median_ms": 256.8616,
+      "p95_ms": 799.5494,
+      "max_ms": 1045.9194
+    },
+    "fallbacks": 0,
+    "expansion_capped_count": 19,
+    "expansion_capped_rate": 0.6333333333333333
+  },
+  "adaptive_final_rung": 1,
+  "p95_speedup_adaptive_over_pinned": 1.457736570123122,
+  "notes": [
+    "a lower adaptive p95 trades accuracy for latency: expansion_capped_rate is the honest cost of that trade, not a free win — see src/embedding/caps.rs's module doc",
+    "working tree was dirty at run time; not reproducible from the commit alone"
+  ]
+}

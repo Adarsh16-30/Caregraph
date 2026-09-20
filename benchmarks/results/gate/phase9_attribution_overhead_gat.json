@@ -1,0 +1,99 @@
+{
+  "benchmark": "attribution_overhead",
+  "prd_target": "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+  "provenance": {
+    "generated_at_unix": 1789723658,
+    "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-attribution.exe --db data/db/diabetes130_bench_scratch_gat --trace benchmarks/traces/diabetes130_full.jsonl --model diabetes130_gat --model-kind gat --samples 5 --out-dir benchmarks/results/gate"
+  },
+  "model": "diabetes130_gat",
+  "model_kind": "gat",
+  "steps": 16,
+  "top_k": 20,
+  "incremental_only": {
+    "samples": 5,
+    "min_ms": 16.267400000000002,
+    "median_ms": 1015.9427999999999,
+    "p95_ms": 1321.2754,
+    "max_ms": 1321.2754
+  },
+  "incremental_plus_attribution": {
+    "samples": 5,
+    "min_ms": 312.39119999999997,
+    "median_ms": 79380.21059999999,
+    "p95_ms": 98917.3612,
+    "max_ms": 98917.3612
+  },
+  "attribution_overhead": {
+    "samples": 5,
+    "min_ms": 296.1238,
+    "median_ms": 78058.93519999999,
+    "p95_ms": 97901.4184,
+    "max_ms": 97901.4184
+  },
+  "completeness_residual_relative_max": 0.2234588,
+  "per_sample": [
+    {
+      "src": 1,
+      "dst": 600000,
+      "incremental_only_ms": 16.267400000000002,
+      "incremental_plus_attribution_ms": 312.39119999999997,
+      "attribution_overhead_ms": 296.1238,
+      "delta_norm": 12.198314,
+      "baseline_delta": -0.049152806,
+      "completeness_residual": 0.046076156,
+      "completeness_residual_relative": 0.0037772562
+    },
+    {
+      "src": 6160,
+      "dst": 100129,
+      "incremental_only_ms": 1321.2754,
+      "incremental_plus_attribution_ms": 79380.21059999999,
+      "attribution_overhead_ms": 78058.93519999999,
+      "delta_norm": 0.01558013,
+      "baseline_delta": 0.000400953,
+      "completeness_residual": -0.0001516406,
+      "completeness_residual_relative": 0.009732949
+    },
+    {
+      "src": 30298,
+      "dst": 100035,
+      "incremental_only_ms": 1015.9427999999999,
+      "incremental_plus_attribution_ms": 98917.3612,
+      "attribution_overhead_ms": 97901.4184,
+      "delta_norm": 0.014094646,
+      "baseline_delta": -0.0064814985,
+      "completeness_residual": 0.0031495728,
+      "completeness_residual_relative": 0.2234588
+    },
+    {
+      "src": 45517,
+      "dst": 100003,
+      "incremental_only_ms": 1150.1615000000002,
+      "incremental_plus_attribution_ms": 98519.5454,
+      "attribution_overhead_ms": 97369.3839,
+      "delta_norm": 0.040796347,
+      "baseline_delta": -0.0031086206,
+      "completeness_residual": 0.0009027268,
+      "completeness_residual_relative": 0.022127638
+    },
+    {
+      "src": 58452,
+      "dst": 200001,
+      "incremental_only_ms": 978.3218999999999,
+      "incremental_plus_attribution_ms": 60547.9484,
+      "attribution_overhead_ms": 59569.6265,
+      "delta_norm": 0.025244089,
+      "baseline_delta": -0.007556528,
+      "completeness_residual": 0.00070538145,
+      "completeness_residual_relative": 0.02794244
+    }
+  ],
+  "notes": [
+    "no PRD target exists for attribution overhead — this is a Phase 9 addition; reported as a measurement, not a pass/fail gate",
+    "attribution computed for the mutation's two endpoints only, not every affected node — see src/embedding/attribution.rs's module doc for the cost this bounds",
+    "this run wrote real removal tombstones ahead of each sampled edge (one microsecond earlier) so replaying it as AddEdge was a genuine topology change rather than a structural no-op against the already-fully-loaded trace — run against a scratch copy of the database, not one relied on by other benchmarks",
+    "working tree was dirty at run time; not reproducible from the commit alone"
+  ]
+}

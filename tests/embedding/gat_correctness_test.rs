@@ -1,10 +1,11 @@
 //! GAT counterpart to `associative_correctness_test.rs`'s Phase 4 success
 //! criterion, extended to Phase 5's GAT path: "incremental result must
 //! exactly match a full-graph recompute for the same mutation, on 50
-//! randomised mutation sequences" — this time through `gat_incremental.rs`
-//! rather than `associative.rs`.
+//! randomised mutation sequences" — this time through `staged_incremental.rs`
+//! (renamed from `gat_incremental.rs` in Phase 9, generalized beyond GAT
+//! specifically) rather than `associative.rs`.
 //!
-//! # Why this test calls resolve + patch + gat_incremental_update directly,
+//! # Why this test calls resolve + patch + staged_incremental_update directly,
 //! not `AtomicCommitter::commit`
 //!
 //! `AtomicCommitter::commit` does exactly this sequence internally, but it
@@ -22,14 +23,14 @@
 //! is chosen where it is; the same reasoning and the same tolerance apply
 //! here unchanged — nothing about GAT's attention aggregation changes the
 //! argument that a 2-hop-bounded subgraph recompute is mathematically exact
-//! for a 2-layer message-passing model (see `gat_incremental.rs`'s module
+//! for a 2-layer message-passing model (see `staged_incremental.rs`'s module
 //! doc).
 
 use std::collections::{HashMap, HashSet};
 
 use caregraph::embedding::resolver::{patch_subgraph_for_mutation, AffectedSubgraphResolver};
 use caregraph::embedding::state::{GraphMutation, MutationContext};
-use caregraph::embedding::{associative, gat_incremental, EmbeddingModel};
+use caregraph::embedding::{associative, staged_incremental, EmbeddingModel};
 use caregraph::storage::{KvStore, RocksKv};
 use caregraph::temporal::record::{EdgeValue, NodeValue};
 use caregraph::temporal::{TemporalIndex, TemporalWriter};
@@ -39,8 +40,16 @@ use serde_json::json;
 use tempfile::TempDir;
 
 const SEQUENCES: u32 = 50;
-const FANOUT_CAP: usize = 512;
-const MAX_EXPANDED_NODES: usize = 1_500;
+
+/// Phase 9: pinned via `CapController::pinned` rather than bare constants —
+/// see `associative_correctness_test.rs`'s own copy of this helper for why
+/// this exactness suite deliberately never exercises the self-tuning
+/// controller.
+fn pinned_caps() -> caregraph::embedding::caps::CapRung {
+    caregraph::embedding::caps::CapController::pinned(512, 1_500)
+        .current()
+        .0
+}
 
 const ABS_TOLERANCE: f32 = 1e-4;
 const REL_TOLERANCE: f32 = 1e-3;
@@ -208,6 +217,7 @@ fn gat_incremental_matches_full_recompute_across_fifty_random_sequences() {
     let mut mismatches: Vec<String> = Vec::new();
     let mut hub_touching_checked = 0usize;
     let mut total_checked = 0usize;
+    let caps = pinned_caps();
 
     for seq in 0..SEQUENCES {
         let mut fx = build_fixture();
@@ -220,7 +230,8 @@ fn gat_incremental_matches_full_recompute_across_fifty_random_sequences() {
             // The same three steps AtomicCommitter::commit runs, minus the
             // final write — see the module doc for why that matters here.
             let index = TemporalIndex::new(&fx.store);
-            let resolver = AffectedSubgraphResolver::new(&fx.store, FANOUT_CAP, MAX_EXPANDED_NODES);
+            let resolver =
+                AffectedSubgraphResolver::new(&fx.store, caps.fanout_cap, caps.max_expanded_nodes);
             let mut subgraph = resolver
                 .resolve(mutation)
                 .expect("resolve must not error on a well-formed fixture");
@@ -228,8 +239,16 @@ fn gat_incremental_matches_full_recompute_across_fifty_random_sequences() {
                 .expect("patch must not error on a well-formed fixture");
 
             let mut ctx = MutationContext::new(mutation, ModelKind::GAT);
-            gat_incremental::gat_incremental_update(&mut ctx, &fx.store, &model, subgraph, as_of)
-                .expect("gat_incremental_update must not error on a well-formed fixture");
+            staged_incremental::staged_incremental_update(
+                &mut ctx,
+                &fx.store,
+                &model,
+                subgraph,
+                as_of,
+                ModelKind::GAT,
+                caregraph::types::ComputationPath::GatConstrained,
+            )
+            .expect("staged_incremental_update must not error on a well-formed fixture");
             assert!(
                 !ctx.fallback,
                 "seq {seq}: unexpected fallback on a small, well-formed fixture"

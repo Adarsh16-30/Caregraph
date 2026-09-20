@@ -7,12 +7,16 @@
 //! by `max_hops` so the recording rule's `{max_hops="2"}` selector has a
 //! real dimension to filter on rather than matching every traversal ever
 //! served regardless of hop count.
+//!
+//! `similarity_delta_seconds` (Phase 9, Feature 3) follows the same
+//! registration pattern for the new two-timestamp similarity diff query.
 
 use prometheus::{Histogram, HistogramOpts, HistogramVec, Registry};
 
 pub struct ApiMetrics {
     pub point_in_time_query_seconds: Histogram,
     pub traversal_latency_seconds: HistogramVec,
+    pub similarity_delta_seconds: Histogram,
 }
 
 impl ApiMetrics {
@@ -28,13 +32,19 @@ impl ApiMetrics {
             ),
             &["max_hops"],
         )?;
+        let similarity_delta_seconds = Histogram::with_opts(HistogramOpts::new(
+            "similarity_delta_seconds",
+            "Point-in-time similarity delta query latency (Phase 9, Feature 3)",
+        ))?;
 
         registry.register(Box::new(point_in_time_query_seconds.clone()))?;
         registry.register(Box::new(traversal_latency_seconds.clone()))?;
+        registry.register(Box::new(similarity_delta_seconds.clone()))?;
 
         Ok(ApiMetrics {
             point_in_time_query_seconds,
             traversal_latency_seconds,
+            similarity_delta_seconds,
         })
     }
 }

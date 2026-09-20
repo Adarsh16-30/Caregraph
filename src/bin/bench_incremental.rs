@@ -17,14 +17,18 @@
 //! mutation touching a high-degree node is the case where that gap narrows,
 //! honestly, rather than disappearing into an averaged number.
 //!
-//! `--model-kind` selects which incremental path is timed:
-//! GraphSAGE/GCN go through [`associative::incremental_aggregate`]; GAT goes
-//! through the same resolve-then-patch sequence
-//! `AtomicCommitter::commit` runs (see `atomic_commit.rs`), followed by
-//! [`gat_incremental::gat_incremental_update`] instead — mirroring exactly
-//! how `tests/embedding/gat_correctness_test.rs` exercises the GAT path,
-//! for the same reason: `incremental_aggregate` is associative-model-only,
-//! it does not dispatch on `ModelKind` itself.
+//! `--model-kind` selects which model is spawned; **which incremental path
+//! actually runs is decided from the spawned model's own manifest**
+//! (`model.manifest.is_associative`, Phase 9 Feature 4) — the same
+//! manifest-driven dispatch `AtomicCommitter::commit` uses, so this binary can
+//! never silently drift from what production actually does. Associative
+//! models go through [`associative::incremental_aggregate`]; anything else
+//! goes through the same resolve-then-patch sequence `AtomicCommitter::commit`
+//! runs (see `atomic_commit.rs`), followed by
+//! [`staged_incremental::staged_incremental_update`] instead — mirroring
+//! exactly how `tests/embedding/gat_correctness_test.rs` exercises the GAT
+//! path, for the same reason: `incremental_aggregate` is associative-model-only,
+//! it does not dispatch on the manifest itself.
 //!
 //! Usage:
 //!     caregraph-bench-incremental --db data/db/diabetes130 \
@@ -43,24 +47,36 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use caregraph::embedding::resolver::{patch_subgraph_for_mutation, AffectedSubgraphResolver};
+use caregraph::embedding::staged_incremental;
 use caregraph::embedding::state::{GraphMutation, MutationContext};
-use caregraph::embedding::{associative, gat_incremental, EmbeddingModel};
+use caregraph::embedding::{associative, EmbeddingModel};
 use caregraph::storage::{KvStore, RocksKv};
 use caregraph::temporal::TemporalIndex;
-use caregraph::types::{EdgeType, ModelKind, NodeId, Timestamp};
+use caregraph::types::{ComputationPath, EdgeType, ModelKind, NodeId, Timestamp};
 use serde::Serialize;
 
 /// PRD Phase 4 success criterion: incremental at least this much faster than
 /// full recompute, median over sampled mutations.
 const DEFAULT_MIN_SPEEDUP: f64 = 5.0;
-const FANOUT_CAP: usize = 512;
+
+/// This benchmark measures one fixed cap pair per run — a moving target
+/// would make its own speedup number incomparable across runs — so it pins
+/// [`caregraph::embedding::caps::CapController`] to Phase 4/5's own
+/// production default (`LADDER[0]`) rather than declaring two bare
+/// constants. `caregraph-bench-caps` is the binary that measures the ladder's
+/// *other* rungs (Phase 9, Feature 2).
+///
 /// Total-receptive-field backstop for ring two of resolution (ring one — the
 /// affected set itself — is always resolved in full; see
 /// `resolver.rs::resolve`'s ring-exemption comment). Chosen empirically: on
 /// the real clinical graph, this kept a moderate-degree mutation's resolve +
 /// build + forward pipeline near 200ms while a `TraversalLimits`-style 5,000
 /// let it run to nearly 3 seconds. See `docs/benchmark_report.md` §7.6.
-const MAX_EXPANDED_NODES: usize = 1_500;
+fn pinned_caps() -> caregraph::embedding::caps::CapRung {
+    caregraph::embedding::caps::CapController::pinned(512, 1_500)
+        .current()
+        .0
+}
 
 struct Args {
     db: String,
@@ -321,6 +337,7 @@ fn main() -> Result<()> {
 
     let mut results = Vec::with_capacity(samples.len());
     let mut hub_touching = 0usize;
+    let caps = pinned_caps();
 
     for s in &samples {
         let mutation = GraphMutation::AddEdge {
@@ -330,33 +347,54 @@ fn main() -> Result<()> {
             ts: s.ts,
         };
 
+        if model.manifest.is_associative != args.model_kind.is_associative() {
+            bail!(
+                "model {} manifest says is_associative={}, which disagrees with \
+                 --model-kind {:?} (is_associative={})",
+                args.model,
+                model.manifest.is_associative,
+                args.model_kind,
+                args.model_kind.is_associative()
+            );
+        }
+
         let mut ctx = MutationContext::new(mutation, args.model_kind);
         let t0 = Instant::now();
-        match args.model_kind {
-            ModelKind::GraphSAGE | ModelKind::GCN => {
-                associative::incremental_aggregate(
-                    &mut ctx,
-                    &store,
-                    &model,
-                    FANOUT_CAP,
-                    MAX_EXPANDED_NODES,
-                )?;
-            }
-            ModelKind::GAT => {
-                // Mirrors `AtomicCommitter::commit`'s own sequence (and
-                // `gat_correctness_test.rs`'s exercise of it): resolve
-                // against committed state, patch in the one edge this
-                // mutation adds, then run GAT's non-associative aggregation
-                // over exactly that subgraph. `incremental_aggregate` above
-                // is the associative-model shortcut for the first two steps
-                // plus `aggregate_over_subgraph`; GAT needs the same first
-                // two steps but a different aggregation call.
-                let resolver =
-                    AffectedSubgraphResolver::new(&store, FANOUT_CAP, MAX_EXPANDED_NODES);
-                let mut subgraph = resolver.resolve(mutation)?;
-                patch_subgraph_for_mutation(&mut subgraph, &index, mutation)?;
-                gat_incremental::gat_incremental_update(&mut ctx, &store, &model, subgraph, s.ts)?;
-            }
+        if model.manifest.is_associative {
+            associative::incremental_aggregate(
+                &mut ctx,
+                &store,
+                &model,
+                caps.fanout_cap,
+                caps.max_expanded_nodes,
+            )?;
+        } else {
+            // Mirrors `AtomicCommitter::commit`'s own sequence (and
+            // `gat_correctness_test.rs`'s exercise of it): resolve against
+            // committed state, patch in the one edge this mutation adds, then
+            // run the non-associative aggregation over exactly that subgraph.
+            // `incremental_aggregate` above is the associative-model shortcut
+            // for the first two steps plus `aggregate_over_subgraph`; a
+            // non-associative model needs the same first two steps but a
+            // different aggregation call.
+            let resolver =
+                AffectedSubgraphResolver::new(&store, caps.fanout_cap, caps.max_expanded_nodes);
+            let mut subgraph = resolver.resolve(mutation)?;
+            patch_subgraph_for_mutation(&mut subgraph, &index, mutation)?;
+            let path = if model.manifest.architecture == "GAT" {
+                ComputationPath::GatConstrained
+            } else {
+                ComputationPath::NonAssociative
+            };
+            staged_incremental::staged_incremental_update(
+                &mut ctx,
+                &store,
+                &model,
+                subgraph,
+                s.ts,
+                args.model_kind,
+                path,
+            )?;
         }
         let incremental_elapsed = t0.elapsed();
 

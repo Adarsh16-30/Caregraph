@@ -1,0 +1,32 @@
+{
+  "benchmark": "similarity_delta_latency",
+  "prd_target": "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+  "provenance": {
+    "generated_at_unix": 1789723900,
+    "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-diff.exe --db data/db/diabetes130 --trace benchmarks/traces/diabetes130_full.jsonl --queries 50 --out-dir benchmarks/results/gate"
+  },
+  "database_path": "data/db/diabetes130",
+  "trace_path": "benchmarks/traces/diabetes130_full.jsonl",
+  "seed": 407715774446,
+  "top_k": 10,
+  "query_window_us": [
+    915148800000000,
+    1230678499403504
+  ],
+  "latency": {
+    "samples": 50,
+    "min_ms": 0.0294,
+    "p50_ms": 0.056499999999999995,
+    "p95_ms": 0.0649,
+    "p99_ms": 0.0769,
+    "max_ms": 0.0769
+  },
+  "hit_rate": 1.0,
+  "notes": [
+    "query hit rate 100.0%",
+    "working tree was dirty at run time; not reproducible from the commit alone",
+    "no PRD target exists for this query — Feature 3 is a Phase 9 addition beyond the original PRD's Section 1 metrics"
+  ]
+}

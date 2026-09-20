@@ -6,6 +6,14 @@
 //! | `CF_REVERSE`      | same encoding, src/dst swapped                    | edge properties |
 //! | `CF_NODES`        | `[node_id \| timestamp_desc]`                     | node properties |
 //! | `CF_EMBEDDINGS`   | `[node_id \| timestamp_desc]`                     | vector + model_id + computation_path |
+//! | `CF_COMMIT_META`  | `[node_id \| timestamp_desc]`                     | dispatch decision + effective caps + attribution |
+//!
+//! `CF_COMMIT_META` is a Phase 9 addition beyond PRD 3.3's four families. It
+//! carries the per-mutation provenance that makes an embedding *explainable*
+//! rather than merely retrievable: which aggregation path ran and why, which
+//! receptive-field caps were in force at that instant, and which edges drove the
+//! change. It deliberately reuses the node-key layout so that reading a node,
+//! its embedding, and the reason its embedding changed are all the same seek.
 //!
 //! Each family gets a fixed-length prefix extractor matching the *non-temporal*
 //! portion of its key. That lets RocksDB use prefix bloom filters to skip whole
@@ -20,10 +28,19 @@ pub const CF_EDGES: &str = "cf_edges";
 pub const CF_REVERSE: &str = "cf_reverse";
 pub const CF_NODES: &str = "cf_nodes";
 pub const CF_EMBEDDINGS: &str = "cf_embeddings";
+pub const CF_COMMIT_META: &str = "cf_commit_meta";
 
 /// Every column family CareGraph opens. Used both at open time and by the
-/// integration tests that assert all four exist.
-pub const ALL: [&str; 4] = [CF_EDGES, CF_REVERSE, CF_NODES, CF_EMBEDDINGS];
+/// integration tests that assert all five exist. `create_missing_column_families`
+/// means an existing database on disk gains a newly-added family silently on
+/// its next open — nothing here needs a migration step.
+pub const ALL: [&str; 5] = [
+    CF_EDGES,
+    CF_REVERSE,
+    CF_NODES,
+    CF_EMBEDDINGS,
+    CF_COMMIT_META,
+];
 
 /// Options for a family whose keys carry a fixed-width prefix before the
 /// inverted timestamp.
@@ -41,7 +58,7 @@ fn versioned_cf_options(prefix_len: usize) -> Options {
 pub fn prefix_len(cf: &str) -> Option<usize> {
     match cf {
         CF_EDGES | CF_REVERSE => Some(EDGE_PREFIX_LEN),
-        CF_NODES | CF_EMBEDDINGS => Some(NODE_PREFIX_LEN),
+        CF_NODES | CF_EMBEDDINGS | CF_COMMIT_META => Some(NODE_PREFIX_LEN),
         _ => None,
     }
 }

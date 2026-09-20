@@ -37,6 +37,18 @@ path = "src/bin/fault_injection_worker.rs"
 name = "caregraph-demo-client"
 path = "src/bin/demo_client.rs"
 
+[[bin]]
+name = "caregraph-bench-attribution"
+path = "src/bin/bench_attribution.rs"
+
+[[bin]]
+name = "caregraph-bench-caps"
+path = "src/bin/bench_caps.rs"
+
+[[bin]]
+name = "caregraph-bench-diff"
+path = "src/bin/bench_diff.rs"
+
 [dependencies]
 # --- Storage & persistence (PRD 2.1) -----------------------------------------
 # NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the

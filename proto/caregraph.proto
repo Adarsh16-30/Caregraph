@@ -26,6 +26,14 @@ service CareGraphService {
 
   // --- Similarity (Contribution 5, Section 5.3) ------------------------------
   rpc SimilarCarePathways(SimilarCarePathwaysRequest) returns (SimilarCarePathwaysResponse);
+
+  // --- Similarity delta (Phase 9, Feature 3) ---------------------------------
+  // Not a second single-timestamp lookup: this ranks by *change* in
+  // similarity between two versioned snapshots of the same pair, a query
+  // shape Contribution 5 does not offer — "who drifted away from this
+  // patient's care pathway between these two dates," not "who is close to it
+  // right now." See src/api/diff.rs's module doc.
+  rpc SimilarityDelta(SimilarityDeltaRequest) returns (SimilarityDeltaResponse);
 }
 
 // Mirrors src/types.rs::EdgeType exactly — discriminants are load-bearing on
@@ -60,6 +68,13 @@ message AddEdgeRequest {
   // (EdgeValue::properties). Empty string means "{}".
   string properties_json = 5;
   ModelKind model = 6;
+  // Compute and persist an integrated-gradients edge attribution for this
+  // mutation's two endpoints (Phase 9, Feature 1), retrievable afterward via
+  // a point-in-time read of CF_COMMIT_META — not returned inline here.
+  // Measured overhead is substantial (docs/benchmark_report.md's attribution
+  // section) on top of an incremental-update p95 that already misses its
+  // target, so this defaults to false rather than running on every mutation.
+  bool explain = 7;
 }
 
 message RemoveEdgeRequest {
@@ -68,6 +83,8 @@ message RemoveEdgeRequest {
   EdgeType edge_type = 3;
   uint64 timestamp_us = 4;
   ModelKind model = 5;
+  // See AddEdgeRequest.explain.
+  bool explain = 6;
 }
 
 message MutationResponse {
@@ -195,4 +212,45 @@ message SimilarCarePathwaysResponse {
   // did not exist yet, or has never been through the mutation pipeline.
   // `matches` is empty when true.
   bool query_node_has_no_embedding = 2;
+}
+
+message SimilarityDeltaRequest {
+  uint64 node_id = 1;
+  uint64 from_us = 2;
+  uint64 to_us = 3;
+  // Candidates whose |similarity_to - similarity_from| falls below this are
+  // omitted. Zero means "no filter" — every candidate present at either
+  // timestamp is returned.
+  float min_abs_delta = 4;
+  uint32 top_k = 5;
+}
+
+message SimilarityDeltaMatch {
+  uint64 node_id = 1;
+  // cos(query@from, candidate@from). Meaningless if !present_at_from — see
+  // present_at_from's doc.
+  float similarity_from = 2;
+  // cos(query@to, candidate@to). Meaningless if !present_at_to.
+  float similarity_to = 3;
+  // similarity_to - similarity_from. Only well-defined when both
+  // present_at_from and present_at_to are true; see src/api/diff.rs for how
+  // a one-sided candidate is scored instead of silently dropped.
+  float delta = 4;
+  // False means this candidate had no embedding at or before from_us — it
+  // either did not exist yet or had not been through the mutation pipeline.
+  // Surfaced explicitly rather than silently excluded, the same honesty
+  // convention RelatedEntityMsg.node's absence follows.
+  bool present_at_from = 5;
+  bool present_at_to = 6;
+}
+
+message SimilarityDeltaResponse {
+  // Ranked descending by |delta|, NodeId ascending as a tiebreaker — mirrors
+  // SimilarCarePathwaysResponse's own reproducibility convention.
+  repeated SimilarityDeltaMatch matches = 1;
+  // The query node had no embedding at or before from_us. `matches` is empty
+  // when true — distinguished from query_node_has_no_embedding_at_to so a
+  // caller can tell which endpoint is missing.
+  bool query_node_has_no_embedding_at_from = 2;
+  bool query_node_has_no_embedding_at_to = 3;
 }

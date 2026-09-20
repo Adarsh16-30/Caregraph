@@ -134,6 +134,27 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         Ok(self.node_as_of(node, as_of)?.is_some())
     }
 
+    /// The commit-provenance record explaining the node's most recent
+    /// embedding change at or before `as_of` (Phase 9) — read directly from
+    /// `CF_COMMIT_META`, the same single-seek shape as [`Self::embedding_as_of`].
+    ///
+    /// `Ok(None)` means either the node has never been mutated, or (for a node
+    /// mutated before Phase 9's `CF_COMMIT_META` was introduced) no record was
+    /// ever written for that commit — never fabricated after the fact.
+    pub fn commit_meta_as_of(
+        &self,
+        node: NodeId,
+        as_of: Timestamp,
+    ) -> Result<Option<crate::embedding::CommitMeta>> {
+        let prefix = node_prefix(node);
+        let seek = as_of_prefix(&prefix, as_of);
+
+        match self.store.seek(cf::CF_COMMIT_META, &prefix, &seek)? {
+            Some((_, value)) => Ok(Some(crate::embedding::CommitMeta::deserialize(&value)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Every node's embedding at `as_of` — the candidate pool
     /// `similar_care_pathways` (PRD 5.3, Contribution 5) ranks by cosine
     /// similarity. PRD names this `embeddings::scan_as_of`.

@@ -36,13 +36,20 @@ use serde_json::json;
 use tempfile::TempDir;
 
 const SEQUENCES: u32 = 50;
-const FANOUT_CAP: usize = 512;
+
 /// Far above what this fixture's ~44 nodes could ever reach — the point of
 /// this test is to prove exactness where the budget does *not* bind, the
 /// benchmark is what exercises the budget itself binding on the real graph.
-/// (Matches the production default in bench_incremental.rs; irrelevant here
-/// since this fixture never gets close to it.)
-const MAX_EXPANDED_NODES: usize = 1_500;
+/// Phase 9: pinned via `CapController::pinned` rather than bare constants, so
+/// this test's determinism does not depend on the Phase 9 self-tuning
+/// controller (`caregraph::embedding::caps`) ever being wired in here — it
+/// isn't, deliberately, since a moving cap would undermine the exactness
+/// claim this test makes.
+fn pinned_caps() -> caregraph::embedding::caps::CapRung {
+    caregraph::embedding::caps::CapController::pinned(512, 1_500)
+        .current()
+        .0
+}
 
 /// Chosen between the two numbers in the module doc: comfortably above the
 /// ~6e-7 absolute / ~6e-5 relative float32 noise this test actually measures,
@@ -216,6 +223,7 @@ fn incremental_matches_full_recompute_across_fifty_random_sequences() {
     let mut mismatches: Vec<String> = Vec::new();
     let mut hub_touching_checked = 0usize;
     let mut total_checked = 0usize;
+    let caps = pinned_caps();
 
     for seq in 0..SEQUENCES {
         let mut fx = build_fixture();
@@ -229,8 +237,8 @@ fn incremental_matches_full_recompute_across_fifty_random_sequences() {
                 &mut ctx,
                 &fx.store,
                 &model,
-                FANOUT_CAP,
-                MAX_EXPANDED_NODES,
+                caps.fanout_cap,
+                caps.max_expanded_nodes,
             )
             .expect("incremental_aggregate must not error on a well-formed fixture");
             assert!(

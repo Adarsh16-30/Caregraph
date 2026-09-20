@@ -7,13 +7,20 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-8 complete and verified** (gRPC API + point-in-time
-similarity query, three-way benchmark harness against live Neo4j/TerminusDB,
-CI run for real on GitHub Actions, real encryption at rest + mTLS + live
-Grafana dashboards, a real end-to-end live demo, and a benchmark-cited patent
-disclosure draft). See [Build status](#build-status) for exactly what does
-and does not exist yet — Phase 8 in particular leaves real, disclosed gaps
-around the university filing process itself.
+**Status: Phases 1-9 complete and verified** (gRPC API + point-in-time
+similarity query and similarity *delta*, three-way benchmark harness against
+live Neo4j/TerminusDB, CI run for real on GitHub Actions, real encryption at
+rest + mTLS + live Grafana dashboards, a real end-to-end live demo, versioned
+explainable attribution, a self-tuning incremental-update boundary, and
+architecture-agnostic dispatch). See [Build status](#build-status) for
+exactly what does and does not exist yet — several phases leave real,
+disclosed gaps rather than a smoothed-over "done".
+
+Patent-strategy and prior-art documents (`docs/patent_hooks.md`,
+`docs/novelty_analysis.md`, `docs/paper_draft.md`) are maintained privately
+and are **not committed to this public repository** — see
+[Known gaps](#known-gaps) #14 for what that means for `scripts/check_rules.sh`
+Rule 10 on a fresh clone.
 
 ---
 
@@ -37,6 +44,27 @@ cargo test --test integration # against a real on-disk RocksDB
 bash scripts/check_rules.sh   # Section 0 rule enforcement
 bash scripts/run_demo.sh      # Phase 8: live end-to-end demo, see below
 ```
+
+## Configuration
+
+`docker compose` sets all of these for you. Running `caregraph` (the
+`src/main.rs` binary) directly needs at least `CAREGRAPH_API_KEY`; everything
+else has a safe default.
+
+| Variable | Required? | Default | Purpose |
+|----------|-----------|---------|---------|
+| `CAREGRAPH_API_KEY` | **Yes** | *(none — refuses to start)* | Bearer token the gRPC auth interceptor checks on every RPC. An unset key is a hard error, never "auth disabled" (Rule 2). Generate with `openssl rand -hex 32`. |
+| `CAREGRAPH_DB_PATH` | No | `data/db/caregraph` | On-disk RocksDB directory. |
+| `CAREGRAPH_GRPC_ADDR` | No | `0.0.0.0:50051` | gRPC listener address. |
+| `CAREGRAPH_METRICS_ADDR` | No | `0.0.0.0:9100` | `GET /metrics` (Prometheus) listener address. |
+| `CAREGRAPH_GRAPHSAGE_MODEL` | No | `diabetes130_graphsage` | Model id under `ml/deployed/` to serve for the associative dispatch path. |
+| `CAREGRAPH_GAT_MODEL` | No | `diabetes130_gat` | Model id under `ml/deployed/` to serve for the staged (non-associative) dispatch path. |
+| `CAREGRAPH_PYTHON` | No | `python` | Interpreter used to spawn `ml/embedding_server.py`. Point this at a venv's `python` if `torch`/`torch_geometric` aren't on the system interpreter. |
+| `CAREGRAPH_ENCRYPTION_KEY` | No (recommended) | *(unencrypted, with a logged warning)* | 64 hex characters (32-byte AES-256 key) enabling encryption at rest (Rule 8). Set-but-malformed is refused outright, never silently downgraded. Generate with `openssl rand -hex 32`. |
+| `CAREGRAPH_TLS_CERT` / `CAREGRAPH_TLS_KEY` / `CAREGRAPH_TLS_CLIENT_CA` | No | *(plaintext gRPC)* | PEM file paths enabling mutual TLS. Setting `CAREGRAPH_TLS_CERT` requires the other two. |
+| `CAREGRAPH_ATTRIBUTION_STEPS` | No | `16` | Integrated-gradients quadrature step count for Phase 9's `explain: true` attribution path. |
+| `CAREGRAPH_HARDWARE` | No (benchmarks only) | *(none)* | Free-text hardware description recorded into each `caregraph-bench-*` binary's output JSON for provenance (Rule 10). |
+| `IDPIP_DATABASE_URL` | No (only for the IDPIP loader) | *(none — loader exits non-zero)* | PostgreSQL/TimescaleDB connection string for `data/idpip_ukpds_loader.py`. Not needed for the Diabetes 130 path this repo actually runs on. |
 
 ## Loading the clinical graph
 
@@ -118,6 +146,7 @@ Six layers, each reachable only through its defined interface.
 | `CF_REVERSE` | same, src/dst swapped | edge properties |
 | `CF_NODES` | `[node_id \| ts_desc]` | node properties |
 | `CF_EMBEDDINGS` | `[node_id \| ts_desc]` | vector + model_id + computation_path |
+| `CF_COMMIT_META` | `[node_id \| ts_desc]` | dispatch decision + effective caps + attribution (Phase 9) |
 
 Timestamps are stored bit-inverted, so a *newer* version produces a *smaller*
 byte sequence and sorts first. A point-in-time read is therefore a single
@@ -153,7 +182,10 @@ bash scripts/check_rules.sh --rule 5   # one rule
 
 `PENDING` is deliberately loud and never silent. At a phase gate, `--phase N`
 upgrades any rule that should be live by phase N into a hard failure — so a rule
-cannot be quietly outrun by the build.
+cannot be quietly outrun by the build. Rule 10 additionally has a narrow
+`EXCLUDED` outcome, used only when `docs/patent_hooks.md` is absent because it
+was deliberately kept out of this public repository — see
+[Known gaps](#known-gaps) #14.
 
 ## Build status
 
@@ -171,6 +203,7 @@ the failure mode Section 0 exists to prevent.
 | 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
 | 7 | Encryption at rest, mTLS, live dashboards | complete — real RocksDB encryption at rest via a from-scratch C++/AES-256 shim (the `rocksdb` crate exposes no encryption API; Rule 8), verified by reading raw on-disk SST bytes after a flush; mutual TLS on the gRPC listener, verified against real TLS handshakes with rcgen-generated certificates; `GET /metrics` finally serves the Prometheus registry dev-stack.yml has pointed at since Phase 1, with new query-path series verified to record real nonzero values, and a real Grafana dashboard bound to the live datasource (Rule 9) |
 | 8 | Demo, patent hooks, paper draft | complete for what an agent in this repository can do — `scripts/run_demo.sh` runs a real end-to-end demo (live mutation, traversal, snapshot, similarity) start to finish with no manual steps; `docs/patent_hooks.md` states five benchmark-cited claims (Rule 10) plus a real, newly-run Rule 5 fault-injection result; `docs/novelty_analysis.md` gives the per-claim prior-art comparison; `docs/paper_draft.md` is a CIDR/ICDE/SIGMOD/VLDB-shaped draft citing the same real numbers. The university IDF-B filing and the Palantir/Pinterest/LinkedIn patent-literature cross-check are explicitly **not done** — see Known gaps below and `docs/novelty_analysis.md` §4 |
+| 9 | Explainable attribution, self-tuning caps, similarity delta, architecture-agnostic dispatch | complete — integrated-gradients edge attribution committed atomically with the embedding it explains (`CF_COMMIT_META`), verified via a real completeness identity on both deployed architectures with zero failures (`tests/embedding/attribution_completeness_test.rs`); a discrete self-tuning cap controller measuring a real 1.46x p95 reduction (`docs/benchmark_report.md` §2.7); a point-in-time similarity delta RPC (`SimilarityDelta`, Rule 2-covered); manifest-driven dispatch replacing the hardcoded `ModelKind` match, closing a real, previously-unchecked model/manifest mismatch footgun. Two severe, disclosed findings: attribution overhead on the real graph is 100-300x larger than an initial small-subgraph estimate (tens of seconds per request — §2.6), and one real GAT mutation's completeness residual reached 22.35%, over 3x the correctness suite's own synthetic-fixture tolerance. Rule 5 re-verification that the new three-way write (edge + embedding + `CF_COMMIT_META`) survives a mid-commit kill was run against both dispatch arms — see Known gaps below for the exact kill counts |
 
 ### Known gaps
 
@@ -253,7 +286,53 @@ the failure mode Section 0 exists to prevent.
     checkout, only its operator-decoupling technique reimplemented directly.
     Creating stub files at those two paths to match the directory listing
     would itself be placeholder content — not done, disclosed here and in
-    `docs/benchmark_report.md` §7.1 instead.
+    `docs/benchmark_report.md` §7.1 instead. (Phase 9 renamed
+    `src/embedding/gat_incremental.rs` to `src/embedding/staged_incremental.rs`
+    and generalized it beyond GAT specifically — see Phase 9's row above.)
+11. **Attribution overhead, measured on the real graph, is severe — plan
+    around tens of seconds per request, not milliseconds.** An early
+    estimate based on a small synthetic subgraph projected 160-550 ms; the
+    real number on the full 174,298-node graph is **100-300x larger**
+    (GraphSAGE median 23.6s/p95 41.8s; GAT median 78.1s/p95 97.9s — see
+    `docs/benchmark_report.md` §2.6). This is exactly why attribution is a
+    per-request opt-in (`explain: bool`) and not a default. A separate,
+    real production mutation pushed GAT's completeness residual to 22.35%
+    — over 3x the 6% worst case measured on the correctness suite's own
+    synthetic fixture — real evidence that extreme-degree hubs need more
+    than the default 16 integration steps to converge tightly, not a
+    fabricated number smoothed into the correctness test's tolerance.
+12. **The cap controller's measured win is real but modest.** 1.46x p95
+    reduction (1165.53ms → 799.55ms), not a fix for Known Gap #1's ~15x
+    miss — see `docs/benchmark_report.md` §2.7. Both the pinned and
+    adaptive arms hit the same 63.3% `expansion_capped_rate` on the sampled
+    mutations, disclosed rather than left implicit: the latency win did not
+    come from truncating less often.
+13. **Phase 9's Rule 5 fault-injection re-verification is done: the new
+    three-way write (edge, embedding, and `CF_COMMIT_META`) still commits
+    atomically.** 100 iterations per dispatch arm: GraphSAGE 57 actual
+    kills (56 fully committed, 44 fully uncommitted), GAT 94 actual kills
+    (6 fully committed, 94 fully uncommitted) — **0 non-atomic states in
+    either arm**. GAT's near-total 94/100 kill rate exercised the race far
+    more aggressively than GraphSAGE's 57/100, for the same reason Phase
+    5's own log noted: attention-weighted aggregation takes measurably
+    longer per commit, widening the window a kill can land inside. See
+    `benchmarks/results/gate/phase9_fault_injection.log` and
+    `phase9_fault_injection_gat.log` for the full breakdown and provenance.
+14. **Patent-strategy and prior-art documents are deliberately not part of
+    this public repository.** `docs/patent_hooks.md`, `docs/novelty_analysis.md`,
+    and `docs/paper_draft.md` are maintained privately instead of being
+    committed. They existed in this repository's history from Phase 8
+    onward and were removed by request, including from prior commits —
+    `git log` on a fresh clone will not surface them. This has one concrete,
+    disclosed effect: `scripts/check_rules.sh`'s Rule 10 depends on
+    `docs/patent_hooks.md` to check that every quantitative claim carries a
+    `[benchmark: file]` citation, and a fresh clone has no such file to
+    check. Rather than let that surface as a bare, unexplained PENDING/FAIL,
+    CI sets `CAREGRAPH_PATENT_DOCS_EXCLUDED=1`, which makes `check_rules.sh`
+    report a distinct, explicit `EXCLUDED` outcome for Rule 10 naming exactly
+    why — never counted as a `PASS`. Anyone running `check_rules.sh` locally
+    with the real files present on disk (as this project's own author does)
+    still gets the genuine citation check, unaffected.
 
 ## Repository layout
 
@@ -267,7 +346,9 @@ observability/  Prometheus rules, Grafana provisioning
 infrastructure/ Docker Compose dev stack
 scripts/        check_rules.sh, run_demo.sh
 tests/          integration/, unit/, fault_injection/
-docs/           Design notes, benchmark reports, patent hooks
+docs/           Design notes, benchmark reports, API reference
+                (patent_hooks.md / novelty_analysis.md / paper_draft.md are
+                kept privately, not in this repository — see Known gaps #14)
 ```
 
 ## License

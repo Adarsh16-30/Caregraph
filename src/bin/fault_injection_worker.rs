@@ -16,6 +16,7 @@ use std::io::Write;
 
 use anyhow::{bail, Context, Result};
 use caregraph::embedding::atomic_commit::AtomicCommitter;
+use caregraph::embedding::caps::CapController;
 use caregraph::embedding::model_bridge::EmbeddingModel;
 use caregraph::embedding::state::GraphMutation;
 use caregraph::storage::RocksKv;
@@ -123,14 +124,20 @@ fn main() -> Result<()> {
         }
     };
 
+    // Phase 9: a pinned controller, not bare literals — this suite's
+    // determinism (same seed, same caps, every run) is now stated in code
+    // rather than an accident of these two numbers never having a name.
+    let (caps, _rung) = CapController::pinned(512, 1_500).current();
     let committer = AtomicCommitter::new(&store).context("building AtomicCommitter")?;
     committer.commit(
         mutation,
         &EdgeValue::new(serde_json::json!({})),
         args.model_kind,
         &model,
-        512,
-        1_500,
+        caps.fanout_cap,
+        caps.max_expanded_nodes,
+        None,
+        false, // this suite tests atomicity of the mutation+embedding write, not attribution
     )?;
 
     emit("DONE");

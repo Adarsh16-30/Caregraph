@@ -7,6 +7,8 @@
 //! atomic yet. `AtomicCommitter` upgrades this in Phase 5; nothing here should
 //! need to change shape when it does.
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::{EdgeType, Embedding, ModelKind, NodeId, Timestamp};
 
 /// The structural change that triggered this pipeline run.
@@ -45,7 +47,7 @@ impl GraphMutation {
 /// Why a node's embedding was, or was not, updated. Distinct from
 /// [`crate::graph::traversal::Truncation`] but the same honesty rule: a bound
 /// binding is recorded, never silently absorbed into "done".
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolutionTruncation {
     /// The affected-set fan-out cap bound at least one endpoint. Nodes beyond
     /// the cap keep their pre-mutation embedding until their own next update —
@@ -80,6 +82,15 @@ pub struct MutationContext {
     pub truncation: ResolutionTruncation,
     pub embeddings_after: Vec<(NodeId, Embedding)>,
     pub fallback: bool,
+    /// Wall-clock time of the associative/staged aggregation dispatch alone
+    /// (Phase 9) — deliberately *not* including attribution (Feature 1) or
+    /// the batch write. This is what
+    /// [`crate::embedding::caps::CapController`] (Feature 2) is fed: caps
+    /// govern the resolver and the forward pass, not attribution, so
+    /// feeding it attribution's added latency would make it shrink the
+    /// receptive field trying to fix a cost its caps do not control. Zero
+    /// until `AtomicCommitter::commit` sets it.
+    pub embedding_duration: std::time::Duration,
 }
 
 impl MutationContext {
@@ -91,6 +102,7 @@ impl MutationContext {
             truncation: ResolutionTruncation::default(),
             embeddings_after: Vec::new(),
             fallback: false,
+            embedding_duration: std::time::Duration::ZERO,
         }
     }
 }

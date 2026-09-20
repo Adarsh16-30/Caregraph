@@ -49,3 +49,11 @@ __pycache__/
 *.pem
 !/infrastructure/certs/README.md
 .env
+
+# Patent-strategy and prior-art documents stay out of the public repository
+# by request (kept locally / privately instead). check_rules.sh's Rule 10
+# handles their absence explicitly (CAREGRAPH_PATENT_DOCS_EXCLUDED) rather
+# than silently — see README Known gaps.
+/docs/patent_hooks.md
+/docs/novelty_analysis.md
+/docs/paper_draft.md

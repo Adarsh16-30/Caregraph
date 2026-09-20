@@ -1,0 +1,52 @@
+CareGraph Rule 5 fault-injection suite — Phase 9 re-verification, GraphSAGE dispatch arm
+Command: cargo test --release --test fault_injection -- --test-threads=1 --nocapture
+Commit: 5c2529d7f603c2c686a248eeeab8d129c6a1b60b (dirty — Phase 9 work in
+        progress: CF_COMMIT_META, attribution, self-tuning caps, similarity
+        delta, manifest-driven dispatch; the invariant under test —
+        AtomicCommitter's single WriteBatch write — now includes a third
+        write target, CF_COMMIT_META, alongside the structural edge and the
+        embedding)
+Run started (UTC): 2026-09-18 (session-local clock; see git commit above for
+        exact code state)
+Test: atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime
+Model: ml/deployed/diabetes130_graphsage (real trained GraphSAGE, Rule 3)
+
+Why this run exists: Phase 9 added a third entry to AtomicCommitter's single
+WriteBatch (CF_COMMIT_META — dispatch decision, effective caps, and
+optional attribution, staged in atomic_commit.rs::stage_commit_meta). The
+original Phase 5 fault-injection evidence (phase5_fault_injection.log)
+verified the two-way write (edge + embedding); it does not, by itself,
+prove the batch is still all-or-nothing now that a third write rides in the
+same call. This run re-exercises the exact same kill race against the
+current three-way commit.
+
+running 1 test
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime ... model=diabetes130_graphsage (graphsage): 100 iterations: 57 killed, 56 fully committed, 44 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+Note: 57/100 kills here vs. 49/100 in the Phase 5 run — the RNG seed is
+identical (0xFA07_1E5EC0FFEE); which iterations actually land a kill depends
+on real wall-clock timing against Python/PyTorch startup and the forward
+pass itself, not on the seed alone, and CF_COMMIT_META's extra (small)
+serialize-and-stage work shifts that timing slightly. A different kill
+count between runs of equivalent code is expected non-determinism in the
+race, not a regression — the invariant that matters (0 non-atomic states)
+held regardless.
+
+Note: this run was preceded by an earlier same-day attempt whose process
+output was lost to a session interruption before it could be transcribed,
+despite the underlying `cargo test` process itself completing successfully
+in the background (exit code 0, both tests passed, 0 non-atomic states in
+both arms). That earlier run is not cited here because its exact kill
+counts were not captured before the interruption; this run's numbers are
+what is cited in docs/patent_hooks.md, docs/benchmark_report.md, and
+README.md. Total wall-clock time for both arms in this run was 3823.67s —
+elevated versus Phase 5's 2001.51s baseline for the same reason
+phase5_fault_injection.log's own note describes (shared hardware, other
+work in the session), not a hang or a performance regression in the commit
+path itself.
+
+See phase9_fault_injection_gat.log for the GAT dispatch arm, run in the
+same `cargo test` invocation as this file.

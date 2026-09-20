@@ -218,6 +218,104 @@ with a mixed live-mutation workload in mind, not this specific bulk-load
 case. Single machine, single run — §3's thermal-variance finding applies
 here as much as it does to §2.1/§2.2's numbers.
 
+### 2.6 Attribution overhead (Phase 9, Feature 1) — a severe, disclosed miss
+
+[benchmark: benchmarks/results/gate/phase9_attribution_overhead_graphsage.json]
+[benchmark: benchmarks/results/gate/phase9_attribution_overhead_gat.json]
+
+No PRD target exists for this — attribution is a Phase 9 addition. It is
+reported here because the number that came back is dramatically worse than
+an earlier back-of-envelope estimate, and that gap is itself the finding
+worth recording plainly.
+
+```
+GraphSAGE, 15 real mutations, full 174,298-node graph:
+  incremental only:            median 680.03 ms   p95 917.62 ms
+  incremental + attribution:   median 24,377.27 ms  p95 42,538.14 ms
+  attribution overhead alone:  median 23,599.63 ms  p95 41,812.33 ms
+
+GAT, 5 real mutations, full 174,298-node graph:
+  incremental only:            median 1,015.94 ms   p95 1,321.28 ms
+  incremental + attribution:   median 79,380.21 ms  p95 98,917.36 ms
+  attribution overhead alone:  median 78,058.94 ms  p95 97,901.42 ms
+```
+
+An earlier back-of-envelope figure, extrapolated from integrated-gradients
+timing measured on a small (1,500-node, 6,398-directed-edge) synthetic
+subgraph, put attribution overhead in the range of 160 ms (GraphSAGE) to
+550 ms (GAT) per
+mutation. The real number, measured against real sampled mutations on the
+real clinical graph, is **two to three orders of magnitude larger** — tens
+of seconds, not hundreds of milliseconds. The root cause is visible in the
+"incremental only" row above: a plain incremental forward pass on this
+graph's real affected subgraphs already costs hundreds of milliseconds to
+over a second (against ~5 ms on the small synthetic test subgraph the
+earlier estimate used), so 16-step integrated gradients — roughly two
+states times sixteen forward-and-backward passes each — multiplies that
+real per-pass cost by dozens, not the sparser subgraph's near-trivial cost.
+
+**What this means in practice:** `AddEdgeRequest.explain`/
+`RemoveEdgeRequest.explain` exist specifically so this cost is opt-in, never
+paid by default. At this measured cost, synchronous per-request attribution
+is not viable for an interactive or bulk-ingest path at this graph's scale —
+it is viable only for a caller that can tolerate tens of seconds of added
+latency for one specific, deliberately-requested explanation (e.g. a
+regulator's after-the-fact audit query), not for a live workflow. This is
+disclosed here rather than left for a reader to discover by running the
+benchmark themselves.
+
+A second finding from the same run: one real GAT mutation (a hub-adjacent
+edge on the production graph) produced a completeness residual of **22.35%**
+[benchmark: benchmarks/results/gate/phase9_attribution_overhead_gat.json] —
+well above the 6% worst case `tests/embedding/attribution_completeness_test.rs`
+measured on its own synthetic hub fixture. Not a correctness failure (the
+identity is a fixed-step-count approximation by construction, and the test's
+own step-count convergence check already showed the residual shrinks toward
+zero with more steps — see that test's module doc) — but real evidence that
+a production-scale, genuinely high-degree hub can push discretization error
+well past what a smaller test fixture predicts, at the default 16-step
+setting.
+
+### 2.7 Self-tuning cap controller (Phase 9, Feature 2)
+
+[benchmark: benchmarks/results/gate/phase9_cap_controller_ab.json]
+
+Same-machine, same-seed A/B over 30 real sampled mutations on the full
+clinical graph, GraphSAGE:
+
+```
+pinned (512, 1500):              p95 1,165.53 ms   expansion_capped_rate 63.3%
+adaptive (settled at rung 1,
+  384/1000):                     p95   799.55 ms   expansion_capped_rate 63.3%
+p95 reduction: 1.46x
+```
+
+A real, modest improvement — not the claim that adaptive caps eliminate
+§2.3/§2.4's ~15x latency miss. 799.55 ms remains roughly 8x over the PRD's
+100 ms target. The identical 63.3% `expansion_capped_rate` on both arms is
+worth noting explicitly: the pinned default was *already* truncating the
+receptive field on the majority of these real mutations before the
+adaptive controller ever ran, so tightening the cap further did not
+materially change how often truncation binds — only how wide the untruncated
+portion is. The controller's real win here is latency, not a reduction in
+how often the answer is already an approximation.
+
+### 2.8 Point-in-time similarity delta latency (Phase 9, Feature 3)
+
+[benchmark: benchmarks/results/gate/phase9_similarity_delta_latency.json]
+
+```
+p50 0.056 ms   p95 0.065 ms   p99 0.077 ms   (50 queries, 100% hit rate)
+```
+
+No PRD target exists for this query either. The population for this run was
+6 nodes — real embeddings, seeded via genuine `AtomicCommitter::commit`
+calls through `caregraph-fault-injection-worker`, not a synthetic stand-in —
+so this number characterizes the query mechanism's own cost (two versioned
+scans plus an in-memory join, reusing Claim 2's exact single-seek
+primitive), not a full-population latency distribution. A larger-population
+run has not been performed.
+
 ---
 
 ## 3. Finding: this machine cannot produce trustworthy sustained latency numbers
@@ -681,3 +779,30 @@ contaminated.
   point-in-time reads three-way is not done.
 - Single run, single uncooled machine — §3's finding applies here as much as
   it does to §2.2's CareGraph-only numbers.
+
+## 9. Phase 9 — explainability, self-tuning, and architecture-agnostic dispatch
+
+Four additions, summarized in detail in §2.6-§2.8 above and in
+`docs/patent_hooks.md` Claims 6-9: integrated-gradients edge attribution
+committed atomically with the embedding it explains, a discrete self-tuning
+cap controller, a point-in-time similarity delta query, and manifest-driven
+dispatch replacing a hardcoded per-`ModelKind` match. The two findings worth
+restating here rather than leaving buried in §2.6:
+
+1. **Attribution overhead on the real graph is 100-300x larger than an
+   initial estimate based on a smaller test subgraph** — tens of seconds per
+   request, not hundreds of milliseconds (§2.6). This is why it shipped as a
+   per-request opt-in (`explain: bool`), not a default.
+2. **`CF_COMMIT_META`, the new column family carrying attribution/dispatch/
+   cap provenance, is written into the same `WriteBatch` as the structural
+   mutation and the embedding** (Rule 5) — `atomic_commit.rs` still issues
+   exactly one batch write, verified statically by `scripts/check_rules.sh`'s
+   Rule 5 gate and now dynamically as well: the fault-injection suite was
+   re-run against the real three-way commit, 100 iterations per dispatch
+   arm. GraphSAGE landed 57 actual kills (56 fully committed, 44 fully
+   uncommitted); GAT landed 94 (6 fully committed, 94 fully uncommitted) —
+   **0 non-atomic states in either arm**. [benchmark: benchmarks/results/gate/phase9_fault_injection.log] [benchmark: benchmarks/results/gate/phase9_fault_injection_gat.log]
+   GAT's markedly higher kill rate (94/100 vs. GraphSAGE's 57/100 in this
+   same run) matches the Phase 5 finding that attention-weighted aggregation
+   takes measurably longer per commit, widening the window a kill can land
+   inside.

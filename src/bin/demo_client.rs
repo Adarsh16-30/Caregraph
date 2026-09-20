@@ -171,6 +171,11 @@ async fn main() -> Result<()> {
                     timestamp_us: rec.timestamp_us,
                     properties_json: rec.properties.to_string(),
                     model: ProtoModelKind::Graphsage as i32,
+                    // Phase 9's attribution overhead is substantial (see
+                    // AddEdgeRequest.explain's own doc); this demo replays
+                    // every held-out edge in a loop and stays representative
+                    // of ordinary ingest latency by leaving it off here.
+                    explain: false,
                 },
                 &args.api_key,
             ))

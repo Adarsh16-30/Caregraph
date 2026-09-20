@@ -55,17 +55,31 @@ just the two edge endpoints. `fallback = true` means the incremental path
 gave up and fell back to a full recompute for this mutation — logged and
 counted (`incremental_fallback_total`, Rule 7), never silently absorbed
 into `fallback = false`. `fanout_capped`/`neighbors_dropped` report whether
-the resolver's own fan-out cap (512 neighbours per node, ring two only —
-see `docs/benchmark_report.md` §7.7) bounded this mutation's receptive
-field.
+the resolver's own fan-out cap bounded this mutation's receptive field —
+Phase 9 made this cap self-tuning (`src/embedding/caps.rs::CapController`),
+so the effective value is no longer always the Phase 4/5 default of 512;
+the actual pair in force for a given commit is recorded in `CF_COMMIT_META`,
+not returned inline here.
+
+`explain = true` additionally computes and commits an integrated-gradients
+edge attribution for this mutation's two endpoints (Phase 9, Feature 1),
+folded into the same `CF_COMMIT_META` record `atomic_commit.rs` writes —
+retrievable afterward via a point-in-time read, not returned inline in
+`MutationResponse`. **Read `docs/benchmark_report.md` §2.6 before setting
+this on a latency-sensitive path**: measured overhead on the real clinical
+graph is tens of seconds per request (GraphSAGE median 23.6s/p95 41.8s; GAT
+median 78.1s/p95 97.9s) — two to three orders of magnitude more than a
+plain mutation costs. Defaults to `false`.
 
 ### `RemoveEdge(RemoveEdgeRequest) -> MutationResponse`
 
-Same shape and same atomic-commit/fallback semantics as `AddEdge`, but
-stages a tombstone version rather than deleting the key — the edge's
-history before the removal stays queryable via `Snapshot`/`Traverse` at an
-earlier `as_of_us` (see README's "Deletions are tombstones"). Any
-`properties_json` on the underlying edge value is ignored for a removal.
+Same shape and same atomic-commit/fallback semantics as `AddEdge`, including
+`explain` (see `AddEdge`'s own doc for the real measured cost before
+setting it), but stages a tombstone version rather than deleting the key —
+the edge's history before the removal stays queryable via `Snapshot`/
+`Traverse` at an earlier `as_of_us` (see README's "Deletions are
+tombstones"). Any `properties_json` on the underlying edge value is ignored
+for a removal.
 
 ### `Traverse(TraverseRequest) -> TraverseResponse`
 
@@ -112,6 +126,25 @@ deliberate departure from the PRD's literal pseudocode (PRD §5.3), which
 would otherwise trivially return the query node as its own top match at
 similarity 1.0; see `similar_care_pathways`'s module doc.
 
+### `SimilarityDelta(SimilarityDeltaRequest) -> SimilarityDeltaResponse`
+
+Point-in-time similarity **delta** (Phase 9, Feature 3,
+`src/api/diff.rs::similarity_delta`) — ranks candidates by the *change* in
+their embedding similarity to the query node between `from_us` and `to_us`,
+not a single-timestamp ranking (that is `SimilarCarePathways` above). Reuses
+`SimilarCarePathways`'s exact versioned-scan and cosine-similarity
+primitives, called twice.
+
+`query_node_has_no_embedding_at_from`/`_at_to` are independent flags — a
+caller can tell *which* endpoint of the window the query node was missing
+at; `matches` is empty whenever either is true. A candidate present at only
+one end of the window is still surfaced, with `present_at_from`/
+`present_at_to` set accordingly and `delta` reported as exactly `0.0` — its
+delta is undefined, not small, and is never silently dropped or fabricated
+(see `src/api/diff.rs`'s module doc). `min_abs_delta` filters out candidates
+present at *both* timestamps whose `|delta|` falls below it; a one-sided
+candidate is never filtered by it. `top_k = 0` defaults to 10.
+
 ## Enums
 
 `EdgeType` and `ModelKind` discriminants (see `proto/caregraph.proto`)
@@ -126,10 +159,12 @@ and `MODEL_KIND_UNSPECIFIED` are both `0` and are always rejected as
 (`src/api/metrics.rs`, Phase 7): `traversal_latency_seconds` labeled by
 `max_hops` (the *effective*, server-clamped value — a client's oversized
 request never pollutes a different label's series with a latency it never
-paid), and `point_in_time_query_seconds` for `Snapshot`. Both are served
-at `GET /metrics` (`CAREGRAPH_METRICS_ADDR`, default `:9100`) alongside the
-mutation-path metrics `src/embedding/metrics.rs` has recorded since Phase
-4. See `observability/grafana/dashboards/caregraph_section1.json` for the
+paid), and `point_in_time_query_seconds` for `Snapshot`. `SimilarityDelta`
+records into `similarity_delta_seconds` (Phase 9), same registration
+pattern. Served at `GET /metrics` (`CAREGRAPH_METRICS_ADDR`, default
+`:9100`) alongside the mutation-path metrics `src/embedding/metrics.rs` has
+recorded since Phase 4. See
+`observability/grafana/dashboards/caregraph_section1.json` for the
 dashboard bound to these series.
 
 ## Example: end-to-end call sequence
