@@ -46,7 +46,7 @@ env:
   # is narrower than Phase 6's original success criteria, which named all
   # five Section 1 metrics across all three systems — point-in-time read
   # latency and incremental-embedding speedup are still CareGraph-only, a
-  # disclosed gap, not a silently dropped one (see README's Known gaps).
+  # disclosed gap, not a silently dropped one (see docs/benchmark_report.md).
   #
   # At 7: all three of Phase 7's pieces are real and verified. Encryption at
   # rest (Rule 8) — the rocksdb crate exposes no encryption API at all, so

@@ -7,36 +7,99 @@ single RocksDB `WriteBatch`, so both graph structure and embeddings are queryabl
 at any historical point in time. Embeddings are a first-class versioned field,
 not a batch-computed side artifact.
 
-**Status: Phases 1-9 complete and verified** (gRPC API + point-in-time
-similarity query and similarity *delta*, three-way benchmark harness against
-live Neo4j/TerminusDB, CI run for real on GitHub Actions, real encryption at
-rest + mTLS + live Grafana dashboards, a real end-to-end live demo, versioned
-explainable attribution, a self-tuning incremental-update boundary, and
-architecture-agnostic dispatch). See [Build status](#build-status) for
-exactly what does and does not exist yet — several phases leave real,
-disclosed gaps rather than a smoothed-over "done".
-
 ### Contents
 
-- [One-command setup](#one-command-setup)
-- [Configuration](#configuration)
-- [Loading the clinical graph](#loading-the-clinical-graph)
-- [Live demo](#live-demo)
+- [Features](#features)
+- [Getting started](#getting-started)
+  - [One-command setup](#one-command-setup)
+  - [Configuration](#configuration)
+  - [Loading the clinical graph](#loading-the-clinical-graph)
+  - [Live demo](#live-demo)
 - [Architecture](#architecture)
   - [Component diagram](#component-diagram)
   - [Mutation lifecycle](#mutation-lifecycle)
   - [Column families](#column-families)
   - [Deletions are tombstones](#deletions-are-tombstones)
-- [Phase 9 additions at a glance](#phase-9-additions-at-a-glance)
 - [The ten non-negotiable rules](#the-ten-non-negotiable-rules)
-- [Build status](#build-status)
-  - [Known gaps](#known-gaps)
 - [Repository layout](#repository-layout)
 - [License](#license)
 
 ---
 
-## One-command setup
+## Features
+
+All numbers below are measured on the real 174,298-node / 515,117-edge
+Diabetes 130 clinical graph — see `docs/benchmark_report.md` for full
+methodology, baselines, and disclosed limitations.
+
+- **Temporally-versioned graph storage** — every node/edge mutation is
+  appended, never overwritten. Point-in-time reads (`as_of`) are a single
+  RocksDB seek thanks to bit-inverted timestamp keys — no reverse iterator,
+  no secondary index (see [Column families](#column-families)).
+- **Incrementally-maintained GNN embeddings** — GraphSAGE and GAT embeddings
+  update in the same atomic commit as the structural mutation that changed
+  them, not in a separate batch job.
+- **Atomic mutation + embedding commit** — the structural edge, its
+  embedding, and its provenance record land in one RocksDB `WriteBatch`.
+  Verified by killing the committing process at a randomised point across
+  100 iterations on both dispatch paths: zero non-atomic states observed.
+- **Architecture-agnostic dispatch** — each deployed model's manifest states
+  whether its aggregation is associative (fast in-place patch, e.g.
+  GraphSAGE's mean) or not (staged incremental recompute, e.g. GAT's
+  attention). The engine reads that instead of hardcoding per-architecture
+  logic, and cross-checks it against the running checkpoint at spawn time.
+- **Self-tuning incremental-update boundary** — a discrete cap controller
+  hill-climbs the affected-subgraph size limits against a live p95 latency
+  target, recording every adjustment as versioned metadata alongside the
+  mutation it affected.
+- **Explainable delta attribution** — optional (`explain: true`)
+  integrated-gradients attribution reports which edges drove an embedding
+  change and by how much, committed atomically with the embedding itself so
+  it stays queryable at any point in time rather than just logged in passing.
+- **Point-in-time similarity queries** — `similar_care_pathways` for a
+  single-timestamp nearest-neighbor search, plus `SimilarityDelta` for "how
+  much did X's similarity to Y change between two timestamps."
+- **Bounded graph traversal & snapshot reconstruction** — k-hop neighborhood
+  queries and full-graph state reconstruction at any historical timestamp.
+- **Real encryption at rest + mutual TLS** — AES-256 via a from-scratch
+  RocksDB encryption shim, and mTLS on the gRPC listener; both opt-in via
+  environment variables and fail-loud (never silently downgraded) when
+  misconfigured.
+- **Observability** — Prometheus metrics and a Grafana dashboard for the
+  query and mutation paths, including per-dispatch-path latency breakdowns.
+- **Benchmarked against real baselines** — a three-way harness runs the same
+  trace against CareGraph, Neo4j + GDS, and TerminusDB.
+
+### Dispatch, self-tuning, and attribution at a glance
+
+```mermaid
+graph LR
+    M["Mutation\n(AddEdge / RemoveEdge)"] --> D
+
+    D{"Manifest-driven\ndispatch"} -->|"is_associative=true"| G["GraphSAGE path\n(associative)"]
+    D -->|"is_associative=false"| A["GAT path\n(staged incremental)"]
+
+    G --> CC["Self-tuning cap controller\ndiscrete rung hill-climb, p95-driven"]
+    A --> CC
+
+    CC --> CM[("CF_COMMIT_META\ndispatch + caps + attribution")]
+
+    E["explain=true?"] -->|yes| IG["Integrated-gradients\nedge attribution"]
+    IG --> CM
+
+    Q["SimilarityDelta RPC"] -.->|"reads two timestamps"| EMB[("CF_EMBEDDINGS")]
+```
+
+| Feature | What it does | Measured result |
+|---------|--------------|------------------|
+| Manifest-driven dispatch | Reads each model's `is_associative`/`architecture` from its manifest instead of a hardcoded `match`; cross-checks the running checkpoint at spawn time | Closes a real, previously-unchecked model/manifest mismatch footgun |
+| Self-tuning cap controller | Discrete 5-rung hill-climb over `(fanout, max_expanded_nodes)`, driven by a live p95, recorded as versioned metadata | 1.46x p95 reduction (1165.53ms → 799.55ms) — real but modest, see `docs/benchmark_report.md` §2.7 |
+| Integrated-gradients attribution | Per-request opt-in (`explain: true`) edge attribution, committed atomically with the embedding it explains | Completeness identity verified with zero failures on both architectures; real overhead is 100-300x an early estimate at full-graph scale, see `docs/benchmark_report.md` §2.6 |
+| `SimilarityDelta` RPC | "How much did patient X's similarity to Y change between T1 and T2?" — a two-timestamp query, not a single snapshot | p50 0.056ms / p95 0.065ms on the full graph |
+
+## Getting started
+
+### One-command setup
 
 ```bash
 docker compose -f infrastructure/docker-compose/dev-stack.yml up --build
@@ -44,7 +107,8 @@ docker compose -f infrastructure/docker-compose/dev-stack.yml up --build
 
 This starts CareGraph alongside the two baseline systems that Rule 4 requires
 benchmarks to run against — Neo4j Community + GDS, and TerminusDB — plus
-Prometheus and Grafana.
+Prometheus and Grafana. It configures everything for you; no environment
+variables to set by hand.
 
 To work outside Docker you need Rust, and a C++ toolchain for RocksDB. See
 [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md) for platform-specific setup.
@@ -54,38 +118,31 @@ cargo build
 cargo test --lib              # unit tests
 cargo test --test integration # against a real on-disk RocksDB
 bash scripts/check_rules.sh   # Section 0 rule enforcement
-bash scripts/run_demo.sh      # Phase 8: live end-to-end demo, see below
+bash scripts/run_demo.sh      # live end-to-end demo, see below
 ```
 
-## Configuration
+### Configuration
 
-`docker compose` sets all of these for you. Running `caregraph` (the
-`src/main.rs` binary) directly needs at least `CAREGRAPH_API_KEY`; everything
-else has a safe default.
+Running the `caregraph` binary directly (outside Docker Compose) needs
+exactly one environment variable:
 
-| Variable | Required? | Default | Purpose |
-|----------|-----------|---------|---------|
-| `CAREGRAPH_API_KEY` | **Yes** | *(none — refuses to start)* | Bearer token the gRPC auth interceptor checks on every RPC. An unset key is a hard error, never "auth disabled" (Rule 2). Generate with `openssl rand -hex 32`. |
-| `CAREGRAPH_DB_PATH` | No | `data/db/caregraph` | On-disk RocksDB directory. |
-| `CAREGRAPH_GRPC_ADDR` | No | `0.0.0.0:50051` | gRPC listener address. |
-| `CAREGRAPH_METRICS_ADDR` | No | `0.0.0.0:9100` | `GET /metrics` (Prometheus) listener address. |
-| `CAREGRAPH_GRAPHSAGE_MODEL` | No | `diabetes130_graphsage` | Model id under `ml/deployed/` to serve for the associative dispatch path. |
-| `CAREGRAPH_GAT_MODEL` | No | `diabetes130_gat` | Model id under `ml/deployed/` to serve for the staged (non-associative) dispatch path. |
-| `CAREGRAPH_PYTHON` | No | `python` | Interpreter used to spawn `ml/embedding_server.py`. Point this at a venv's `python` if `torch`/`torch_geometric` aren't on the system interpreter. |
-| `CAREGRAPH_ENCRYPTION_KEY` | No (recommended) | *(unencrypted, with a logged warning)* | 64 hex characters (32-byte AES-256 key) enabling encryption at rest (Rule 8). Set-but-malformed is refused outright, never silently downgraded. Generate with `openssl rand -hex 32`. |
-| `CAREGRAPH_TLS_CERT` / `CAREGRAPH_TLS_KEY` / `CAREGRAPH_TLS_CLIENT_CA` | No | *(plaintext gRPC)* | PEM file paths enabling mutual TLS. Setting `CAREGRAPH_TLS_CERT` requires the other two. |
-| `CAREGRAPH_ATTRIBUTION_STEPS` | No | `16` | Integrated-gradients quadrature step count for Phase 9's `explain: true` attribution path. |
-| `CAREGRAPH_HARDWARE` | No (benchmarks only) | *(none)* | Free-text hardware description recorded into each `caregraph-bench-*` binary's output JSON for provenance. |
-| `IDPIP_DATABASE_URL` | No (only for the IDPIP loader) | *(none — loader exits non-zero)* | PostgreSQL/TimescaleDB connection string for `data/idpip_ukpds_loader.py`. Not needed for the Diabetes 130 path this repo actually runs on. |
+| Variable | Why it's required |
+|----------|--------------------|
+| `CAREGRAPH_API_KEY` | Bearer token checked on every gRPC call by the auth interceptor. Unset means the server **refuses to start** rather than serving with auth silently disabled (Rule 2). Generate one with `openssl rand -hex 32`. |
 
-## Loading the clinical graph
+Everything else — listener addresses, which model to load, encryption,
+mTLS, attribution step count — has a working default and only needs to be
+touched for non-default behavior. See `src/main.rs` for the full list if
+you need to change one.
+
+### Loading the clinical graph
 
 The PRD names the IDPIP UKPDS-derived clinical graph (5,102 T2DM patients,
-20-year follow-up) as the evaluation dataset; that source is not reachable in
-this environment (Known gap #2), so every trace, benchmark, and demo in this
-repository actually runs on the **Diabetes 130-US Hospitals** dataset (UCI
-id 296) instead — a real, cited, public substitute, not synthetic data. Use
-this path to reproduce anything in `docs/benchmark_report.md` or
+20-year follow-up) as the evaluation dataset; that source isn't reachable in
+this environment, so every trace, benchmark, and demo in this repository
+actually runs on the **Diabetes 130-US Hospitals** dataset (UCI id 296)
+instead — a real, cited, public substitute, not synthetic data. Use this
+path to reproduce anything in `docs/benchmark_report.md` or
 `scripts/run_demo.sh`:
 
 ```bash
@@ -121,7 +178,7 @@ cargo run --release --bin caregraph-load -- \
 reach their real source (Rule 6). A benchmark measured on invented data is
 not a measurement.
 
-## Live demo
+### Live demo
 
 ```bash
 bash scripts/run_demo.sh
@@ -253,7 +310,7 @@ sequenceDiagram
 | `CF_REVERSE` | same, src/dst swapped | edge properties |
 | `CF_NODES` | `[node_id \| ts_desc]` | node properties |
 | `CF_EMBEDDINGS` | `[node_id \| ts_desc]` | vector + model_id + computation_path |
-| `CF_COMMIT_META` | `[node_id \| ts_desc]` | dispatch decision + effective caps + attribution (Phase 9) |
+| `CF_COMMIT_META` | `[node_id \| ts_desc]` | dispatch decision + effective caps + attribution |
 
 Timestamps are stored bit-inverted, so a *newer* version produces a *smaller*
 byte sequence and sorts first. A point-in-time read is therefore a single
@@ -288,43 +345,14 @@ Erasing the key would erase the history that point-in-time reconstruction
 reads, making `as_of(T)` for a `T` before the removal wrongly report that the
 edge never existed. The timeline is append-only.
 
-## Phase 9 additions at a glance
-
-Four features layered on top of Phases 1-8, all recorded per-mutation in
-`CF_COMMIT_META` so a regulator's question — "what did the model know, when,
-and why did it change?" — is answerable from storage alone, not from a log
-some other system might not have kept.
-
-```mermaid
-graph LR
-    M["Mutation\n(AddEdge / RemoveEdge)"] --> D
-
-    D{"Manifest-driven\ndispatch"} -->|"is_associative=true"| G["GraphSAGE path\n(associative)"]
-    D -->|"is_associative=false"| A["GAT path\n(staged incremental)"]
-
-    G --> CC["Self-tuning cap controller\ndiscrete rung hill-climb, p95-driven"]
-    A --> CC
-
-    CC --> CM[("CF_COMMIT_META\ndispatch + caps + attribution")]
-
-    E["explain=true?"] -->|yes| IG["Integrated-gradients\nedge attribution"]
-    IG --> CM
-
-    Q["SimilarityDelta RPC"] -.->|"reads two timestamps"| EMB[("CF_EMBEDDINGS")]
-```
-
-| Feature | What it does | Measured result |
-|---------|--------------|------------------|
-| Manifest-driven dispatch | Reads each model's `is_associative`/`architecture` from its manifest instead of a hardcoded `match`; cross-checks the running checkpoint at spawn time | Closes a real, previously-unchecked model/manifest mismatch footgun |
-| Self-tuning cap controller | Discrete 5-rung hill-climb over `(fanout, max_expanded_nodes)`, driven by a live p95, recorded as versioned metadata | 1.46x p95 reduction (1165.53ms → 799.55ms) — real but modest, see [Known gaps](#known-gaps) #10 |
-| Integrated-gradients attribution | Per-request opt-in (`explain: true`) edge attribution, committed atomically with the embedding it explains | Completeness identity verified with zero failures on both architectures — but real overhead is 100-300x an early estimate, see [Known gaps](#known-gaps) #9 |
-| `SimilarityDelta` RPC | "How much did patient X's similarity to Y change between T1 and T2?" — a two-timestamp query, not a single snapshot | p50 0.056ms / p95 0.065ms on the full graph |
-
 ## The ten non-negotiable rules
 
-`scripts/check_rules.sh` enforces PRD Section 0. Every rule reports `PASS`,
-`FAIL`, or `PENDING`; `PENDING` means the phase that introduces the rule's
-subject matter has not started.
+`scripts/check_rules.sh` continuously enforces ten invariants — real storage
+(no mocks), real trained models (no random vectors), atomic commits, no
+silent fallback to full recompute, real encryption, no placeholder
+dashboards, and benchmark-cited claims among them. Every rule reports
+`PASS`, `FAIL`, or `PENDING`; `PENDING` means the feature it covers hasn't
+been built yet in a from-scratch build.
 
 ```bash
 bash scripts/check_rules.sh            # report everything
@@ -332,165 +360,17 @@ bash scripts/check_rules.sh --phase 3  # gate: phase-3 rules must be live
 bash scripts/check_rules.sh --rule 5   # one rule
 ```
 
-`PENDING` is deliberately loud and never silent. At a phase gate, `--phase N`
-upgrades any rule that should be live by phase N into a hard failure — so a rule
-cannot be quietly outrun by the build. Rule 10 has been retired for this
-project and always reports `RETIRED`; rules 1-9 remain fully enforced.
-
-## Build status
-
-Later phases are **absent, not stubbed**. A stub that compiles is
-indistinguishable from an implementation to anything except a reader, which is
-the failure mode Section 0 exists to prevent.
-
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 | Infrastructure, KV abstraction, column families | complete — compiled, unit + integration tests passing |
-| 2 | Temporal indexing, `as_of()` reads, windowed scans | complete — point-in-time read benchmark run against real clinical data |
-| 3 | Bounded traversal, snapshots, Neo4j/TerminusDB baseline harness | complete — 2-hop traversal benchmark passing; baseline harness built, not yet run against live baselines |
-| 4 | GraphSAGE/GCN incremental embeddings | complete — real trained model deployed (Rule 3); 50/50 randomised mutation sequences match full recompute exactly; 7.79x median speedup vs. the 5x target |
-| 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection against **both** `AtomicCommitter` dispatch arms (GraphSAGE: 49 actual kills, 0 non-atomic states; GAT: 78 actual kills, 0 non-atomic states — Rule 5); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, 8.1x median incremental speedup (p95 latency misses the 100ms target on the full graph, same as Phase 4's GraphSAGE finding — see `docs/benchmark_report.md` §2.3-§2.4) |
-| 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
-| 7 | Encryption at rest, mTLS, live dashboards | complete — real RocksDB encryption at rest via a from-scratch C++/AES-256 shim (the `rocksdb` crate exposes no encryption API; Rule 8), verified by reading raw on-disk SST bytes after a flush; mutual TLS on the gRPC listener, verified against real TLS handshakes with rcgen-generated certificates; `GET /metrics` finally serves the Prometheus registry dev-stack.yml has pointed at since Phase 1, with new query-path series verified to record real nonzero values, and a real Grafana dashboard bound to the live datasource (Rule 9) |
-| 8 | Live demo | complete — `scripts/run_demo.sh` runs a real end-to-end demo (live mutation, traversal, snapshot, similarity) start to finish with no manual steps, plus a real, newly-run Rule 5 fault-injection result captured as a citable artifact |
-| 9 | Explainable attribution, self-tuning caps, similarity delta, architecture-agnostic dispatch | complete — integrated-gradients edge attribution committed atomically with the embedding it explains (`CF_COMMIT_META`), verified via a real completeness identity on both deployed architectures with zero failures (`tests/embedding/attribution_completeness_test.rs`); a discrete self-tuning cap controller measuring a real 1.46x p95 reduction (`docs/benchmark_report.md` §2.7); a point-in-time similarity delta RPC (`SimilarityDelta`, Rule 2-covered); manifest-driven dispatch replacing the hardcoded `ModelKind` match, closing a real, previously-unchecked model/manifest mismatch footgun. Two severe, disclosed findings: attribution overhead on the real graph is 100-300x larger than an initial small-subgraph estimate (tens of seconds per request — §2.6), and one real GAT mutation's completeness residual reached 22.35%, over 3x the correctness suite's own synthetic-fixture tolerance. Rule 5 re-verification that the new three-way write (edge + embedding + `CF_COMMIT_META`) survives a mid-commit kill was run against both dispatch arms — see Known gaps below for the exact kill counts |
-
-### Known gaps
-
-Twelve items, each disclosed rather than smoothed over. Short form here;
-expand for the full explanation and citations.
-
-| # | Gap | Status |
-|---|-----|--------|
-| 1 | Three-way baseline comparison covers one Section 1 metric, not all of them; incremental-update p95 latency itself misses target ~15x on the full graph | 🔴 Real miss |
-| 2 | Evaluation runs on the Diabetes 130 substitute dataset, not the PRD-named IDPIP/UKPDS source | 🟡 Disclosed substitution |
-| 3 | CI runs for real on GitHub Actions, including the `benchmarks` job | 🟢 Informational |
-| 4 | Phase 7's AES-256 implementation is from-scratch, not an independently audited library | 🟡 Disclosed risk |
-| 5 | mTLS is opt-in, not enforced by default | 🟡 Disclosed default |
-| 6 | Grafana dashboard covers one metric family, not full production observability | 🟡 Scope-limited |
-| 7 | `run_demo.sh` needed a real Windows PID-handling fix mid-Phase-8 | ✅ Resolved |
-| 8 | Two named stack entries (ONNX Runtime, a vendored RIPPLE++ checkout) are unused, not substituted | 🟡 Disclosed absence |
-| 9 | Attribution overhead on the real graph is 100-300x an early estimate; one GAT mutation hit a 22.35% completeness residual | 🔴 Severe, disclosed |
-| 10 | Self-tuning cap controller's win is real but modest (1.46x); same truncation rate as pinned caps | 🟡 Modest, disclosed |
-| 11 | Phase 9 fault-injection re-verification: 0 non-atomic states across both dispatch arms | ✅ Verified |
-| 12 | Two internal write-ups from earlier phases are kept outside this repository | 🟢 Informational |
-
-<details>
-<summary><strong>Full detail for each gap</strong> (click to expand)</summary>
-
-1. **The three-way *baseline comparison* covers one Section 1 metric, not
-   all of them.** `benchmarks/run_baseline.sh` has been run end to end
-   against live Neo4j + GDS and TerminusDB containers, loaded with the
-   byte-identical trace and measured on 2-hop bounded traversal — see
-   `docs/benchmark_report.md` §8 for the numbers and their caveats (the run
-   was from a dirty tree). Point-in-time read latency, incremental-embedding
-   speedup, and sustained ingestion throughput are all now measured
-   (`docs/benchmark_report.md` §2), but only CareGraph-side — extending
-   `run_baseline.sh` to run all of Section 1's metrics three-way against
-   Neo4j and TerminusDB, and writing a full benchmark report generator,
-   has not been done. Two of the CareGraph-only numbers are themselves a
-   **miss** against their Section 1 target, not just an incomplete
-   comparison: incremental embedding update p95 latency is ~15x over
-   target for both GraphSAGE and GAT on the full 174,298-node graph — see
-   `docs/benchmark_report.md` §2.3-§2.4 for the honest number and why the
-   miss is scale-dependent, not a defect in the incremental path.
-2. **Evaluation data is a substitute, disclosed as one.** The PRD names
-   IDPIP/UKPDS; that source was not reachable in this environment. Evaluation
-   instead runs on the Diabetes 130-US Hospitals dataset (UCI id 296) — see
-   `data/diabetes130_loader.py`'s module doc for exactly what is derived
-   rather than recorded (Rule 6). The IDPIP/UKPDS loader
-   (`data/idpip_ukpds_loader.py`) is still implemented for when that source
-   becomes available.
-3. **CI now runs for real on GitHub's own infrastructure.** The repository
-   is pushed to `https://github.com/Adarsh16-30/Caregraph`, and every
-   currently-enabled `ci.yml` job (Section 0 rule enforcement, fmt+clippy,
-   tests against real RocksDB, dev-stack Docker build, embedding correctness,
-   100-run fault injection) has completed successfully on a GitHub runner —
-   not just locally. The `benchmarks` job now runs too, now that
-   `run_baseline.sh` has completed against live baselines at least once by
-   hand (§8).
-4. **Phase 7's AES-256 implementation is from-scratch, not a vetted library.**
-   `native/rocksdb_encryption/aes256.h` exists because the `rocksdb` crate
-   has no encryption API to build on at all (see its own module doc) and
-   this build doesn't link OpenSSL. It's verified against two independent
-   FIPS-197 test vectors and exercised for real by the integration suite,
-   but it has not had independent cryptographic review — treat it as
-   correct-per-the-standard-test-vectors, not as audited production crypto.
-5. **mTLS is opt-in, not enforced.** `CAREGRAPH_TLS_CERT`/`_KEY`/`_CLIENT_CA`
-   unset means the gRPC listener is plaintext (with a logged warning) —
-   nothing in this build requires an operator to turn mTLS on. Same shape
-   as `CAREGRAPH_ENCRYPTION_KEY`: explicit and fail-loud when configured,
-   never silently downgraded, but not mandatory.
-6. **The Grafana dashboard covers Section 1's metrics, not a full production
-   dashboard suite.** One dashboard (`caregraph_section1.json`), seven
-   panels, all bound to real series — no alerting rules, no per-model or
-   per-column-family breakdowns beyond what `embedding_update_latency_seconds`'s
-   `computation_path` label already gives.
-7. **`scripts/run_demo.sh`'s server teardown needed a real fix mid-Phase-8.**
-   Killing the demo server via bash's own `$!` PID silently failed under
-   Git Bash / MSYS on Windows — `$!` is an MSYS-internal PID, not the real
-   Windows PID `taskkill` needs, so the first version of the cleanup left
-   the server (and its Python embedding-model child) running after the
-   script exited. Fixed by resolving the real PID through MSYS `ps`'s own
-   WINPID column first; re-run and confirmed via `Get-Process` that nothing
-   was left behind afterward.
-8. **Two Section 2/10 stack entries are unused, not substituted.** ONNX
-    Runtime (§2.3) never appears anywhere in this build — `ml/embedding_server.py`
-    fills its role instead (see `docs/benchmark_report.md` §7.1). Section 10's
-    `ml/embedding/gat_incremental.py` and `ml/ripple_plus_reference/` paths
-    don't exist either: the GAT incremental logic lives in
-    `src/embedding/gat_incremental.rs`, and there is no vendored RIPPLE++
-    checkout, only its operator-decoupling technique reimplemented directly.
-    Creating stub files at those two paths to match the directory listing
-    would itself be placeholder content — not done, disclosed here and in
-    `docs/benchmark_report.md` §7.1 instead. (Phase 9 renamed
-    `src/embedding/gat_incremental.rs` to `src/embedding/staged_incremental.rs`
-    and generalized it beyond GAT specifically — see Phase 9's row above.)
-9. **Attribution overhead, measured on the real graph, is severe — plan
-    around tens of seconds per request, not milliseconds.** An early
-    estimate based on a small synthetic subgraph projected 160-550 ms; the
-    real number on the full 174,298-node graph is **100-300x larger**
-    (GraphSAGE median 23.6s/p95 41.8s; GAT median 78.1s/p95 97.9s — see
-    `docs/benchmark_report.md` §2.6). This is exactly why attribution is a
-    per-request opt-in (`explain: bool`) and not a default. A separate,
-    real production mutation pushed GAT's completeness residual to 22.35%
-    — over 3x the 6% worst case measured on the correctness suite's own
-    synthetic fixture — real evidence that extreme-degree hubs need more
-    than the default 16 integration steps to converge tightly, not a
-    fabricated number smoothed into the correctness test's tolerance.
-10. **The cap controller's measured win is real but modest.** 1.46x p95
-    reduction (1165.53ms → 799.55ms), not a fix for Known Gap #1's ~15x
-    miss — see `docs/benchmark_report.md` §2.7. Both the pinned and
-    adaptive arms hit the same 63.3% `expansion_capped_rate` on the sampled
-    mutations, disclosed rather than left implicit: the latency win did not
-    come from truncating less often.
-11. **Phase 9's Rule 5 fault-injection re-verification is done: the new
-    three-way write (edge, embedding, and `CF_COMMIT_META`) still commits
-    atomically.** 100 iterations per dispatch arm: GraphSAGE 57 actual
-    kills (56 fully committed, 44 fully uncommitted), GAT 94 actual kills
-    (6 fully committed, 94 fully uncommitted) — **0 non-atomic states in
-    either arm**. GAT's near-total 94/100 kill rate exercised the race far
-    more aggressively than GraphSAGE's 57/100, for the same reason Phase
-    5's own log noted: attention-weighted aggregation takes measurably
-    longer per commit, widening the window a kill can land inside. See
-    `benchmarks/results/gate/phase9_fault_injection.log` and
-    `phase9_fault_injection_gat.log` for the full breakdown and provenance.
-12. **A couple of internal write-ups from earlier phases are kept outside
-    this repository rather than committed.** Nothing else in the tracked
-    project depends on them, and Rule 10 (the citation check that used to
-    read one of them) has been retired rather than pointed at a private
-    file — see the rules section above.
-
-</details>
+`PENDING` is deliberately loud and never silent. Rule 10 has been retired for
+this project and always reports `RETIRED`; rules 1-9 remain fully enforced.
 
 ## Repository layout
 
 ```
-src/            Rust core — storage, temporal, (later) graph/embedding/api
-proto/          gRPC schema (Phase 6)
+src/            Rust core — storage, temporal, graph, embedding, api
+proto/          gRPC schema
 data/           UKPDS loader and clinical graph schema
-ml/             GNN training and incremental-update reference (Phase 4)
-benchmarks/     Baseline harness and mutation traces (Phase 3)
+ml/             GNN training and incremental-update reference
+benchmarks/     Baseline harness and mutation traces
 observability/  Prometheus rules, Grafana provisioning
 infrastructure/ Docker Compose dev stack
 scripts/        check_rules.sh, run_demo.sh
