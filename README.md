@@ -16,6 +16,24 @@ architecture-agnostic dispatch). See [Build status](#build-status) for
 exactly what does and does not exist yet — several phases leave real,
 disclosed gaps rather than a smoothed-over "done".
 
+### Contents
+
+- [One-command setup](#one-command-setup)
+- [Configuration](#configuration)
+- [Loading the clinical graph](#loading-the-clinical-graph)
+- [Live demo](#live-demo)
+- [Architecture](#architecture)
+  - [Component diagram](#component-diagram)
+  - [Mutation lifecycle](#mutation-lifecycle)
+  - [Column families](#column-families)
+  - [Deletions are tombstones](#deletions-are-tombstones)
+- [Phase 9 additions at a glance](#phase-9-additions-at-a-glance)
+- [The ten non-negotiable rules](#the-ten-non-negotiable-rules)
+- [Build status](#build-status)
+  - [Known gaps](#known-gaps)
+- [Repository layout](#repository-layout)
+- [License](#license)
+
 ---
 
 ## One-command setup
@@ -57,7 +75,7 @@ else has a safe default.
 | `CAREGRAPH_ENCRYPTION_KEY` | No (recommended) | *(unencrypted, with a logged warning)* | 64 hex characters (32-byte AES-256 key) enabling encryption at rest (Rule 8). Set-but-malformed is refused outright, never silently downgraded. Generate with `openssl rand -hex 32`. |
 | `CAREGRAPH_TLS_CERT` / `CAREGRAPH_TLS_KEY` / `CAREGRAPH_TLS_CLIENT_CA` | No | *(plaintext gRPC)* | PEM file paths enabling mutual TLS. Setting `CAREGRAPH_TLS_CERT` requires the other two. |
 | `CAREGRAPH_ATTRIBUTION_STEPS` | No | `16` | Integrated-gradients quadrature step count for Phase 9's `explain: true` attribution path. |
-| `CAREGRAPH_HARDWARE` | No (benchmarks only) | *(none)* | Free-text hardware description recorded into each `caregraph-bench-*` binary's output JSON for provenance (Rule 10). |
+| `CAREGRAPH_HARDWARE` | No (benchmarks only) | *(none)* | Free-text hardware description recorded into each `caregraph-bench-*` binary's output JSON for provenance. |
 | `IDPIP_DATABASE_URL` | No (only for the IDPIP loader) | *(none — loader exits non-zero)* | PostgreSQL/TimescaleDB connection string for `data/idpip_ukpds_loader.py`. Not needed for the Diabetes 130 path this repo actually runs on. |
 
 ## Loading the clinical graph
@@ -132,6 +150,101 @@ Six layers, each reachable only through its defined interface.
 | 5. Query & API | `src/api/` | gRPC service, auth, result limits |
 | 6. Observability | `observability/` | Prometheus, Grafana, benchmark harness |
 
+### Component diagram
+
+```mermaid
+graph TB
+    Client["gRPC client\n(src/bin/demo_client.rs)"]
+
+    subgraph L5 ["5. Query & API — src/api/"]
+        API["CareGraphApi\nauth · result limits"]
+        DIFF["similarity_delta / similar_care_pathways"]
+    end
+
+    subgraph L4 ["4. Incremental embedding — src/embedding/"]
+        RES["Resolver\naffected-subgraph resolution"]
+        MANI["Manifest-driven dispatch\n(associative vs. staged)"]
+        CAPS["Self-tuning cap controller"]
+        ATTR["Integrated-gradients attribution\n(opt-in: explain=true)"]
+        AC["AtomicCommitter"]
+    end
+
+    subgraph L3 ["3. Graph semantics — src/graph/"]
+        TRAV["Bounded traversal · snapshot reconstruction"]
+    end
+
+    subgraph L2 ["2. Temporal indexing — src/temporal/"]
+        IDX["Versioned key encoding · as_of() scans"]
+    end
+
+    subgraph L1 ["1. Storage — src/storage/"]
+        DB[("RocksDB\n5 column families, AES-256 at rest")]
+    end
+
+    subgraph L6 ["6. Observability — observability/"]
+        PROM["Prometheus /metrics"]
+        GRAF["Grafana dashboards"]
+    end
+
+    PY["ml/embedding_server.py\nGraphSAGE + GAT (torch_geometric)"]
+
+    Client -- gRPC + mTLS --> API
+    API --> DIFF
+    API --> RES
+    API --> TRAV
+    RES --> MANI
+    MANI <-- "forward pass" --> PY
+    MANI --> CAPS
+    MANI --> ATTR
+    ATTR <-- "attribution request" --> PY
+    MANI --> AC
+    TRAV --> IDX
+    DIFF --> IDX
+    AC --> IDX
+    IDX --> DB
+    API -. metrics .-> PROM
+    PROM --> GRAF
+```
+
+### Mutation lifecycle
+
+What actually happens inside one `AddEdge`/`RemoveEdge` call — the path that
+Rule 5 (atomicity) and Rule 7 (no silent fallback) are enforced against.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant A as "gRPC API (src/api)"
+    participant R as Resolver
+    participant D as "Dispatch (manifest-driven)"
+    participant P as embedding_server.py
+    participant K as CapController
+    participant W as AtomicCommitter
+
+    C->>A: AddEdge(src, dst, ts, model, explain?)
+    A->>R: resolve affected subgraph
+    R-->>A: nodes, edges, truncation flags
+    A->>D: model.manifest.is_associative?
+    alt associative (GraphSAGE)
+        D->>P: forward(pre-patch) once, patch in place, forward(post-patch) once
+    else non-associative (GAT)
+        D->>P: staged incremental forward passes (RIPPLE++-style operator decoupling)
+    end
+    P-->>D: new embeddings
+    D->>K: observe(dispatch-only duration)
+    K-->>D: next fanout/expansion caps (recorded as versioned metadata)
+    opt explain = true
+        D->>P: integrated-gradients attribution request
+        P-->>D: top-k edge attributions + completeness residual
+    end
+    D->>W: embeddings, dispatch decision, effective caps, attribution
+    W->>W: single WriteBatch: edge + embedding + CF_COMMIT_META
+    Note over W: all three writes commit together or not at all —<br/>verified by killing the process mid-commit (Rule 5)
+    W-->>A: MutationResponse
+    A-->>C: response
+```
+
 ### Column families
 
 | CF | Key | Value |
@@ -145,7 +258,20 @@ Six layers, each reachable only through its defined interface.
 Timestamps are stored bit-inverted, so a *newer* version produces a *smaller*
 byte sequence and sorts first. A point-in-time read is therefore a single
 forward seek — no reverse iterator, no secondary index. That is the mechanism
-behind O(log n) point-in-time retrieval.
+behind O(log n) point-in-time retrieval:
+
+```
+CF_EMBEDDINGS, node 42, three versions written at T1 < T2 < T3
+(ts stored as !T — bitwise NOT — so byte order sorts newest first)
+
+  key: [42 | !T3]  ─┐  smallest byte sequence → seek() lands here first
+  key: [42 | !T2]   ├─ RocksDB forward-iteration order
+  key: [42 | !T1]  ─┘  largest byte sequence  → sorts last
+
+  as_of(node=42, T=T2.5):
+      seek(key = [42 | !T2.5])
+        └──▶ first key ≥ target is [42 | !T2]   (one seek, no scan back)
+```
 
 Note that edge keys order by timestamp *before* `dst_id`, so within one
 adjacency list the versions of different destinations are interleaved in time.
@@ -161,6 +287,38 @@ A removal appends a version marked `deleted`, never a RocksDB `delete`.
 Erasing the key would erase the history that point-in-time reconstruction
 reads, making `as_of(T)` for a `T` before the removal wrongly report that the
 edge never existed. The timeline is append-only.
+
+## Phase 9 additions at a glance
+
+Four features layered on top of Phases 1-8, all recorded per-mutation in
+`CF_COMMIT_META` so a regulator's question — "what did the model know, when,
+and why did it change?" — is answerable from storage alone, not from a log
+some other system might not have kept.
+
+```mermaid
+graph LR
+    M["Mutation\n(AddEdge / RemoveEdge)"] --> D
+
+    D{"Manifest-driven\ndispatch"} -->|"is_associative=true"| G["GraphSAGE path\n(associative)"]
+    D -->|"is_associative=false"| A["GAT path\n(staged incremental)"]
+
+    G --> CC["Self-tuning cap controller\ndiscrete rung hill-climb, p95-driven"]
+    A --> CC
+
+    CC --> CM[("CF_COMMIT_META\ndispatch + caps + attribution")]
+
+    E["explain=true?"] -->|yes| IG["Integrated-gradients\nedge attribution"]
+    IG --> CM
+
+    Q["SimilarityDelta RPC"] -.->|"reads two timestamps"| EMB[("CF_EMBEDDINGS")]
+```
+
+| Feature | What it does | Measured result |
+|---------|--------------|------------------|
+| Manifest-driven dispatch | Reads each model's `is_associative`/`architecture` from its manifest instead of a hardcoded `match`; cross-checks the running checkpoint at spawn time | Closes a real, previously-unchecked model/manifest mismatch footgun |
+| Self-tuning cap controller | Discrete 5-rung hill-climb over `(fanout, max_expanded_nodes)`, driven by a live p95, recorded as versioned metadata | 1.46x p95 reduction (1165.53ms → 799.55ms) — real but modest, see [Known gaps](#known-gaps) #10 |
+| Integrated-gradients attribution | Per-request opt-in (`explain: true`) edge attribution, committed atomically with the embedding it explains | Completeness identity verified with zero failures on both architectures — but real overhead is 100-300x an early estimate, see [Known gaps](#known-gaps) #9 |
+| `SimilarityDelta` RPC | "How much did patient X's similarity to Y change between T1 and T2?" — a two-timestamp query, not a single snapshot | p50 0.056ms / p95 0.065ms on the full graph |
 
 ## The ten non-negotiable rules
 
@@ -198,6 +356,27 @@ the failure mode Section 0 exists to prevent.
 | 9 | Explainable attribution, self-tuning caps, similarity delta, architecture-agnostic dispatch | complete — integrated-gradients edge attribution committed atomically with the embedding it explains (`CF_COMMIT_META`), verified via a real completeness identity on both deployed architectures with zero failures (`tests/embedding/attribution_completeness_test.rs`); a discrete self-tuning cap controller measuring a real 1.46x p95 reduction (`docs/benchmark_report.md` §2.7); a point-in-time similarity delta RPC (`SimilarityDelta`, Rule 2-covered); manifest-driven dispatch replacing the hardcoded `ModelKind` match, closing a real, previously-unchecked model/manifest mismatch footgun. Two severe, disclosed findings: attribution overhead on the real graph is 100-300x larger than an initial small-subgraph estimate (tens of seconds per request — §2.6), and one real GAT mutation's completeness residual reached 22.35%, over 3x the correctness suite's own synthetic-fixture tolerance. Rule 5 re-verification that the new three-way write (edge + embedding + `CF_COMMIT_META`) survives a mid-commit kill was run against both dispatch arms — see Known gaps below for the exact kill counts |
 
 ### Known gaps
+
+Twelve items, each disclosed rather than smoothed over. Short form here;
+expand for the full explanation and citations.
+
+| # | Gap | Status |
+|---|-----|--------|
+| 1 | Three-way baseline comparison covers one Section 1 metric, not all of them; incremental-update p95 latency itself misses target ~15x on the full graph | 🔴 Real miss |
+| 2 | Evaluation runs on the Diabetes 130 substitute dataset, not the PRD-named IDPIP/UKPDS source | 🟡 Disclosed substitution |
+| 3 | CI runs for real on GitHub Actions, including the `benchmarks` job | 🟢 Informational |
+| 4 | Phase 7's AES-256 implementation is from-scratch, not an independently audited library | 🟡 Disclosed risk |
+| 5 | mTLS is opt-in, not enforced by default | 🟡 Disclosed default |
+| 6 | Grafana dashboard covers one metric family, not full production observability | 🟡 Scope-limited |
+| 7 | `run_demo.sh` needed a real Windows PID-handling fix mid-Phase-8 | ✅ Resolved |
+| 8 | Two named stack entries (ONNX Runtime, a vendored RIPPLE++ checkout) are unused, not substituted | 🟡 Disclosed absence |
+| 9 | Attribution overhead on the real graph is 100-300x an early estimate; one GAT mutation hit a 22.35% completeness residual | 🔴 Severe, disclosed |
+| 10 | Self-tuning cap controller's win is real but modest (1.46x); same truncation rate as pinned caps | 🟡 Modest, disclosed |
+| 11 | Phase 9 fault-injection re-verification: 0 non-atomic states across both dispatch arms | ✅ Verified |
+| 12 | Two internal write-ups from earlier phases are kept outside this repository | 🟢 Informational |
+
+<details>
+<summary><strong>Full detail for each gap</strong> (click to expand)</summary>
 
 1. **The three-way *baseline comparison* covers one Section 1 metric, not
    all of them.** `benchmarks/run_baseline.sh` has been run end to end
@@ -301,6 +480,8 @@ the failure mode Section 0 exists to prevent.
     project depends on them, and Rule 10 (the citation check that used to
     read one of them) has been retired rather than pointed at a private
     file — see the rules section above.
+
+</details>
 
 ## Repository layout
 
