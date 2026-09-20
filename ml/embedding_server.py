@@ -40,8 +40,9 @@ CareGraph's node-id scheme, which lives entirely on the Rust side.
 of `attribution.targets`' embedding changed between `edge_index_before` (the
 pre-mutation graph) and `edge_index` (the post-mutation graph this request
 already computes embeddings for) — see `src/embedding/meta.rs::Attribution`'s
-own doc for the record this feeds and `docs/patent_hooks.md` Claim 6 for the
-completeness identity it is verified against.
+own doc for the record this feeds; see
+`tests/embedding/attribution_completeness_test.rs` for the completeness
+identity it is verified against.
 
 Mechanism: attribute the scalar `f(m) = <z_v(m), u>`, where `m` is a
 continuous `[0,1]` edge mask (`torch_geometric.explain.algorithm.utils.set_masks`,

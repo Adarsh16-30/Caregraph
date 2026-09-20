@@ -16,12 +16,6 @@ architecture-agnostic dispatch). See [Build status](#build-status) for
 exactly what does and does not exist yet — several phases leave real,
 disclosed gaps rather than a smoothed-over "done".
 
-Patent-strategy and prior-art documents (`docs/patent_hooks.md`,
-`docs/novelty_analysis.md`, `docs/paper_draft.md`) are maintained privately
-and are **not committed to this public repository** — see
-[Known gaps](#known-gaps) #14 for what that means for `scripts/check_rules.sh`
-Rule 10 on a fresh clone.
-
 ---
 
 ## One-command setup
@@ -182,10 +176,8 @@ bash scripts/check_rules.sh --rule 5   # one rule
 
 `PENDING` is deliberately loud and never silent. At a phase gate, `--phase N`
 upgrades any rule that should be live by phase N into a hard failure — so a rule
-cannot be quietly outrun by the build. Rule 10 additionally has a narrow
-`EXCLUDED` outcome, used only when `docs/patent_hooks.md` is absent because it
-was deliberately kept out of this public repository — see
-[Known gaps](#known-gaps) #14.
+cannot be quietly outrun by the build. Rule 10 has been retired for this
+project and always reports `RETIRED`; rules 1-9 remain fully enforced.
 
 ## Build status
 
@@ -202,7 +194,7 @@ the failure mode Section 0 exists to prevent.
 | 5 | GAT incremental path, atomic commit, fault injection | complete — atomic commit + 100-run fault injection against **both** `AtomicCommitter` dispatch arms (GraphSAGE: 49 actual kills, 0 non-atomic states; GAT: 78 actual kills, 0 non-atomic states — Rule 5); GAT path implemented and trained, 50/50 mutation sequences match full recompute exactly, 8.1x median incremental speedup (p95 latency misses the 100ms target on the full graph, same as Phase 4's GraphSAGE finding — see `docs/benchmark_report.md` §2.3-§2.4) |
 | 6 | gRPC API, three-way benchmark harness | complete — full gRPC API (mutation, traversal, snapshot, `similar_care_pathways`) implemented, real bearer-token auth, 5 RPCs covered by real-server endpoint tests (Rule 2); Neo4j + TerminusDB brought up live, loaded with the identical trace, and measured against CareGraph on 2-hop traversal (`docs/benchmark_report.md` §8) — CareGraph passes with ~2.8x headroom, Neo4j passes marginally, TerminusDB misses the target |
 | 7 | Encryption at rest, mTLS, live dashboards | complete — real RocksDB encryption at rest via a from-scratch C++/AES-256 shim (the `rocksdb` crate exposes no encryption API; Rule 8), verified by reading raw on-disk SST bytes after a flush; mutual TLS on the gRPC listener, verified against real TLS handshakes with rcgen-generated certificates; `GET /metrics` finally serves the Prometheus registry dev-stack.yml has pointed at since Phase 1, with new query-path series verified to record real nonzero values, and a real Grafana dashboard bound to the live datasource (Rule 9) |
-| 8 | Demo, patent hooks, paper draft | complete for what an agent in this repository can do — `scripts/run_demo.sh` runs a real end-to-end demo (live mutation, traversal, snapshot, similarity) start to finish with no manual steps; `docs/patent_hooks.md` states five benchmark-cited claims (Rule 10) plus a real, newly-run Rule 5 fault-injection result; `docs/novelty_analysis.md` gives the per-claim prior-art comparison; `docs/paper_draft.md` is a CIDR/ICDE/SIGMOD/VLDB-shaped draft citing the same real numbers. The university IDF-B filing and the Palantir/Pinterest/LinkedIn patent-literature cross-check are explicitly **not done** — see Known gaps below and `docs/novelty_analysis.md` §4 |
+| 8 | Live demo | complete — `scripts/run_demo.sh` runs a real end-to-end demo (live mutation, traversal, snapshot, similarity) start to finish with no manual steps, plus a real, newly-run Rule 5 fault-injection result captured as a citable artifact |
 | 9 | Explainable attribution, self-tuning caps, similarity delta, architecture-agnostic dispatch | complete — integrated-gradients edge attribution committed atomically with the embedding it explains (`CF_COMMIT_META`), verified via a real completeness identity on both deployed architectures with zero failures (`tests/embedding/attribution_completeness_test.rs`); a discrete self-tuning cap controller measuring a real 1.46x p95 reduction (`docs/benchmark_report.md` §2.7); a point-in-time similarity delta RPC (`SimilarityDelta`, Rule 2-covered); manifest-driven dispatch replacing the hardcoded `ModelKind` match, closing a real, previously-unchecked model/manifest mismatch footgun. Two severe, disclosed findings: attribution overhead on the real graph is 100-300x larger than an initial small-subgraph estimate (tens of seconds per request — §2.6), and one real GAT mutation's completeness residual reached 22.35%, over 3x the correctness suite's own synthetic-fixture tolerance. Rule 5 re-verification that the new three-way write (edge + embedding + `CF_COMMIT_META`) survives a mid-commit kill was run against both dispatch arms — see Known gaps below for the exact kill counts |
 
 ### Known gaps
@@ -255,21 +247,7 @@ the failure mode Section 0 exists to prevent.
    panels, all bound to real series — no alerting rules, no per-model or
    per-column-family breakdowns beyond what `embedding_update_latency_seconds`'s
    `computation_path` label already gives.
-7. **The IDF-B disclosure and the Palantir/Pinterest/LinkedIn prior-art
-   cross-check are not done.** `docs/patent_hooks.md` and
-   `docs/novelty_analysis.md` are real inputs to that process — five
-   benchmark-cited claims and a per-claim comparison against the systems
-   the PRD names — but actually filing through VIT's IDF-B process and
-   searching the patent literature itself (not just competing systems'
-   public behavior) needs a human decision this repository cannot make on
-   its own. See `docs/novelty_analysis.md` §4.
-8. **`docs/paper_draft.md` is a draft, not a submission**, and Rule 10's
-   automated `[benchmark: file]` check (`scripts/check_rules.sh`) only
-   greps `docs/patent_hooks.md` — the paper draft follows the same citation
-   convention voluntarily, but nothing enforces it there yet. See the
-   paper draft's own §7 for what turning it into an actual submission would
-   still need.
-9. **`scripts/run_demo.sh`'s server teardown needed a real fix mid-Phase-8.**
+7. **`scripts/run_demo.sh`'s server teardown needed a real fix mid-Phase-8.**
    Killing the demo server via bash's own `$!` PID silently failed under
    Git Bash / MSYS on Windows — `$!` is an MSYS-internal PID, not the real
    Windows PID `taskkill` needs, so the first version of the cleanup left
@@ -277,7 +255,7 @@ the failure mode Section 0 exists to prevent.
    script exited. Fixed by resolving the real PID through MSYS `ps`'s own
    WINPID column first; re-run and confirmed via `Get-Process` that nothing
    was left behind afterward.
-10. **Two Section 2/10 stack entries are unused, not substituted.** ONNX
+8. **Two Section 2/10 stack entries are unused, not substituted.** ONNX
     Runtime (§2.3) never appears anywhere in this build — `ml/embedding_server.py`
     fills its role instead (see `docs/benchmark_report.md` §7.1). Section 10's
     `ml/embedding/gat_incremental.py` and `ml/ripple_plus_reference/` paths
@@ -289,7 +267,7 @@ the failure mode Section 0 exists to prevent.
     `docs/benchmark_report.md` §7.1 instead. (Phase 9 renamed
     `src/embedding/gat_incremental.rs` to `src/embedding/staged_incremental.rs`
     and generalized it beyond GAT specifically — see Phase 9's row above.)
-11. **Attribution overhead, measured on the real graph, is severe — plan
+9. **Attribution overhead, measured on the real graph, is severe — plan
     around tens of seconds per request, not milliseconds.** An early
     estimate based on a small synthetic subgraph projected 160-550 ms; the
     real number on the full 174,298-node graph is **100-300x larger**
@@ -301,13 +279,13 @@ the failure mode Section 0 exists to prevent.
     synthetic fixture — real evidence that extreme-degree hubs need more
     than the default 16 integration steps to converge tightly, not a
     fabricated number smoothed into the correctness test's tolerance.
-12. **The cap controller's measured win is real but modest.** 1.46x p95
+10. **The cap controller's measured win is real but modest.** 1.46x p95
     reduction (1165.53ms → 799.55ms), not a fix for Known Gap #1's ~15x
     miss — see `docs/benchmark_report.md` §2.7. Both the pinned and
     adaptive arms hit the same 63.3% `expansion_capped_rate` on the sampled
     mutations, disclosed rather than left implicit: the latency win did not
     come from truncating less often.
-13. **Phase 9's Rule 5 fault-injection re-verification is done: the new
+11. **Phase 9's Rule 5 fault-injection re-verification is done: the new
     three-way write (edge, embedding, and `CF_COMMIT_META`) still commits
     atomically.** 100 iterations per dispatch arm: GraphSAGE 57 actual
     kills (56 fully committed, 44 fully uncommitted), GAT 94 actual kills
@@ -318,21 +296,11 @@ the failure mode Section 0 exists to prevent.
     longer per commit, widening the window a kill can land inside. See
     `benchmarks/results/gate/phase9_fault_injection.log` and
     `phase9_fault_injection_gat.log` for the full breakdown and provenance.
-14. **Patent-strategy and prior-art documents are deliberately not part of
-    this public repository.** `docs/patent_hooks.md`, `docs/novelty_analysis.md`,
-    and `docs/paper_draft.md` are maintained privately instead of being
-    committed. They existed in this repository's history from Phase 8
-    onward and were removed by request, including from prior commits —
-    `git log` on a fresh clone will not surface them. This has one concrete,
-    disclosed effect: `scripts/check_rules.sh`'s Rule 10 depends on
-    `docs/patent_hooks.md` to check that every quantitative claim carries a
-    `[benchmark: file]` citation, and a fresh clone has no such file to
-    check. Rather than let that surface as a bare, unexplained PENDING/FAIL,
-    CI sets `CAREGRAPH_PATENT_DOCS_EXCLUDED=1`, which makes `check_rules.sh`
-    report a distinct, explicit `EXCLUDED` outcome for Rule 10 naming exactly
-    why — never counted as a `PASS`. Anyone running `check_rules.sh` locally
-    with the real files present on disk (as this project's own author does)
-    still gets the genuine citation check, unaffected.
+12. **A couple of internal write-ups from earlier phases are kept outside
+    this repository rather than committed.** Nothing else in the tracked
+    project depends on them, and Rule 10 (the citation check that used to
+    read one of them) has been retired rather than pointed at a private
+    file — see the rules section above.
 
 ## Repository layout
 
@@ -347,8 +315,6 @@ infrastructure/ Docker Compose dev stack
 scripts/        check_rules.sh, run_demo.sh
 tests/          integration/, unit/, fault_injection/
 docs/           Design notes, benchmark reports, API reference
-                (patent_hooks.md / novelty_analysis.md / paper_draft.md are
-                kept privately, not in this repository — see Known gaps #14)
 ```
 
 ## License

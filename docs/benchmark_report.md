@@ -782,8 +782,8 @@ contaminated.
 
 ## 9. Phase 9 — explainability, self-tuning, and architecture-agnostic dispatch
 
-Four additions, summarized in detail in §2.6-§2.8 above and in
-`docs/patent_hooks.md` Claims 6-9: integrated-gradients edge attribution
+Four additions, summarized in detail in §2.6-§2.8 above:
+integrated-gradients edge attribution
 committed atomically with the embedding it explains, a discrete self-tuning
 cap controller, a point-in-time similarity delta query, and manifest-driven
 dispatch replacing a hardcoded per-`ModelKind` match. The two findings worth

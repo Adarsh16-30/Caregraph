@@ -67,25 +67,17 @@ env:
   # empty histograms; observability/grafana/dashboards/caregraph_section1.json
   # is a real dashboard bound to the CareGraph-Prometheus datasource.
   #
-  # At 8: Rule 10 goes live (RULE_LIVE_FROM[10]=8 in check_rules.sh) —
-  # docs/patent_hooks.md states five claims, each citing a real,
-  # already-committed benchmark file, including a newly-run 100-iteration
-  # Rule 5 fault-injection result (benchmarks/results/gate/phase5_fault_injection.log:
-  # 37 kills landed, 0 non-atomic states) that had never been captured as a
-  # citable artifact before this phase. scripts/run_demo.sh
-  # (src/bin/demo_client.rs) is a real, runnable end-to-end demo — verified
-  # by actually running it twice against a real built server, including
-  # catching and fixing a real teardown bug (Git Bash/MSYS's `$!` is not the
-  # real Windows PID `taskkill` needs) between the two runs.
-  # docs/novelty_analysis.md and docs/paper_draft.md are the remaining two
-  # Phase 8 deliverables; the IDF-B filing and patent-literature cross-check
-  # are explicitly not done (README's Known gaps) — Rule 10 requires
-  # citation traceability, not that a filing has occurred.
+  # At 8: scripts/run_demo.sh (src/bin/demo_client.rs) is a real, runnable
+  # end-to-end demo — verified by actually running it twice against a real
+  # built server, including catching and fixing a real teardown bug (Git
+  # Bash/MSYS's `$!` is not the real Windows PID `taskkill` needs) between
+  # the two runs. A newly-run 100-iteration Rule 5 fault-injection result
+  # (benchmarks/results/gate/phase5_fault_injection.log: 37 kills landed,
+  # 0 non-atomic states) was captured as a citable artifact in this phase too.
   #
-  # At 9: four additions beyond the original PRD, gated by the same ten
-  # rules (no new rule was added — Rule 5's "exactly one batch write" and
-  # Rule 10's citation check both apply unchanged to the new code and
-  # claims). Integrated-gradients edge attribution is committed into a new
+  # At 9: four additions beyond the original PRD, gated by the same rules
+  # (no new rule was added — Rule 5's "exactly one batch write" applies
+  # unchanged to the new code). Integrated-gradients edge attribution is committed into a new
   # CF_COMMIT_META column family, staged into the same WriteBatch as the
   # structural mutation and the embedding it explains — verified by a real
   # completeness identity on both deployed architectures
@@ -106,15 +98,6 @@ env:
   # and one real GAT mutation's completeness residual reached 22.35%, over
   # 3x the correctness suite's own synthetic-fixture tolerance.
   CAREGRAPH_PHASE: "9"
-
-  # docs/patent_hooks.md, docs/novelty_analysis.md and docs/paper_draft.md are
-  # intentionally not committed to this public repository (IP-confidentiality —
-  # see README Known gaps); they are maintained privately instead. A fresh
-  # checkout (this one) therefore cannot run Rule 10's citation check itself.
-  # This flag makes check_rules.sh name that gap explicitly (EXCLUDED) rather
-  # than report an unexplained PENDING/FAIL for a file that looks simply
-  # missing. It changes nothing about the rule's own enforcement logic.
-  CAREGRAPH_PATENT_DOCS_EXCLUDED: "1"
 
 jobs:
   rules:

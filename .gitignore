@@ -12,8 +12,8 @@ Cargo.lock
 /benchmarks/results/*
 /results/
 
-# Exception: results that prove a phase gate are committed, so a Rule 10
-# [benchmark: file] citation points at a file that is actually in the repo.
+# Exception: results that prove a phase gate are committed, so a
+# `[benchmark: file]` citation points at a file that is actually in the repo.
 # Routine runs stay ignored; copy one here only when it closes a gate.
 # (The parent is excluded by its *contents* above, not as a directory, because
 # git will not descend into an excluded directory to re-include anything.)
@@ -28,7 +28,7 @@ Cargo.lock
 
 # Full-scale traces are derived clinical data and run to hundreds of MB. The
 # manifest beside each one carries the source and trace SHA-256, so a committed
-# manifest is enough to prove which graph a benchmark number came from (Rule 10)
+# manifest is enough to prove which graph a benchmark number came from
 # without committing the records themselves. Regenerate with data/*_loader.py.
 /benchmarks/traces/*_full.jsonl
 !/benchmarks/traces/*.manifest.json
@@ -49,11 +49,3 @@ __pycache__/
 *.pem
 !/infrastructure/certs/README.md
 .env
-
-# Patent-strategy and prior-art documents stay out of the public repository
-# by request (kept locally / privately instead). check_rules.sh's Rule 10
-# handles their absence explicitly (CAREGRAPH_PATENT_DOCS_EXCLUDED) rather
-# than silently — see README Known gaps.
-/docs/patent_hooks.md
-/docs/novelty_analysis.md
-/docs/paper_draft.md

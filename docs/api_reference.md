@@ -38,8 +38,7 @@ hop count actually applied after clamping, which may be lower than what
 ### `AddEdge(AddEdgeRequest) -> MutationResponse`
 
 Writes a new edge version and, in the same atomic commit, recomputes every
-embedding the mutation affects (Rule 5 — see `docs/patent_hooks.md` Claim
-1). `model` selects which trained model computes the update; `GCN` is a
+embedding the mutation affects (Rule 5). `model` selects which trained model computes the update; `GCN` is a
 declared enum value with no trained weights anywhere in this deployment and
 is rejected with `FAILED_PRECONDITION` rather than silently routed through
 GraphSAGE's weights under GCN's name. Requesting a model that has no

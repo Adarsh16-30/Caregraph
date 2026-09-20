@@ -41,8 +41,8 @@ despite the underlying `cargo test` process itself completing successfully
 in the background (exit code 0, both tests passed, 0 non-atomic states in
 both arms). That earlier run is not cited here because its exact kill
 counts were not captured before the interruption; this run's numbers are
-what is cited in docs/patent_hooks.md, docs/benchmark_report.md, and
-README.md. Total wall-clock time for both arms in this run was 3823.67s —
+what is cited in docs/benchmark_report.md and README.md. Total wall-clock
+time for both arms in this run was 3823.67s —
 elevated versus Phase 5's 2001.51s baseline for the same reason
 phase5_fault_injection.log's own note describes (shared hardware, other
 work in the session), not a hang or a performance regression in the commit

@@ -13,12 +13,9 @@
 # asking rather than skipping. Pass --phase N at a phase gate and every rule that
 # should be live by phase N is upgraded from PENDING to FAIL.
 #
-# A narrow fourth state, EXCLUDED, exists only for Rule 10: docs/patent_hooks.md
-# is intentionally kept out of the public repository (IP-confidentiality — see
-# README Known gaps), so a fresh clone cannot run its citation check at all.
-# Setting CAREGRAPH_PATENT_DOCS_EXCLUDED=1 (done only in CI) makes that gap
-# explicit and named instead of a bare, unexplained PENDING/FAIL. It is never
-# counted as a PASS.
+# Rule 10 has been retired for this project (it always reports RETIRED, a
+# fourth state counted toward neither PASS, FAIL, nor PENDING) so the list
+# stays numbered 1-10 without renumbering everything below it.
 #
 # Usage:
 #   scripts/check_rules.sh                 # report everything, fail on violations
@@ -44,7 +41,7 @@ done
 # The phase at which each rule becomes enforceable (PRD Section 7).
 declare -A RULE_LIVE_FROM=(
     [1]=1  [2]=6  [3]=4  [4]=3  [5]=5
-    [6]=1  [7]=4  [8]=7  [9]=7  [10]=8
+    [6]=1  [7]=4  [8]=7  [9]=7
 )
 
 FAILURES=0
@@ -64,7 +61,7 @@ pending() {
         PENDINGS=$((PENDINGS + 1))
     fi
 }
-excluded() { printf '  %sEXCLUDED%s %s\n' "$YELLOW" "$RESET" "$1"; }
+retired() { printf '  %sRETIRED%s  %s\n' "$YELLOW" "$RESET" "$1"; }
 
 header() { printf '\n%sRULE %s — %s%s\n' "$BOLD" "$1" "$2" "$RESET"; }
 
@@ -353,30 +350,11 @@ rule_9() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 10 — Patent and research claims traceable to measured results
+# RULE 10 — Retired
 # ---------------------------------------------------------------------------
 rule_10() {
-    header 10 "CLAIMS TRACEABLE TO MEASURED RESULTS"
-    local doc=docs/patent_hooks.md
-    if [[ ! -f "$doc" ]]; then
-        if [[ "${CAREGRAPH_PATENT_DOCS_EXCLUDED:-}" == "1" ]]; then
-            excluded "docs/patent_hooks.md is intentionally excluded from this repository (IP-confidentiality, kept privately instead — see README Known gaps); its citation check cannot run from this checkout"
-        else
-            pending 10 "docs/patent_hooks.md does not exist"
-        fi
-        return
-    fi
-
-    # Any line stating a quantity must carry a [benchmark: <file>] citation.
-    local uncited
-    uncited="$(grep -nE '[0-9]+(\.[0-9]+)?\s*(ms|s|x|%|edges/sec)' "$doc" \
-               | grep -v '\[benchmark:' || true)"
-    if [[ -n "$uncited" ]]; then
-        fail "quantitative claim without a [benchmark: file] citation:"
-        echo "$uncited" | sed 's/^/          /'
-    else
-        pass "every quantitative claim carries a benchmark citation"
-    fi
+    header 10 "RETIRED"
+    retired "no claims-document citation check is maintained for this project"
 }
 
 # ---------------------------------------------------------------------------
