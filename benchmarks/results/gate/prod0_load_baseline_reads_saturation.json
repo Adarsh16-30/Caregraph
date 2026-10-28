@@ -1,0 +1,127 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793218868,
+    "git_commit": "e4bdccdd7793f01f37d69310771eeaea1f5d5b94",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --addr http://127.0.0.1:50071 --api-key 8d0752ef07129ba26caa8966945080318b4b93f13c4e8558665822ca2dafbad7 --trace benchmarks/traces/diabetes130_full.jsonl --rates 12000,20000 --duration-secs 15 --warmup-secs 3 --mix snapshot=85,traverse=10,similar=5,add_edge=0 --out-dir C:/Users/adars/AppData/Local/Temp/loadres/reads_hi",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": "Intel i5-13450HX 10C/16T, 15.6GB RAM, NVMe, Windows 11 laptop; load generator and server share the machine"
+  },
+  "addr": "http://127.0.0.1:50071",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "add_edge": 0,
+    "similar": 5,
+    "snapshot": 85,
+    "traverse": 10
+  },
+  "arrivals": "constant",
+  "duration_secs": 15,
+  "warmup_secs": 3,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 12000.0,
+      "achieved_ok_rps": 8271.6,
+      "sent": 124074,
+      "ok": 124074,
+      "errors_by_code": {},
+      "dropped": 55926,
+      "late_slots": 5632,
+      "per_op": {
+        "all": {
+          "count": 124074,
+          "p50_ms": 2228.223,
+          "p95_ms": 3934.207,
+          "p99_ms": 4251.647,
+          "p999_ms": 5505.023,
+          "max_ms": 9265.151,
+          "mean_ms": 2249.0723912503836
+        },
+        "similar": {
+          "count": 6401,
+          "p50_ms": 2226.175,
+          "p95_ms": 3915.775,
+          "p99_ms": 4202.495,
+          "p999_ms": 4419.583,
+          "max_ms": 4468.735,
+          "mean_ms": 2242.489511013905
+        },
+        "snapshot": {
+          "count": 105119,
+          "p50_ms": 2211.839,
+          "p95_ms": 3911.679,
+          "p99_ms": 4171.775,
+          "p999_ms": 4444.159,
+          "max_ms": 6529.023,
+          "mean_ms": 2226.912658453747
+        },
+        "traverse": {
+          "count": 12554,
+          "p50_ms": 2373.631,
+          "p95_ms": 4118.527,
+          "p99_ms": 5488.639,
+          "p999_ms": 7147.519,
+          "max_ms": 9265.151,
+          "mean_ms": 2437.9799878923045
+        }
+      }
+    },
+    {
+      "offered_rps": 20000.0,
+      "achieved_ok_rps": 1391.8,
+      "sent": 297750,
+      "ok": 20877,
+      "errors_by_code": {
+        "Cancelled": 200,
+        "ResourceExhausted": 8110,
+        "Unknown": 268563
+      },
+      "dropped": 2250,
+      "late_slots": 19056,
+      "per_op": {
+        "all": {
+          "count": 297750,
+          "p50_ms": 482.047,
+          "p95_ms": 1150.975,
+          "p99_ms": 1474.559,
+          "p999_ms": 1748.991,
+          "max_ms": 1904.639,
+          "mean_ms": 526.3900589722928
+        },
+        "similar": {
+          "count": 14915,
+          "p50_ms": 477.951,
+          "p95_ms": 1142.783,
+          "p99_ms": 1468.415,
+          "p999_ms": 1711.103,
+          "max_ms": 1823.743,
+          "mean_ms": 524.2258076433118
+        },
+        "snapshot": {
+          "count": 253076,
+          "p50_ms": 479.999,
+          "p95_ms": 1147.903,
+          "p99_ms": 1471.487,
+          "p999_ms": 1740.799,
+          "max_ms": 1823.743,
+          "mean_ms": 524.2276811274086
+        },
+        "traverse": {
+          "count": 29759,
+          "p50_ms": 501.503,
+          "p95_ms": 1182.719,
+          "p99_ms": 1517.567,
+          "p999_ms": 1795.071,
+          "max_ms": 1904.639,
+          "mean_ms": 545.8640246312038
+        }
+      }
+    }
+  ]
+}

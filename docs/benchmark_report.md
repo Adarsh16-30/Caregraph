@@ -806,3 +806,70 @@ restating here rather than leaving buried in §2.6:
    same run) matches the Phase 5 finding that attention-weighted aggregation
    takes measurably longer per commit, widening the window a kill can land
    inside.
+
+## 10. Concurrent load — pre-hardening baseline (production-hardening P1)
+
+Every earlier section is sequential. `caregraph-bench-load` is an **open-loop**
+generator: requests have fixed intended send times and latency is measured from
+that intended instant, so a slow server cannot hide queueing (no coordinated
+omission). Workload ids are sampled from the real Diabetes 130 trace. Server and
+generator ran on the same laptop (i5-13450HX, 15.6 GB, Windows 11), against a
+copy of the 174,298-node graph, default config, one Python worker per model,
+adaptive cap controller on, `sync_writes` off. Files:
+`benchmarks/results/gate/prod0_load_baseline_*.json`.
+
+A first run of the generator reported ~10 ms p50 at 50 req/s. That was the
+generator, not the server: tokio's timer is ~15 ms-granular on Windows and the
+delay was charged to every request. The scheduler now uses an OS sleep plus a
+final spin, and each result records `late_slots` (scheduler wake-ups >5 ms late)
+so a generator-bound run is detectable. The numbers below have `late_slots`
+near zero except where noted.
+
+**Reads** (85% Snapshot / 10% 2-hop Traverse / 5% SimilarCarePathways):
+
+| offered req/s | p50 | p95 | p99 | outcome |
+|---|---|---|---|---|
+| 100 | 0.62 ms | 6.71 ms | 11.06 ms | all ok |
+| 500 | 0.40 ms | 4.94 ms | 8.69 ms | all ok |
+| 1,500 | 0.37 ms | 5.50 ms | 9.11 ms | all ok |
+| 3,000 | 0.47 ms | 5.88 ms | 10.33 ms | all ok |
+| 6,000 | 0.52 ms | 7.43 ms | 13.37 ms | all ok |
+| 12,000 | 2,228 ms | 3,934 ms | 4,252 ms | saturated: 8.3k ok/s achieved, 55,926 requests dropped by the generator's memory guard |
+| 20,000 | 482 ms | 1,151 ms | 1,475 ms | overload: 8,110 `ResourceExhausted`, 268,563 `Unknown`, 200 `Cancelled` |
+
+The read knee sits between 6,000 and 12,000 req/s on this machine. Past it
+there is no admission control: latency jumps from milliseconds to seconds and
+errors surface as `Unknown`. (At 12k+ the generator also falls behind
+`late_slots` 5,632, sharing the CPU with the server, so those two rows show
+overload rather than clean capacity.)
+
+**Mutations** (`AddEdge` replaying real trace edges, stamped at wall-clock now
+so the resolver sees the full current graph; GraphSAGE, `explain=false`):
+
+| offered req/s | p50 | p95 | p99 |
+|---|---|---|---|
+| 0.5 | 67.6 ms | 87.0 ms | 97.7 ms |
+| 5 | 73.9 ms | 99.1 ms | 125.3 ms |
+| 15 | 92.6 ms | 165.0 ms | 196.2 ms |
+| 25 | 48.0 ms | 142.5 ms | 181.6 ms |
+| 40 | 48.6 ms | 188.9 ms | 235.3 ms |
+| 60 | 64.1 ms | 377.1 ms | 438.5 ms |
+| 100 | 3,432 ms | 7,266 ms | 8,438 ms |
+
+Writes hold up to ~60 req/s, then at 100 req/s collapse into 3.4 s median
+latency with **zero errors**: pure unbounded queueing, no load shedding.
+
+**Caveats, stated plainly.**
+- This p95 (~100 ms at low rate) is far below the 1,549 ms in §2.3 because the
+  populations differ: §2.3 samples 30 mutations, many hub-adjacent, while this
+  run draws uniformly from 5,000 trace edges, most of which touch low-degree
+  nodes. Mutation cost depends heavily on endpoint degree; do not read this
+  table as "the miss in §2.3 is fixed".
+- The replayed edges already exist, so structurally they are no-ops with new
+  versions; the embedding work is still real.
+- The run was from a tree with uncommitted changes (`git_dirty: true` in each
+  file), on a thermally variable laptop (§3), single run per rate.
+- Attribution (`explain=true`) was not exercised.
+
+This is the "before" for the hardening work: later phases re-run the same
+sweeps and report the change, including where it does not improve.

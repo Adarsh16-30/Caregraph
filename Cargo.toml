@@ -46,6 +46,10 @@ name = "caregraph-bench-caps"
 path = "src/bin/bench_caps.rs"
 
 [[bin]]
+name = "caregraph-bench-load"
+path = "src/bin/bench_load.rs"
+
+[[bin]]
 name = "caregraph-bench-diff"
 path = "src/bin/bench_diff.rs"
 
@@ -100,6 +104,7 @@ prost = "0.13"
 # already set by the runner/compose file and no .env file exists to find.
 dotenvy = "0.15"
 toml = "0.8"
+hdrhistogram = "7.5"
 
 [build-dependencies]
 tonic-build = "0.12"
