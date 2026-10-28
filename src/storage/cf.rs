@@ -8,6 +8,7 @@
 //! | `CF_EMBEDDINGS`   | `[node_id \| timestamp_desc]`                     | vector + model_id + computation_path |
 //! | `CF_COMMIT_META`  | `[node_id \| timestamp_desc]`                     | dispatch decision + effective caps + attribution |
 //! | `CF_REPAIR`       | `[node_id \| timestamp_desc]`                     | stale-embedding marker (why, which model) |
+//! | `CF_META`         | byte-string key (`hwm`, `req:<id>`)               | commit high-water mark, idempotency records |
 //!
 //! `CF_COMMIT_META` is a Phase 9 addition beyond PRD 3.3's four families. It
 //! carries the per-mutation provenance that makes an embedding *explainable*
@@ -32,18 +33,23 @@ pub const CF_EMBEDDINGS: &str = "cf_embeddings";
 pub const CF_COMMIT_META: &str = "cf_commit_meta";
 /// Durable "this node's embedding is stale" markers (production hardening P2).
 pub const CF_REPAIR: &str = "cf_repair";
+/// Small server-state records that are not node-keyed: the persisted commit
+/// high-water mark, request-id idempotency records. Plain byte-string keys, so
+/// no fixed-prefix extractor.
+pub const CF_META: &str = "cf_meta";
 
 /// Every column family CareGraph opens. Used both at open time and by the
 /// integration tests that assert all five exist. `create_missing_column_families`
 /// means an existing database on disk gains a newly-added family silently on
 /// its next open — nothing here needs a migration step.
-pub const ALL: [&str; 6] = [
+pub const ALL: [&str; 7] = [
     CF_EDGES,
     CF_REVERSE,
     CF_NODES,
     CF_EMBEDDINGS,
     CF_COMMIT_META,
     CF_REPAIR,
+    CF_META,
 ];
 
 /// Options for a family whose keys carry a fixed-width prefix before the
@@ -71,7 +77,13 @@ pub fn prefix_len(cf: &str) -> Option<usize> {
 pub fn descriptors() -> Vec<ColumnFamilyDescriptor> {
     ALL.iter()
         .map(|name| {
-            let prefix = prefix_len(name).expect("every CF in ALL has a known prefix width");
+            if *name == CF_META {
+                let mut opts = Options::default();
+                opts.set_compression_type(DBCompressionType::Lz4);
+                return ColumnFamilyDescriptor::new(*name, opts);
+            }
+            let prefix =
+                prefix_len(name).expect("every versioned CF in ALL has a known prefix width");
             ColumnFamilyDescriptor::new(*name, versioned_cf_options(prefix))
         })
         .collect()

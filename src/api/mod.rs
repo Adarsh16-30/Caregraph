@@ -62,6 +62,7 @@ use crate::embedding::caps::CapController;
 use crate::embedding::metrics::EmbeddingMetrics;
 use crate::embedding::model_bridge::EmbeddingModel;
 use crate::embedding::pipeline::run_mutation_pipeline;
+use crate::embedding::sequencer::Sequencer;
 use crate::embedding::state::GraphMutation;
 use crate::error::CareGraphError;
 use crate::graph::{Direction, SnapshotReader, TraversalLimits, TraversalRequest, Traverser};
@@ -82,6 +83,8 @@ fn internal(err: CareGraphError) -> Status {
         // Retryable: workers restarting, breaker open, queue full.
         CareGraphError::Unavailable(m) => Status::unavailable(m),
         CareGraphError::Timeout(m) => Status::deadline_exceeded(m),
+        // Ordering-rule violations: retry with a fresh timestamp / later.
+        CareGraphError::Aborted(m) => Status::aborted(m),
         other => Status::internal(other.to_string()),
     }
 }
@@ -188,6 +191,8 @@ struct Inner {
     /// Exhaustion is `RESOURCE_EXHAUSTED`, a fast, retryable refusal.
     read_permits: std::sync::Arc<tokio::sync::Semaphore>,
     write_permits: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Orders commits by timestamp and detects conflicting concurrent ones.
+    sequencer: Sequencer,
 }
 
 /// The tonic service implementation. Cheap to clone — tonic clones the
@@ -209,6 +214,27 @@ impl CareGraphApi {
         gat_model_id: Option<&str>,
         registry: &prometheus::Registry,
     ) -> crate::error::Result<Self> {
+        Self::new_with_policy(
+            store,
+            graphsage_model_id,
+            gat_model_id,
+            registry,
+            crate::config::TsPolicy::Legacy,
+        )
+    }
+
+    /// As [`Self::new`], with an explicit mutation-timestamp policy (see
+    /// `embedding/sequencer.rs`). `new` keeps the historical `Legacy`
+    /// behaviour (any client timestamp, no ordering); production configs use
+    /// `Strict`.
+    pub fn new_with_policy(
+        store: RocksKv,
+        graphsage_model_id: Option<&str>,
+        gat_model_id: Option<&str>,
+        registry: &prometheus::Registry,
+        ts_policy: crate::config::TsPolicy,
+    ) -> crate::error::Result<Self> {
+        let sequencer = Sequencer::open(&store, ts_policy)?;
         let graphsage_model = graphsage_model_id.map(EmbeddingModel::spawn).transpose()?;
         let gat_model = gat_model_id.map(EmbeddingModel::spawn).transpose()?;
         let metrics = EmbeddingMetrics::new(registry)
@@ -233,6 +259,7 @@ impl CareGraphApi {
                     "CAREGRAPH_MAX_CONCURRENT_WRITES",
                     64,
                 ))),
+                sequencer,
             }),
         })
     }
@@ -281,6 +308,7 @@ impl CareGraphApi {
         edge_value: EdgeValue,
         model_kind: ModelKind,
         explain: bool,
+        request_id: String,
     ) -> Result<MutationResponse, Status> {
         // GCN has no trained, deployed model anywhere in this codebase (only
         // GraphSAGE and GAT were ever trained — see ml/train_graphsage.py,
@@ -298,7 +326,8 @@ impl CareGraphApi {
         let permits = self.inner.write_permits.clone();
         self.blocking(&permits, move |inner| {
             let model = Self::model_in(inner, model_kind)?;
-            let ctx = run_mutation_pipeline(
+            let request_id = (!request_id.is_empty()).then_some(request_id.as_str());
+            let outcome = run_mutation_pipeline(
                 mutation,
                 &edge_value,
                 model_kind,
@@ -306,9 +335,12 @@ impl CareGraphApi {
                 model,
                 &inner.metrics,
                 &inner.caps,
+                &inner.sequencer,
+                request_id,
                 explain,
             )
             .map_err(internal)?;
+            let ctx = &outcome.ctx;
 
             Ok(MutationResponse {
                 affected_nodes: ctx.affected.iter().map(|n| n.as_u64()).collect(),
@@ -316,6 +348,9 @@ impl CareGraphApi {
                 fanout_capped: ctx.truncation.fanout_capped,
                 neighbors_dropped: ctx.truncation.neighbors_dropped as u64,
                 expansion_capped: ctx.truncation.expansion_capped,
+                commit_seq: outcome.commit_seq,
+                timestamp_us: outcome.timestamp.as_u64(),
+                replayed: outcome.replayed,
             })
         })
         .await
@@ -345,6 +380,7 @@ impl CareGraphService for CareGraphApi {
                 EdgeValue::new(properties),
                 model_kind,
                 req.explain,
+                req.request_id,
             )
             .await?;
         Ok(Response::new(response))
@@ -372,6 +408,7 @@ impl CareGraphService for CareGraphApi {
                 EdgeValue::new(JsonValue::Null),
                 model_kind,
                 req.explain,
+                req.request_id,
             )
             .await?;
         Ok(Response::new(response))

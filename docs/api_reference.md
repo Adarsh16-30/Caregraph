@@ -60,6 +60,23 @@ so the effective value is no longer always the Phase 4/5 default of 512;
 the actual pair in force for a given commit is recorded in `CF_COMMIT_META`,
 not returned inline here.
 
+**Ordering, timestamps and retries.** Mutations are committed in timestamp
+order (`src/embedding/sequencer.rs`), which is what makes running several
+embedding workers safe. Under the `strict` timestamp policy (the production
+default) `timestamp_us` must be greater than every previously admitted
+timestamp, or the call fails with `ABORTED`; send `timestamp_us = 0` to have the
+server assign one. `MutationResponse.timestamp_us` returns the timestamp the
+mutation actually committed at and `commit_seq` its position in the commit
+order. Set `request_id` to make retries safe: a retry with the same id after an
+unknown outcome returns the original result with `replayed = true` and applies
+nothing; ids expire after 24 hours, and a duplicate that arrives while the
+first is still running is refused with `ABORTED`.
+
+**Failure codes.** `UNAVAILABLE`: the embedding workers are restarting or their
+circuit breaker is open (retry with backoff; nothing was written).
+`DEADLINE_EXCEEDED`: a forward pass exceeded its deadline and its worker was
+restarted. `RESOURCE_EXHAUSTED`: the server's concurrency limit is reached.
+
 `explain = true` additionally computes and commits an integrated-gradients
 edge attribution for this mutation's two endpoints (Phase 9, Feature 1),
 folded into the same `CF_COMMIT_META` record `atomic_commit.rs` writes —

@@ -177,6 +177,7 @@ async fn main() -> Result<()> {
                     // every held-out edge in a loop and stays representative
                     // of ordinary ingest latency by leaving it off here.
                     explain: false,
+                    request_id: String::new(),
                 },
                 &args.api_key,
             ))

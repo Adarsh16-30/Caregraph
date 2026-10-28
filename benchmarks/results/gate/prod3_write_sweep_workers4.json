@@ -1,0 +1,147 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793223375,
+    "git_commit": "0a8de3206a55548b1e7e7f77885a542bda9d7dc2",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --addr http://127.0.0.1:50072 --api-key 8d0752ef07129ba26caa8966945080318b4b93f13c4e8558665822ca2dafbad7 --trace benchmarks/traces/diabetes130_full.jsonl --rates 8,16,32,64 --duration-secs 25 --warmup-secs 4 --mix add_edge=1 --server-timestamps --out-dir C:/Users/adars/AppData/Local/Temp/p3res/w4",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": "Intel i5-13450HX 10C/16T, 15.6GB RAM, NVMe, Windows 11 laptop; load generator and server share the machine"
+  },
+  "addr": "http://127.0.0.1:50072",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "add_edge": 1
+  },
+  "arrivals": "constant",
+  "server_timestamps": true,
+  "duration_secs": 25,
+  "warmup_secs": 4,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 8.0,
+      "achieved_ok_rps": 8.0,
+      "sent": 200,
+      "ok": 200,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "add_edge": {
+          "count": 200,
+          "p50_ms": 85.759,
+          "p95_ms": 165.759,
+          "p99_ms": 227.583,
+          "p999_ms": 228.991,
+          "max_ms": 228.991,
+          "mean_ms": 88.29504000000003
+        },
+        "all": {
+          "count": 200,
+          "p50_ms": 85.759,
+          "p95_ms": 165.759,
+          "p99_ms": 227.583,
+          "p999_ms": 228.991,
+          "max_ms": 228.991,
+          "mean_ms": 88.29504000000003
+        }
+      }
+    },
+    {
+      "offered_rps": 16.0,
+      "achieved_ok_rps": 16.0,
+      "sent": 400,
+      "ok": 400,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "add_edge": {
+          "count": 400,
+          "p50_ms": 268.543,
+          "p95_ms": 1134.591,
+          "p99_ms": 1179.647,
+          "p999_ms": 1184.767,
+          "max_ms": 1184.767,
+          "mean_ms": 480.96144
+        },
+        "all": {
+          "count": 400,
+          "p50_ms": 268.543,
+          "p95_ms": 1134.591,
+          "p99_ms": 1179.647,
+          "p999_ms": 1184.767,
+          "max_ms": 1184.767,
+          "mean_ms": 480.96144
+        }
+      }
+    },
+    {
+      "offered_rps": 32.0,
+      "achieved_ok_rps": 14.04,
+      "sent": 800,
+      "ok": 351,
+      "errors_by_code": {
+        "ResourceExhausted": 449
+      },
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "add_edge": {
+          "count": 800,
+          "p50_ms": 0.499,
+          "p95_ms": 5345.279,
+          "p99_ms": 5758.975,
+          "p999_ms": 5857.279,
+          "max_ms": 5857.279,
+          "mean_ms": 1988.175567499999
+        },
+        "all": {
+          "count": 800,
+          "p50_ms": 0.499,
+          "p95_ms": 5345.279,
+          "p99_ms": 5758.975,
+          "p999_ms": 5857.279,
+          "max_ms": 5857.279,
+          "mean_ms": 1988.175567499999
+        }
+      }
+    },
+    {
+      "offered_rps": 64.0,
+      "achieved_ok_rps": 17.04,
+      "sent": 1600,
+      "ok": 426,
+      "errors_by_code": {
+        "ResourceExhausted": 1174
+      },
+      "dropped": 0,
+      "late_slots": 3,
+      "per_op": {
+        "add_edge": {
+          "count": 1600,
+          "p50_ms": 0.376,
+          "p95_ms": 7028.735,
+          "p99_ms": 8609.791,
+          "p999_ms": 8896.511,
+          "max_ms": 8994.815,
+          "mean_ms": 1071.010174375
+        },
+        "all": {
+          "count": 1600,
+          "p50_ms": 0.376,
+          "p95_ms": 7028.735,
+          "p99_ms": 8609.791,
+          "p999_ms": 8896.511,
+          "max_ms": 8994.815,
+          "mean_ms": 1071.010174375
+        }
+      }
+    }
+  ]
+}

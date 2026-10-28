@@ -11,6 +11,10 @@ pub struct EmbeddingMetrics {
     pub incremental_fallback_total: IntCounter,
     pub mutation_latency_seconds: Histogram,
     pub embedding_update_latency_seconds: Histogram,
+    /// Time a computed mutation waited for its turn to commit (P3).
+    pub commit_wait_seconds: Histogram,
+    /// Mutations recomputed because a concurrent commit touched their read set.
+    pub mutation_conflict_retries_total: IntCounter,
 }
 
 impl EmbeddingMetrics {
@@ -29,7 +33,18 @@ impl EmbeddingMetrics {
             "Embedding recomputation latency, incremental or fallback",
         ))?;
 
+        let commit_wait_seconds = Histogram::with_opts(HistogramOpts::new(
+            "commit_wait_seconds",
+            "Time a computed mutation waited for earlier timestamps to commit",
+        ))?;
+        let mutation_conflict_retries_total = IntCounter::new(
+            "mutation_conflict_retries_total",
+            "Mutations recomputed because a concurrent commit touched their read set",
+        )?;
+
         registry.register(Box::new(mutations_total.clone()))?;
+        registry.register(Box::new(commit_wait_seconds.clone()))?;
+        registry.register(Box::new(mutation_conflict_retries_total.clone()))?;
         registry.register(Box::new(incremental_fallback_total.clone()))?;
         registry.register(Box::new(mutation_latency_seconds.clone()))?;
         registry.register(Box::new(embedding_update_latency_seconds.clone()))?;
@@ -39,6 +54,8 @@ impl EmbeddingMetrics {
             incremental_fallback_total,
             mutation_latency_seconds,
             embedding_update_latency_seconds,
+            commit_wait_seconds,
+            mutation_conflict_retries_total,
         })
     }
 }

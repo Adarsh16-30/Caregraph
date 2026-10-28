@@ -15,9 +15,12 @@
 use std::io::Write;
 
 use anyhow::{bail, Context, Result};
-use caregraph::embedding::atomic_commit::AtomicCommitter;
+use caregraph::config::TsPolicy;
 use caregraph::embedding::caps::CapController;
+use caregraph::embedding::metrics::EmbeddingMetrics;
 use caregraph::embedding::model_bridge::EmbeddingModel;
+use caregraph::embedding::pipeline::run_mutation_pipeline;
+use caregraph::embedding::sequencer::Sequencer;
 use caregraph::embedding::state::GraphMutation;
 use caregraph::storage::RocksKv;
 use caregraph::temporal::record::EdgeValue;
@@ -125,20 +128,26 @@ fn main() -> Result<()> {
         }
     };
 
-    // Phase 9: a pinned controller, not bare literals — this suite's
-    // determinism (same seed, same caps, every run) is now stated in code
-    // rather than an accident of these two numbers never having a name.
-    let (caps, _rung) = CapController::pinned(512, 1_500).current();
-    let committer = AtomicCommitter::new(&store).context("building AtomicCommitter")?;
-    committer.commit(
+    // A pinned controller, not bare literals — this suite's determinism (same
+    // seed, same caps, every run) is stated in code. The mutation goes through
+    // the real pipeline under the strict sequencer, so the single batch this
+    // process is killed during also carries the persisted high-water mark:
+    // the verifier checks that it is atomic with the edge and embeddings too.
+    let caps = std::sync::Mutex::new(CapController::pinned(512, 1_500));
+    let registry = prometheus::Registry::new();
+    let metrics = EmbeddingMetrics::new(&registry).context("building metrics")?;
+    let sequencer = Sequencer::open(&store, TsPolicy::Strict).context("opening sequencer")?;
+    run_mutation_pipeline(
         mutation,
         &EdgeValue::new(serde_json::json!({})),
         args.model_kind,
+        &store,
         &model,
-        caps.fanout_cap,
-        caps.max_expanded_nodes,
+        &metrics,
+        &caps,
+        &sequencer,
         None,
-        false, // this suite tests atomicity of the mutation+embedding write, not attribution
+        false, // this suite tests atomicity of the commit, not attribution
     )?;
 
     emit("DONE");

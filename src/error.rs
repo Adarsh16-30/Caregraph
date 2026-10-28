@@ -37,6 +37,12 @@ pub enum CareGraphError {
     #[error("unavailable: {0}")]
     Unavailable(String),
 
+    /// The request conflicts with the server's ordering rules (timestamp at or
+    /// below the high-water mark, duplicate in-flight request id). Maps to
+    /// gRPC `ABORTED`: retry with a fresh timestamp / after the other request.
+    #[error("aborted: {0}")]
+    Aborted(String),
+
     /// A bounded wait elapsed (worker request deadline). Maps to
     /// `DEADLINE_EXCEEDED`.
     #[error("timed out: {0}")]

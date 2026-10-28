@@ -35,6 +35,35 @@ impl GraphMutation {
         }
     }
 
+    /// The same mutation re-stamped at `ts` (used when the server assigns the
+    /// timestamp at admission).
+    pub fn with_timestamp(self, new_ts: Timestamp) -> Self {
+        match self {
+            GraphMutation::AddEdge {
+                src,
+                dst,
+                edge_type,
+                ..
+            } => GraphMutation::AddEdge {
+                src,
+                dst,
+                edge_type,
+                ts: new_ts,
+            },
+            GraphMutation::RemoveEdge {
+                src,
+                dst,
+                edge_type,
+                ..
+            } => GraphMutation::RemoveEdge {
+                src,
+                dst,
+                edge_type,
+                ts: new_ts,
+            },
+        }
+    }
+
     /// The two nodes this mutation touches. Resolution starts from here.
     pub fn endpoints(self) -> (NodeId, NodeId) {
         match self {

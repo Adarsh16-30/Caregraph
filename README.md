@@ -152,6 +152,17 @@ default on in production), a non-legacy timestamp policy and an RBAC policy
 are all configured, and switches logs to JSON. Development mode keeps today's
 permissive defaults.
 
+**Throughput and ordering knobs.** `CAREGRAPH_WORKERS` (embedding worker
+processes per model, default 1; 2 is a good production value),
+`CAREGRAPH_TORCH_THREADS` (intra-op threads per worker; workers x threads must
+not exceed the CPU count), `CAREGRAPH_TS_POLICY` (`strict` | `server_assigned` |
+`legacy`; `strict` is the production default and the only policy under which
+more than one worker is safe), `CAREGRAPH_MAX_CONCURRENT_READS`/`_WRITES`
+(bulkheads; excess requests are refused with `RESOURCE_EXHAUSTED`), and
+`CAREGRAPH_COMMIT_WITHOUT_EMBEDDING` (default off: if the embedding workers are
+unavailable a mutation is rejected with a retryable `UNAVAILABLE` rather than
+committed with stale embeddings).
+
 **Container images.** `docker build --target runtime-reader` (no Python) or
 `--target runtime-writer` (Python + CPU torch + deployed models, the default)
 from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it

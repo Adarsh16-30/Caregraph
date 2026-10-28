@@ -80,6 +80,10 @@ struct Args {
     warmup: Duration,
     mix: Vec<(Op, u32)>,
     poisson: bool,
+    /// Send timestamp_us = 0 so the server assigns mutation timestamps (required
+    /// under the strict timestamp policy, where concurrent client-side
+    /// wall-clock stamps can arrive microseconds out of order and be refused).
+    server_timestamps: bool,
     connections: usize,
     seed: u64,
     out_dir: PathBuf,
@@ -118,6 +122,7 @@ fn parse_args() -> Result<Args> {
         warmup: Duration::from_secs(3),
         mix: parse_mix("snapshot=85,traverse=10,similar=5,add_edge=0")?,
         poisson: false,
+        server_timestamps: false,
         connections: 4,
         seed: 0xC0FFEE,
         out_dir: PathBuf::from("benchmarks/results"),
@@ -141,6 +146,7 @@ fn parse_args() -> Result<Args> {
             "--warmup-secs" => a.warmup = Duration::from_secs(next()?.parse()?),
             "--mix" => a.mix = parse_mix(&next()?)?,
             "--poisson" => a.poisson = true,
+            "--server-timestamps" => a.server_timestamps = true,
             "--connections" => a.connections = next()?.parse()?,
             "--seed" => a.seed = next()?.parse()?,
             "--out-dir" => a.out_dir = PathBuf::from(next()?),
@@ -333,6 +339,7 @@ async fn fire(
                     properties_json: String::new(),
                     model: ModelKind::Graphsage as i32,
                     explain: false,
+                    request_id: String::new(),
                 },
                 &key,
             ))
@@ -447,10 +454,14 @@ async fn run_rate(
             bail!("--mix includes add_edge but the trace has no add_edge records");
         }
 
-        let live_ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros() as u64;
+        let live_ts = if a.server_timestamps {
+            0
+        } else {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64
+        };
         let in_measure = Duration::from_secs_f64(t) >= measure_from;
         match inflight.clone().try_acquire_owned() {
             Ok(permit) => {
@@ -564,6 +575,7 @@ struct Report {
     trace: String,
     mix: BTreeMap<String, u32>,
     arrivals: &'static str,
+    server_timestamps: bool,
     duration_secs: u64,
     warmup_secs: u64,
     connections: usize,
@@ -636,6 +648,7 @@ async fn main() -> Result<()> {
             .map(|(o, w)| (o.name().to_string(), *w))
             .collect(),
         arrivals: if a.poisson { "poisson" } else { "constant" },
+        server_timestamps: a.server_timestamps,
         duration_secs: a.duration.as_secs(),
         warmup_secs: a.warmup.as_secs(),
         connections: a.connections,

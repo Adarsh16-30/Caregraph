@@ -81,6 +81,18 @@ pub struct AtomicCommitter<'a> {
     index: TemporalIndex<'a, RocksKv>,
 }
 
+/// Everything computed for a mutation, ready to be written. Holds no database
+/// state: the structural change is not visible to anything until
+/// [`AtomicCommitter::finish`] writes it.
+pub struct Prepared {
+    pub ctx: MutationContext,
+    meta: CommitMeta,
+    attribution_by_node: HashMap<NodeId, Attribution>,
+    /// The adjacency lists this computation read (see `ResolvedSubgraph::fetched`).
+    pub fetched: std::collections::HashSet<NodeId>,
+    model_id: String,
+}
+
 impl<'a> AtomicCommitter<'a> {
     pub fn new(store: &'a RocksKv) -> Result<Self> {
         Ok(AtomicCommitter {
@@ -113,17 +125,16 @@ impl<'a> AtomicCommitter<'a> {
     /// incremental-update p95 that already misses its own target, so a bulk
     /// ingest replaying thousands of mutations does not pay it by default.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit(
+    pub fn prepare(
         &self,
         mutation: GraphMutation,
-        edge_value: &EdgeValue,
         active_model: ModelKind,
         model: &EmbeddingModel,
         fanout_cap: usize,
         max_expanded_nodes: usize,
         cap_rung: Option<usize>,
         explain: bool,
-    ) -> Result<MutationContext> {
+    ) -> Result<Prepared> {
         let mut ctx = MutationContext::new(mutation, active_model);
         let as_of = mutation.timestamp();
 
@@ -132,6 +143,9 @@ impl<'a> AtomicCommitter<'a> {
         // graph as it stood the instant before it.
         let resolver = AffectedSubgraphResolver::new(self.store, fanout_cap, max_expanded_nodes);
         let mut subgraph = resolver.resolve(mutation)?;
+        // The nodes whose adjacency this computation read: the exact read set the
+        // ordered-commit sequencer checks for conflicting concurrent commits.
+        let fetched = subgraph.fetched.clone();
         // Captured before patching (Feature 1): the pre-mutation edge list,
         // over the same `nodes` this call will use throughout — the "before"
         // half of the attribution comparison. `subgraph` itself is moved into
@@ -240,11 +254,40 @@ impl<'a> AtomicCommitter<'a> {
             HashMap::new()
         };
 
+        Ok(Prepared {
+            ctx,
+            meta,
+            attribution_by_node,
+            fetched,
+            model_id: model.model_id.clone(),
+        })
+    }
+
+    /// Stage the structural change, embeddings, provenance and any repair
+    /// markers into ONE batch and write it. `stage_extra` lets the caller add
+    /// further records that must be atomic with this commit (the sequencer's
+    /// high-water mark, an idempotency record) without a second write.
+    pub fn finish(
+        &self,
+        prepared: Prepared,
+        edge_value: &EdgeValue,
+        stage_extra: &mut dyn FnMut(&mut WriteBatch, &RocksKv) -> Result<()>,
+    ) -> Result<MutationContext> {
+        let Prepared {
+            ctx,
+            meta,
+            attribution_by_node,
+            model_id,
+            ..
+        } = prepared;
+        let mutation = ctx.mutation;
+
         let mut batch = WriteBatch::default();
         self.stage_mutation(&mut batch, mutation, edge_value);
         self.stage_embeddings(&mut batch, &ctx)?;
-        crate::embedding::repair::stage_repairs(&mut batch, self.store, &ctx, &model.model_id)?;
+        crate::embedding::repair::stage_repairs(&mut batch, self.store, &ctx, &model_id)?;
         self.stage_commit_meta(&mut batch, &ctx, &meta, &attribution_by_node)?;
+        stage_extra(&mut batch, self.store)?;
 
         // The whole point of building one shared batch above instead of
         // issuing separate writes: this single call either lands every entry
@@ -253,6 +296,33 @@ impl<'a> AtomicCommitter<'a> {
         self.store.write(batch)?;
 
         Ok(ctx)
+    }
+
+    /// `prepare` + `finish` with nothing extra staged: the single-threaded path
+    /// used by tests, benchmarks and the fault-injection worker. The server
+    /// goes through the sequencer instead (`pipeline.rs`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit(
+        &self,
+        mutation: GraphMutation,
+        edge_value: &EdgeValue,
+        active_model: ModelKind,
+        model: &EmbeddingModel,
+        fanout_cap: usize,
+        max_expanded_nodes: usize,
+        cap_rung: Option<usize>,
+        explain: bool,
+    ) -> Result<MutationContext> {
+        let prepared = self.prepare(
+            mutation,
+            active_model,
+            model,
+            fanout_cap,
+            max_expanded_nodes,
+            cap_rung,
+            explain,
+        )?;
+        self.finish(prepared, edge_value, &mut |_, _| Ok(()))
     }
 
     fn stage_mutation(

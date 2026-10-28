@@ -913,3 +913,57 @@ What this shows, and what it does not:
 - Single run per model, a thermally variable laptop (§3), from a working tree
   with uncommitted changes (`git_dirty: true` in the files). Treat the ratios
   as indicative, not as precise constants.
+
+### 10.2 Ordered commit and worker count (P3)
+
+`[benchmark: benchmarks/results/gate/prod3_write_sweep_workers1.json]`
+`[benchmark: benchmarks/results/gate/prod3_write_sweep_workers2.json]`
+`[benchmark: benchmarks/results/gate/prod3_write_sweep_workers4.json]`
+
+With more than one embedding worker, mutations are computed in parallel, and an
+unguarded pool can lose updates (two mutations compute from the same pre-state;
+the later write silently overwrites the correct values). The ordered-commit
+sequencer (`src/embedding/sequencer.rs`) makes the parallelism safe: mutations
+are admitted in timestamp order, computed with nothing held, committed in
+timestamp order, and recomputed once if a commit that landed in the meantime
+touched anything they read. `tests/embedding/concurrent_commit_equivalence_test.rs`
+applies 50 seeds x 200 random mutations to two identical databases, one
+sequentially and one with 4 workers and 16 mutations in flight: every structural
+column family is byte-identical, 198,456 stored embeddings match (worst
+difference 0), every node's latest embedding matches a from-scratch recompute on
+the final graph (worst 7.2e-7), and 9,943 conflicts were detected and repaired.
+With conflict repair deliberately disabled the same test fails on seed 0, so it
+is not vacuous.
+
+Write sweep on the real 174,298-node graph (strict timestamp policy,
+server-assigned timestamps, torch pinned to 1 thread per worker, same laptop as
+section 10; a fresh copy of the database per worker count):
+
+| offered req/s | 1 worker p50 / p95 | 2 workers p50 / p95 | 4 workers p50 / p95 |
+|---|---|---|---|
+| 8 | 88 / 122 ms | 87 / 187 ms | 86 / 166 ms |
+| 16 | 1,565 / 2,054 ms | **167 / 388 ms** | 269 / 1,135 ms |
+| 32 | saturated (15.2 ok/s, 421 refused) | saturated (15.5 ok/s, 412 refused) | saturated (14.0 ok/s, 449 refused) |
+| 64 | saturated (17.2 ok/s, 1,170 refused) | saturated (17.6 ok/s, 1,160 refused) | saturated (17.0 ok/s, 1,174 refused) |
+
+What this shows:
+
+- **Worker count matters below saturation.** At 16 req/s two workers cut p50
+  from 1,565 ms to 167 ms. Four is not better than two here; the load generator
+  shares the same 10-core machine, so more workers contend for CPU.
+- **Saturation throughput does not scale with workers: about 16-17 ok/s with 1,
+  2 or 4.** At saturation roughly 85% of mutations conflict (1,521 of 1,736 in
+  the 1-worker run). This follows from the graph, not from the implementation:
+  mutations that touch shared hub nodes (common medications and conditions)
+  change each other's results, so they form a true serial dependency chain, and
+  sequential-equivalent semantics forbid running them in parallel. Only making
+  each mutation cheaper raises this ceiling.
+- **The 60 req/s held in section 10 is not comparable.** That run had no
+  ordering guarantee: concurrent mutations could compute from stale state and
+  overwrite each other, so part of its speed was work it did not do. The
+  correct figure for this workload is the one above.
+- **Overload now sheds instead of queueing.** Past saturation the write
+  bulkhead refuses with `ResourceExhausted` in about 0.4 ms, where the earlier
+  run queued without bound (3.4 s median at 100 req/s, zero errors).
+- Single run per cell, laptop with thermal variance (section 3), uncommitted
+  tree (`git_dirty: true`).

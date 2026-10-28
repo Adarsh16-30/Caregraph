@@ -156,11 +156,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let registry = prometheus::Registry::new();
-    let api = CareGraphApi::new(
+    let api = CareGraphApi::new_with_policy(
         store,
         graphsage_deployed.then_some(cfg.graphsage_model.as_str()),
         gat_deployed.then_some(cfg.gat_model.as_str()),
         &registry,
+        cfg.ts_policy,
     )
     .context("building the gRPC service")?;
 

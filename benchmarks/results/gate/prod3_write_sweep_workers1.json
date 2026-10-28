@@ -1,0 +1,147 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793223092,
+    "git_commit": "0a8de3206a55548b1e7e7f77885a542bda9d7dc2",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --addr http://127.0.0.1:50072 --api-key 8d0752ef07129ba26caa8966945080318b4b93f13c4e8558665822ca2dafbad7 --trace benchmarks/traces/diabetes130_full.jsonl --rates 8,16,32,64 --duration-secs 25 --warmup-secs 4 --mix add_edge=1 --server-timestamps --out-dir C:/Users/adars/AppData/Local/Temp/p3res/w1",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": "Intel i5-13450HX 10C/16T, 15.6GB RAM, NVMe, Windows 11 laptop; load generator and server share the machine"
+  },
+  "addr": "http://127.0.0.1:50072",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "add_edge": 1
+  },
+  "arrivals": "constant",
+  "server_timestamps": true,
+  "duration_secs": 25,
+  "warmup_secs": 4,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 8.0,
+      "achieved_ok_rps": 8.0,
+      "sent": 200,
+      "ok": 200,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 1,
+      "per_op": {
+        "add_edge": {
+          "count": 200,
+          "p50_ms": 88.255,
+          "p95_ms": 122.239,
+          "p99_ms": 133.887,
+          "p999_ms": 175.231,
+          "max_ms": 175.231,
+          "mean_ms": 85.27647999999995
+        },
+        "all": {
+          "count": 200,
+          "p50_ms": 88.255,
+          "p95_ms": 122.239,
+          "p99_ms": 133.887,
+          "p999_ms": 175.231,
+          "max_ms": 175.231,
+          "mean_ms": 85.27647999999995
+        }
+      }
+    },
+    {
+      "offered_rps": 16.0,
+      "achieved_ok_rps": 16.0,
+      "sent": 400,
+      "ok": 400,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "add_edge": {
+          "count": 400,
+          "p50_ms": 1564.671,
+          "p95_ms": 2054.143,
+          "p99_ms": 2111.487,
+          "p999_ms": 2144.255,
+          "max_ms": 2144.255,
+          "mean_ms": 1594.630399999999
+        },
+        "all": {
+          "count": 400,
+          "p50_ms": 1564.671,
+          "p95_ms": 2054.143,
+          "p99_ms": 2111.487,
+          "p999_ms": 2144.255,
+          "max_ms": 2144.255,
+          "mean_ms": 1594.630399999999
+        }
+      }
+    },
+    {
+      "offered_rps": 32.0,
+      "achieved_ok_rps": 15.16,
+      "sent": 800,
+      "ok": 379,
+      "errors_by_code": {
+        "ResourceExhausted": 421
+      },
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "add_edge": {
+          "count": 800,
+          "p50_ms": 0.497,
+          "p95_ms": 4382.719,
+          "p99_ms": 4489.215,
+          "p999_ms": 4583.423,
+          "max_ms": 4583.423,
+          "mean_ms": 1990.0645325000007
+        },
+        "all": {
+          "count": 800,
+          "p50_ms": 0.497,
+          "p95_ms": 4382.719,
+          "p99_ms": 4489.215,
+          "p999_ms": 4583.423,
+          "max_ms": 4583.423,
+          "mean_ms": 1990.0645325000007
+        }
+      }
+    },
+    {
+      "offered_rps": 64.0,
+      "achieved_ok_rps": 17.2,
+      "sent": 1600,
+      "ok": 430,
+      "errors_by_code": {
+        "ResourceExhausted": 1170
+      },
+      "dropped": 0,
+      "late_slots": 2,
+      "per_op": {
+        "add_edge": {
+          "count": 1600,
+          "p50_ms": 0.377,
+          "p95_ms": 6684.671,
+          "p99_ms": 8855.551,
+          "p999_ms": 9142.271,
+          "max_ms": 9248.767,
+          "mean_ms": 1048.3356893750001
+        },
+        "all": {
+          "count": 1600,
+          "p50_ms": 0.377,
+          "p95_ms": 6684.671,
+          "p99_ms": 8855.551,
+          "p999_ms": 9142.271,
+          "max_ms": 9248.767,
+          "mean_ms": 1048.3356893750001
+        }
+      }
+    }
+  ]
+}

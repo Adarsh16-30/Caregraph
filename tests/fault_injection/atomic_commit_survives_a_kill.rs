@@ -52,7 +52,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use caregraph::storage::{KvStore, RocksKv};
+use caregraph::storage::{cf, KvStore, RocksKv};
 use caregraph::temporal::record::NodeValue;
 use caregraph::temporal::{TemporalIndex, TemporalWriter};
 use caregraph::types::{EdgeType, NodeId, Timestamp};
@@ -313,17 +313,24 @@ fn run_one_iteration(
         .embedding_as_of(DST, Timestamp(ts))
         .expect("embedding_as_of dst");
 
+    // The sequencer's persisted high-water mark rides in the same batch: after
+    // a kill it must be exactly `ts` if the commit landed and absent if not
+    // (each iteration starts from a fresh database with no prior mutation).
+    let hwm = store
+        .get(cf::CF_META, b"hwm")
+        .expect("read hwm")
+        .map(|b| u64::from_be_bytes(b.try_into().expect("8-byte hwm")));
+
     let outcome = match (
         edge_present,
         src_embedding.is_some(),
         dst_embedding.is_some(),
+        hwm,
     ) {
-        (false, false, false) => Outcome::FullyUncommitted,
-        (true, true, true) => Outcome::FullyCommitted,
-        (edge, src, dst) => panic!(
-            "iteration {iteration}: non-atomic state — edge_present={edge} \
-             src_embedding_present={src} dst_embedding_present={dst} \
-             (killed={killed}, saw_done={saw_done})"
+        (false, false, false, None) => Outcome::FullyUncommitted,
+        (true, true, true, Some(h)) if h == ts => Outcome::FullyCommitted,
+        (edge, src, dst, hwm) => panic!(
+            "iteration {iteration}: non-atomic state — edge_present={edge}              src_embedding_present={src} dst_embedding_present={dst} hwm={hwm:?}              (expected {ts} or none) (killed={killed}, saw_done={saw_done})"
         ),
     };
 

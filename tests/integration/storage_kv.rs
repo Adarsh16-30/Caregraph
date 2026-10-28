@@ -22,12 +22,13 @@ fn all_column_families_are_open() {
     }
     // PRD 3.3 defines exactly four. Two are deliberate, documented additions,
     // not drift: Phase 9's `CF_COMMIT_META` (per-mutation dispatch / cap /
-    // attribution provenance) and production hardening's `CF_REPAIR` (durable
-    // stale-embedding markers).
+    // attribution provenance), and production hardening's `CF_REPAIR` (durable
+    // stale-embedding markers) and `CF_META` (commit high-water mark and
+    // idempotency records).
     assert_eq!(
         cf::ALL.len(),
-        6,
-        "PRD 3.3's four families plus CF_COMMIT_META and CF_REPAIR"
+        7,
+        "PRD 3.3's four families plus CF_COMMIT_META, CF_REPAIR and CF_META"
     );
 }
 

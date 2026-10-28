@@ -46,6 +46,11 @@ pub struct ResolvedSubgraph {
     /// undirected mean aggregator, so it is not carried past this point.
     pub edges: Vec<(NodeId, NodeId)>,
     pub truncation: ResolutionTruncation,
+    /// The nodes whose adjacency lists this resolution actually read. A
+    /// mutation's output depends on exactly these adjacencies (node types are
+    /// immutable through the API), so this is the precise *read set* the
+    /// ordered-commit sequencer checks against concurrently committed writes.
+    pub fetched: HashSet<NodeId>,
 }
 
 /// Live neighbours of `node` across every edge type, both directions, capped
@@ -238,6 +243,7 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
             nodes,
             edges,
             truncation,
+            fetched,
         })
     }
 }

@@ -459,6 +459,7 @@ async fn add_edge_rejects_an_invalid_request_before_touching_any_model() {
             properties_json: String::new(),
             model: ProtoModelKind::Graphsage as i32,
             explain: false,
+            request_id: String::new(),
         }))
         .await;
     assert_eq!(
@@ -479,6 +480,7 @@ async fn add_edge_rejects_an_invalid_request_before_touching_any_model() {
             properties_json: String::new(),
             model: ProtoModelKind::Graphsage as i32,
             explain: false,
+            request_id: String::new(),
         }))
         .await;
     assert_eq!(
