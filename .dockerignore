@@ -1,0 +1,11 @@
+target
+.git
+.env
+.env.*
+data
+benchmarks/traces
+benchmarks/results
+.demo_tmp
+*.log
+ml/checkpoints
+ml/__pycache__

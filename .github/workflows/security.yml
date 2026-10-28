@@ -1,0 +1,100 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *"   # nightly: new advisories appear without any code change
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  cargo-deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories licenses bans sources
+
+  image-scan:
+    name: build + trivy (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [runtime-reader, runtime-writer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker-compose/Dockerfile
+          target: ${{ matrix.target }}
+          load: true
+          tags: caregraph:${{ matrix.target }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: caregraph:${{ matrix.target }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - name: SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: caregraph:${{ matrix.target }}
+          format: cyclonedx-json
+          output-file: sbom-${{ matrix.target }}.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.target }}
+          path: sbom-${{ matrix.target }}.cdx.json
+
+  publish:
+    name: publish + sign (tags only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [cargo-audit, cargo-deny, image-scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # keyless cosign
+    strategy:
+      matrix:
+        target: [runtime-reader, runtime-writer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker-compose/Dockerfile
+          target: ${{ matrix.target }}
+          push: true
+          tags: ghcr.io/${{ github.repository }}/${{ matrix.target }}:${{ github.ref_name }}
+      - name: Sign image
+        run: cosign sign --yes ghcr.io/${{ github.repository }}/${{ matrix.target }}@${{ steps.push.outputs.digest }}

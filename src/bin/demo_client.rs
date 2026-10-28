@@ -127,6 +127,7 @@ fn load_live_edges(path: &str) -> Result<Vec<LiveEdgeRecord>> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     let args = parse_args()?;
     let live_edges = load_live_edges(&args.live_edges)?;
 

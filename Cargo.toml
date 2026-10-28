@@ -75,7 +75,7 @@ serde_json = "1"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # --- Observability (PRD 2.8) -------------------------------------------------
 prometheus = "0.14"
@@ -92,6 +92,14 @@ axum = "0.7"
 # client side the mTLS integration test uses to connect.
 tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
+
+# --- Local developer ergonomics ----------------------------------------------
+# Loads caregraph/.env (if present) into the process environment before
+# main() reads CAREGRAPH_API_KEY etc., so a fresh terminal doesn't need its
+# own `source .env` step. A no-op in CI/Docker, where real env vars are
+# already set by the runner/compose file and no .env file exists to find.
+dotenvy = "0.15"
+toml = "0.8"
 
 [build-dependencies]
 tonic-build = "0.12"

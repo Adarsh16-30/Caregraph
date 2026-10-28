@@ -179,6 +179,7 @@ struct Report {
 }
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     let args = parse_args()?;
     let (min_ts, max_ts) = read_timestamp_span(&args.trace)?;
 

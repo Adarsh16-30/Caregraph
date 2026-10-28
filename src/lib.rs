@@ -17,6 +17,7 @@
 //! a reader, which is precisely the failure mode Section 0 exists to prevent.
 
 pub mod api;
+pub mod config;
 pub mod embedding;
 pub mod error;
 pub mod graph;
@@ -34,4 +35,13 @@ pub const DEFAULT_DB_PATH: &str = "data/db/caregraph";
 /// Resolve the database path from the environment, falling back to the default.
 pub fn db_path_from_env() -> String {
     std::env::var("CAREGRAPH_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string())
+}
+
+/// Root of the ML assets (`deployed/<model>/`, `embedding_server.py`).
+/// Overridable via `CAREGRAPH_ML_DIR` so a container can use an absolute path
+/// instead of depending on the working directory.
+pub fn ml_dir() -> std::path::PathBuf {
+    std::env::var("CAREGRAPH_ML_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("ml"))
 }

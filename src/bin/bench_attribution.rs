@@ -219,6 +219,7 @@ struct Report {
 }
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     let args = parse_args()?;
     let store =
         RocksKv::open(&args.db).with_context(|| format!("opening RocksDB at {}", args.db))?;

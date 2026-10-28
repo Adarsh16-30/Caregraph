@@ -99,6 +99,7 @@ fn emit(line: &str) {
 }
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     let args = parse_args()?;
 
     let store = RocksKv::open(&args.db).context("opening database")?;

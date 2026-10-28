@@ -293,6 +293,7 @@ impl From<TraversalLimits> for LimitsRecord {
 }
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     let args = parse_args()?;
     if args.queries == 0 {
         bail!("--queries must be at least 1");

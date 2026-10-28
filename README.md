@@ -123,17 +123,40 @@ bash scripts/run_demo.sh      # live end-to-end demo, see below
 
 ### Configuration
 
-Running the `caregraph` binary directly (outside Docker Compose) needs
-exactly one environment variable:
+Every `caregraph*` binary loads a `.env` file from the current directory (or
+the nearest parent) on startup, via the `dotenvy` crate — a real environment
+variable you've already set always takes precedence over the file. Create
+one at `caregraph/.env`:
+
+```bash
+cat > .env <<EOF
+CAREGRAPH_API_KEY=$(openssl rand -hex 32)
+EOF
+```
 
 | Variable | Why it's required |
 |----------|--------------------|
-| `CAREGRAPH_API_KEY` | Bearer token checked on every gRPC call by the auth interceptor. Unset means the server **refuses to start** rather than serving with auth silently disabled (Rule 2). Generate one with `openssl rand -hex 32`. |
+| `CAREGRAPH_API_KEY` | Bearer token checked on every gRPC call by the auth interceptor. Unset means the server **refuses to start** rather than serving with auth silently disabled (Rule 2). |
 
 Everything else — listener addresses, which model to load, encryption,
 mTLS, attribution step count — has a working default and only needs to be
-touched for non-default behavior. See `src/main.rs` for the full list if
-you need to change one.
+touched for non-default behavior. Settings are typed and validated in
+`src/config.rs`; layering is defaults → optional TOML (`--config file.toml`) →
+`CAREGRAPH_*` env vars, and any secret can be supplied as `<NAME>_FILE`
+(a path, e.g. a Kubernetes Secret mount). `caregraph --print-config` shows the
+effective configuration with secrets redacted.
+
+**Production mode.** `CAREGRAPH_ENV=production` makes the server refuse to
+start unless mTLS, encryption at rest, fsync'd writes (`CAREGRAPH_SYNC_WRITES`,
+default on in production), a non-legacy timestamp policy and an RBAC policy
+are all configured, and switches logs to JSON. Development mode keeps today's
+permissive defaults.
+
+**Container images.** `docker build --target runtime-reader` (no Python) or
+`--target runtime-writer` (Python + CPU torch + deployed models, the default)
+from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it
+has a default: `CAREGRAPH_PYTHON`, if the Python that has `torch` +
+`torch_geometric` installed isn't the one named `python` on your `PATH`.
 
 ### Loading the clinical graph
 

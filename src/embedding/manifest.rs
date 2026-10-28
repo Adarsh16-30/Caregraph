@@ -7,8 +7,6 @@
 //! write a literal `"is_associative"` boolean — so this module's job is to
 //! read it typed and treat its absence as a hard error, not a default.
 
-use std::path::Path;
-
 use serde::Deserialize;
 
 use crate::error::{CareGraphError, Result};
@@ -36,7 +34,8 @@ impl ModelManifest {
     /// built on a manifest that quietly defaulted to `{}` would be exactly
     /// that kind of silent fallback one layer up.
     pub fn load(model_id: &str) -> Result<Self> {
-        let path = Path::new("ml/deployed")
+        let path = crate::ml_dir()
+            .join("deployed")
             .join(model_id)
             .join("dataset_manifest.json");
         let raw = std::fs::read_to_string(&path).map_err(|e| {

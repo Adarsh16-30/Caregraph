@@ -22,7 +22,6 @@
 //! process, not once per mutation.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 
@@ -132,7 +131,7 @@ pub struct EmbeddingModel {
 impl EmbeddingModel {
     /// Spawn the worker for the model deployed at `ml/deployed/<model_id>/`.
     pub fn spawn(model_id: &str) -> Result<Self> {
-        let model_dir = Path::new("ml/deployed").join(model_id);
+        let model_dir = crate::ml_dir().join("deployed").join(model_id);
         if !model_dir.join("model.pt").exists() {
             return Err(CareGraphError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -145,7 +144,7 @@ impl EmbeddingModel {
 
         let python = std::env::var("CAREGRAPH_PYTHON").unwrap_or_else(|_| "python".to_string());
         let mut child = Command::new(&python)
-            .arg("ml/embedding_server.py")
+            .arg(crate::ml_dir().join("embedding_server.py"))
             .arg(&model_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

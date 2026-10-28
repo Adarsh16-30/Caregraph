@@ -131,6 +131,7 @@ pub trait KvStore: Send + Sync {
 /// A real, on-disk RocksDB instance with CareGraph's four column families open.
 pub struct RocksKv {
     db: Db,
+    sync_writes: std::sync::atomic::AtomicBool,
 }
 
 impl RocksKv {
@@ -143,7 +144,10 @@ impl RocksKv {
     /// [`RocksKv::open_encrypted`] instead; see `main.rs`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let db = Db::open_cf_descriptors(&cf::db_options(), path, cf::descriptors())?;
-        Ok(RocksKv { db })
+        Ok(RocksKv {
+            db,
+            sync_writes: std::sync::atomic::AtomicBool::new(false),
+        })
     }
 
     /// Open (creating if absent) a CareGraph database at `path` with every
@@ -155,7 +159,18 @@ impl RocksKv {
         let mut opts = cf::db_options();
         opts.set_env(&env);
         let db = Db::open_cf_descriptors(&opts, path, cf::descriptors())?;
-        Ok(RocksKv { db })
+        Ok(RocksKv {
+            db,
+            sync_writes: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// fsync the WAL on every `write` (durable against OS crash / power loss,
+    /// not just a process kill). Off by default for dev/tests; production
+    /// config requires it.
+    pub fn set_sync_writes(&self, on: bool) {
+        self.sync_writes
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Borrow the raw handle. Needed by `atomic_commit`, which builds a
@@ -250,7 +265,13 @@ impl KvStore for RocksKv {
     }
 
     fn write(&self, batch: WriteBatch) -> Result<()> {
-        self.db.write(batch)?;
+        if self.sync_writes.load(std::sync::atomic::Ordering::Relaxed) {
+            let mut wo = rocksdb::WriteOptions::default();
+            wo.set_sync(true);
+            self.db.write_opt(batch, &wo)?;
+        } else {
+            self.db.write(batch)?;
+        }
         Ok(())
     }
 

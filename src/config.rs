@@ -1,0 +1,425 @@
+//! Typed, validated server configuration.
+//!
+//! Layering, lowest to highest precedence: built-in defaults, an optional TOML
+//! file (`--config <path>` or `CAREGRAPH_CONFIG`), then `CAREGRAPH_*`
+//! environment variables. Any secret may instead be supplied as `<NAME>_FILE`
+//! (a path whose trimmed contents are the value), which is how Kubernetes
+//! Secret mounts are consumed.
+//!
+//! `CAREGRAPH_ENV=production` turns every "insecure but convenient" default
+//! into a startup refusal: the server will not run plaintext, unencrypted,
+//! un-fsynced, or with legacy timestamp semantics in production.
+
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+
+use anyhow::{anyhow, bail, Context, Result};
+
+pub const DEFAULT_GRAPHSAGE_MODEL: &str = "diabetes130_graphsage";
+pub const DEFAULT_GAT_MODEL: &str = "diabetes130_gat";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Environment {
+    Development,
+    Production,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TsPolicy {
+    /// Reject timestamps at or below the high-water mark.
+    Strict,
+    /// The server assigns timestamps.
+    ServerAssigned,
+    /// Accept any client timestamp (pre-hardening behaviour).
+    Legacy,
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub environment: Environment,
+    pub db_path: String,
+    pub grpc_addr: SocketAddr,
+    pub metrics_addr: SocketAddr,
+    pub api_key: Option<String>,
+    pub encryption_key_hex: Option<String>,
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
+    pub tls_client_ca: Option<PathBuf>,
+    pub graphsage_model: String,
+    pub gat_model: String,
+    pub ml_dir: PathBuf,
+    pub python: String,
+    pub ts_policy: TsPolicy,
+    pub sync_writes: bool,
+    pub explain_enabled: bool,
+    pub rbac_policy: Option<PathBuf>,
+    pub log_json: bool,
+}
+
+/// Source of raw string settings, keyed by the env var name
+/// (e.g. `CAREGRAPH_DB_PATH`). Abstracted so validation is unit-testable
+/// without mutating the process environment.
+pub trait Source {
+    fn get(&self, key: &str) -> Option<String>;
+}
+
+pub struct ProcessEnv;
+
+impl Source for ProcessEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        std::env::var(key).ok().filter(|v| !v.is_empty())
+    }
+}
+
+/// Layers an optional TOML file beneath another source. Keys in the file are
+/// the env var name lower-cased without the `CAREGRAPH_` prefix
+/// (`db_path = "..."`).
+pub struct Layered<S: Source> {
+    file: HashMap<String, String>,
+    top: S,
+}
+
+impl<S: Source> Layered<S> {
+    pub fn new(file_toml: Option<&str>, top: S) -> Result<Self> {
+        let mut file = HashMap::new();
+        if let Some(text) = file_toml {
+            let table: toml::Table = text.parse().context("parsing config file as TOML")?;
+            for (k, v) in table {
+                let s = match v {
+                    toml::Value::String(s) => s,
+                    toml::Value::Boolean(b) => b.to_string(),
+                    toml::Value::Integer(i) => i.to_string(),
+                    other => bail!(
+                        "config key `{k}`: unsupported value type {}",
+                        other.type_str()
+                    ),
+                };
+                file.insert(k.to_ascii_lowercase(), s);
+            }
+        }
+        Ok(Self { file, top })
+    }
+}
+
+impl<S: Source> Source for Layered<S> {
+    fn get(&self, key: &str) -> Option<String> {
+        if let Some(v) = self.top.get(key) {
+            return Some(v);
+        }
+        let short = key
+            .strip_prefix("CAREGRAPH_")
+            .unwrap_or(key)
+            .to_ascii_lowercase();
+        self.file.get(&short).cloned()
+    }
+}
+
+/// Looks up `NAME`, then `NAME_FILE` (reading and trimming the file).
+fn secret(src: &dyn Source, name: &str) -> Result<Option<String>> {
+    if let Some(v) = src.get(name) {
+        return Ok(Some(v));
+    }
+    let file_key = format!("{name}_FILE");
+    match src.get(&file_key) {
+        Some(path) => {
+            let raw = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {file_key} at {path}"))?;
+            let v = raw.trim().to_string();
+            if v.is_empty() {
+                bail!("{file_key} at {path} is empty");
+            }
+            Ok(Some(v))
+        }
+        None => Ok(None),
+    }
+}
+
+fn parse_bool(name: &str, v: &str) -> Result<bool> {
+    match v.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(anyhow!("{name} must be a boolean (true/false), got `{v}`")),
+    }
+}
+
+impl Config {
+    pub fn load(src: &dyn Source) -> Result<Self> {
+        let environment = match src.get("CAREGRAPH_ENV").as_deref() {
+            None | Some("development") | Some("dev") => Environment::Development,
+            Some("production") | Some("prod") => Environment::Production,
+            Some(other) => {
+                bail!("CAREGRAPH_ENV must be `development` or `production`, got `{other}`")
+            }
+        };
+        let prod = environment == Environment::Production;
+
+        let addr = |name: &str, default: &str| -> Result<SocketAddr> {
+            src.get(name)
+                .unwrap_or_else(|| default.to_string())
+                .parse()
+                .with_context(|| format!("{name} is not a valid socket address"))
+        };
+        let boolean = |name: &str, default: bool| -> Result<bool> {
+            match src.get(name) {
+                Some(v) => parse_bool(name, &v),
+                None => Ok(default),
+            }
+        };
+
+        let ts_policy = match src.get("CAREGRAPH_TS_POLICY").as_deref() {
+            None => {
+                if prod {
+                    TsPolicy::Strict
+                } else {
+                    TsPolicy::Legacy
+                }
+            }
+            Some("strict") => TsPolicy::Strict,
+            Some("server_assigned") => TsPolicy::ServerAssigned,
+            Some("legacy") => TsPolicy::Legacy,
+            Some(o) => {
+                bail!("CAREGRAPH_TS_POLICY must be strict|server_assigned|legacy, got `{o}`")
+            }
+        };
+
+        let cfg = Config {
+            environment,
+            db_path: src
+                .get("CAREGRAPH_DB_PATH")
+                .unwrap_or_else(|| crate::DEFAULT_DB_PATH.to_string()),
+            grpc_addr: addr("CAREGRAPH_GRPC_ADDR", "0.0.0.0:50051")?,
+            metrics_addr: addr("CAREGRAPH_METRICS_ADDR", "0.0.0.0:9100")?,
+            api_key: secret(src, "CAREGRAPH_API_KEY")?,
+            encryption_key_hex: secret(src, "CAREGRAPH_ENCRYPTION_KEY")?,
+            tls_cert: src.get("CAREGRAPH_TLS_CERT").map(PathBuf::from),
+            tls_key: src.get("CAREGRAPH_TLS_KEY").map(PathBuf::from),
+            tls_client_ca: src.get("CAREGRAPH_TLS_CLIENT_CA").map(PathBuf::from),
+            graphsage_model: src
+                .get("CAREGRAPH_GRAPHSAGE_MODEL")
+                .unwrap_or_else(|| DEFAULT_GRAPHSAGE_MODEL.to_string()),
+            gat_model: src
+                .get("CAREGRAPH_GAT_MODEL")
+                .unwrap_or_else(|| DEFAULT_GAT_MODEL.to_string()),
+            ml_dir: src
+                .get("CAREGRAPH_ML_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("ml")),
+            python: src
+                .get("CAREGRAPH_PYTHON")
+                .unwrap_or_else(|| "python".to_string()),
+            ts_policy,
+            sync_writes: boolean("CAREGRAPH_SYNC_WRITES", prod)?,
+            explain_enabled: boolean("CAREGRAPH_EXPLAIN_ENABLED", !prod)?,
+            rbac_policy: src.get("CAREGRAPH_RBAC_POLICY").map(PathBuf::from),
+            log_json: boolean("CAREGRAPH_LOG_JSON", prod)?,
+        };
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    /// Cross-field validation. In production every refusal below is a hard
+    /// startup error, never a warning.
+    pub fn validate(&self) -> Result<()> {
+        let tls_set = [&self.tls_cert, &self.tls_key, &self.tls_client_ca]
+            .iter()
+            .filter(|p| p.is_some())
+            .count();
+        if tls_set != 0 && tls_set != 3 {
+            bail!(
+                "CAREGRAPH_TLS_CERT, CAREGRAPH_TLS_KEY and CAREGRAPH_TLS_CLIENT_CA must be set \
+                 together — partial config would silently downgrade mutual TLS"
+            );
+        }
+        if let Some(hex) = &self.encryption_key_hex {
+            crate::storage::decode_hex_key(hex).map_err(anyhow::Error::msg)?;
+        }
+        if self.environment == Environment::Production {
+            let mut problems = Vec::new();
+            if tls_set != 3 {
+                problems.push("mTLS is required (set the TLS cert, key and client CA)");
+            }
+            if self.encryption_key_hex.is_none() {
+                problems.push("encryption at rest is required (CAREGRAPH_ENCRYPTION_KEY[_FILE])");
+            }
+            if !self.sync_writes {
+                problems.push("CAREGRAPH_SYNC_WRITES must be true");
+            }
+            if self.ts_policy == TsPolicy::Legacy {
+                problems.push("CAREGRAPH_TS_POLICY=legacy is not allowed");
+            }
+            if self.rbac_policy.is_none() {
+                problems.push("CAREGRAPH_RBAC_POLICY is required");
+            }
+            if !problems.is_empty() {
+                bail!("refusing to start in production: {}", problems.join("; "));
+            }
+        }
+        Ok(())
+    }
+
+    /// Human-readable dump with every secret replaced by `<redacted>`.
+    pub fn redacted(&self) -> String {
+        let red = |o: &Option<String>| if o.is_some() { "<redacted>" } else { "<unset>" };
+        let path = |o: &Option<PathBuf>| {
+            o.as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "<unset>".into())
+        };
+        format!(
+            "environment      = {:?}\n\
+             db_path          = {}\n\
+             grpc_addr        = {}\n\
+             metrics_addr     = {}\n\
+             api_key          = {}\n\
+             encryption_key   = {}\n\
+             tls_cert         = {}\n\
+             tls_key          = {}\n\
+             tls_client_ca    = {}\n\
+             graphsage_model  = {}\n\
+             gat_model        = {}\n\
+             ml_dir           = {}\n\
+             python           = {}\n\
+             ts_policy        = {:?}\n\
+             sync_writes      = {}\n\
+             explain_enabled  = {}\n\
+             rbac_policy      = {}\n\
+             log_json         = {}\n",
+            self.environment,
+            self.db_path,
+            self.grpc_addr,
+            self.metrics_addr,
+            red(&self.api_key),
+            red(&self.encryption_key_hex),
+            path(&self.tls_cert),
+            path(&self.tls_key),
+            path(&self.tls_client_ca),
+            self.graphsage_model,
+            self.gat_model,
+            self.ml_dir.display(),
+            self.python,
+            self.ts_policy,
+            self.sync_writes,
+            self.explain_enabled,
+            path(&self.rbac_policy),
+            self.log_json,
+        )
+    }
+
+    pub fn model_dir(&self, model_id: &str) -> PathBuf {
+        self.ml_dir.join("deployed").join(model_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Map(HashMap<&'static str, &'static str>);
+    impl Source for Map {
+        fn get(&self, key: &str) -> Option<String> {
+            self.0.get(key).map(|s| s.to_string())
+        }
+    }
+
+    const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+    fn prod_ok() -> HashMap<&'static str, &'static str> {
+        HashMap::from([
+            ("CAREGRAPH_ENV", "production"),
+            ("CAREGRAPH_TLS_CERT", "/c"),
+            ("CAREGRAPH_TLS_KEY", "/k"),
+            ("CAREGRAPH_TLS_CLIENT_CA", "/ca"),
+            ("CAREGRAPH_ENCRYPTION_KEY", KEY),
+            ("CAREGRAPH_RBAC_POLICY", "/rbac.yaml"),
+        ])
+    }
+
+    #[test]
+    fn development_defaults_load() {
+        let cfg = Config::load(&Map(HashMap::new())).unwrap();
+        assert_eq!(cfg.environment, Environment::Development);
+        assert!(!cfg.sync_writes);
+        assert_eq!(cfg.ts_policy, TsPolicy::Legacy);
+    }
+
+    #[test]
+    fn a_fully_configured_production_node_loads_with_safe_defaults() {
+        let cfg = Config::load(&Map(prod_ok())).unwrap();
+        assert!(cfg.sync_writes);
+        assert!(cfg.log_json);
+        assert_eq!(cfg.ts_policy, TsPolicy::Strict);
+        assert!(!cfg.explain_enabled);
+    }
+
+    #[test]
+    fn production_refuses_each_unsafe_setting() {
+        for (remove, expect) in [
+            ("CAREGRAPH_TLS_CERT", "TLS"),
+            ("CAREGRAPH_ENCRYPTION_KEY", "encryption"),
+            ("CAREGRAPH_RBAC_POLICY", "RBAC"),
+        ] {
+            let mut m = prod_ok();
+            m.remove(remove);
+            let err = Config::load(&Map(m)).unwrap_err().to_string();
+            assert!(err.contains(expect), "{remove}: {err}");
+        }
+        let mut m = prod_ok();
+        m.insert("CAREGRAPH_SYNC_WRITES", "false");
+        assert!(Config::load(&Map(m))
+            .unwrap_err()
+            .to_string()
+            .contains("SYNC_WRITES"));
+        let mut m = prod_ok();
+        m.insert("CAREGRAPH_TS_POLICY", "legacy");
+        assert!(Config::load(&Map(m))
+            .unwrap_err()
+            .to_string()
+            .contains("legacy"));
+    }
+
+    #[test]
+    fn partial_tls_is_refused_even_in_development() {
+        let m = HashMap::from([("CAREGRAPH_TLS_CERT", "/c")]);
+        assert!(Config::load(&Map(m)).is_err());
+    }
+
+    #[test]
+    fn a_malformed_encryption_key_is_refused() {
+        let m = HashMap::from([("CAREGRAPH_ENCRYPTION_KEY", "abc")]);
+        assert!(Config::load(&Map(m)).is_err());
+    }
+
+    #[test]
+    fn redacted_output_never_contains_a_secret() {
+        let mut m = prod_ok();
+        m.insert("CAREGRAPH_API_KEY", "super-secret-token");
+        let out = Config::load(&Map(m)).unwrap().redacted();
+        assert!(!out.contains("super-secret-token"));
+        assert!(!out.contains(KEY));
+        assert!(out.contains("<redacted>"));
+    }
+
+    #[test]
+    fn secret_file_indirection_reads_and_trims() {
+        let dir = std::env::temp_dir().join(format!("cg_cfg_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("api_key");
+        std::fs::write(&f, "  from-file\n").unwrap();
+        let path: &'static str = Box::leak(f.display().to_string().into_boxed_str());
+        let m = HashMap::from([("CAREGRAPH_API_KEY_FILE", path)]);
+        let cfg = Config::load(&Map(m)).unwrap();
+        assert_eq!(cfg.api_key.as_deref(), Some("from-file"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn env_overrides_the_toml_layer() {
+        let toml = "db_path = \"/from/file\"\ngrpc_addr = \"127.0.0.1:1\"\n";
+        let top = Map(HashMap::from([("CAREGRAPH_DB_PATH", "/from/env")]));
+        let layered = Layered::new(Some(toml), top).unwrap();
+        let cfg = Config::load(&layered).unwrap();
+        assert_eq!(cfg.db_path, "/from/env");
+        assert_eq!(cfg.grpc_addr.to_string(), "127.0.0.1:1");
+    }
+}
