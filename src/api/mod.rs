@@ -78,7 +78,20 @@ use proto::{
 };
 
 fn internal(err: CareGraphError) -> Status {
-    Status::internal(err.to_string())
+    match err {
+        // Retryable: workers restarting, breaker open, queue full.
+        CareGraphError::Unavailable(m) => Status::unavailable(m),
+        CareGraphError::Timeout(m) => Status::deadline_exceeded(m),
+        other => Status::internal(other.to_string()),
+    }
+}
+
+fn env_permits(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(default)
 }
 
 fn parse_properties(raw: &str) -> Result<JsonValue, Status> {
@@ -168,6 +181,13 @@ struct Inner {
     /// shares one controller, the same reason `store` and the model workers
     /// are shared rather than per-request.
     caps: std::sync::Mutex<CapController>,
+    /// Bulkheads. All store reads and the whole mutation pipeline are blocking
+    /// work (RocksDB iteration, a Python round trip), so they run on tokio's
+    /// blocking pool, never on an async worker thread, and each class is
+    /// bounded so a flood of one cannot starve the other or exhaust memory.
+    /// Exhaustion is `RESOURCE_EXHAUSTED`, a fast, retryable refusal.
+    read_permits: std::sync::Arc<tokio::sync::Semaphore>,
+    write_permits: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 /// The tonic service implementation. Cheap to clone — tonic clones the
@@ -205,18 +225,49 @@ impl CareGraphApi {
                 api_metrics,
                 limits: TraversalLimits::default(),
                 caps: std::sync::Mutex::new(CapController::new()),
+                read_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(env_permits(
+                    "CAREGRAPH_MAX_CONCURRENT_READS",
+                    512,
+                ))),
+                write_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(env_permits(
+                    "CAREGRAPH_MAX_CONCURRENT_WRITES",
+                    64,
+                ))),
             }),
         })
     }
 
-    fn model_for(&self, kind: ModelKind) -> Result<&EmbeddingModel, Status> {
+    /// Runs `f` on the blocking pool under a permit from `permits`. A refused
+    /// permit is an immediate `RESOURCE_EXHAUSTED`, not a queue.
+    async fn blocking<T, F>(
+        &self,
+        permits: &std::sync::Arc<tokio::sync::Semaphore>,
+        f: F,
+    ) -> Result<T, Status>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Inner) -> Result<T, Status> + Send + 'static,
+    {
+        let permit = permits.clone().try_acquire_owned().map_err(|_| {
+            Status::resource_exhausted("server is at its concurrency limit; retry with backoff")
+        })?;
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            f(&inner)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("request task failed: {e}")))?
+    }
+
+    fn model_in(inner: &Inner, kind: ModelKind) -> Result<&EmbeddingModel, Status> {
         match kind {
-            ModelKind::GraphSAGE | ModelKind::GCN => self.inner.graphsage_model.as_ref().ok_or_else(|| {
+            ModelKind::GraphSAGE | ModelKind::GCN => inner.graphsage_model.as_ref().ok_or_else(|| {
                 Status::failed_precondition(
                     "no GraphSAGE model deployed on this server (ml/deployed/<name>/ not configured)",
                 )
             }),
-            ModelKind::GAT => self.inner.gat_model.as_ref().ok_or_else(|| {
+            ModelKind::GAT => inner.gat_model.as_ref().ok_or_else(|| {
                 Status::failed_precondition(
                     "no GAT model deployed on this server (ml/deployed/<name>/ not configured)",
                 )
@@ -224,10 +275,10 @@ impl CareGraphApi {
         }
     }
 
-    fn run_mutation(
+    async fn run_mutation(
         &self,
         mutation: GraphMutation,
-        edge_value: &EdgeValue,
+        edge_value: EdgeValue,
         model_kind: ModelKind,
         explain: bool,
     ) -> Result<MutationResponse, Status> {
@@ -235,32 +286,39 @@ impl CareGraphApi {
         // GraphSAGE and GAT were ever trained — see ml/train_graphsage.py,
         // ml/train_gat.py) — routing it through the GraphSAGE worker would
         // silently run the wrong weights under GCN's name. Reject explicitly
-        // rather than let `model_for`'s associative-path fallback do that.
+        // rather than let `model_in`'s associative-path fallback do that.
         if model_kind == ModelKind::GCN {
             return Err(Status::failed_precondition(
                 "ModelKind::GCN has no trained model in this deployment; use GRAPHSAGE or GAT",
             ));
         }
-        let model = self.model_for(model_kind)?;
-        let ctx = run_mutation_pipeline(
-            mutation,
-            edge_value,
-            model_kind,
-            &self.inner.store,
-            model,
-            &self.inner.metrics,
-            &self.inner.caps,
-            explain,
-        )
-        .map_err(internal)?;
+        // Fail fast, before taking a permit, when the model is not deployed.
+        Self::model_in(&self.inner, model_kind)?;
 
-        Ok(MutationResponse {
-            affected_nodes: ctx.affected.iter().map(|n| n.as_u64()).collect(),
-            fallback: ctx.fallback,
-            fanout_capped: ctx.truncation.fanout_capped,
-            neighbors_dropped: ctx.truncation.neighbors_dropped as u64,
-            expansion_capped: ctx.truncation.expansion_capped,
+        let permits = self.inner.write_permits.clone();
+        self.blocking(&permits, move |inner| {
+            let model = Self::model_in(inner, model_kind)?;
+            let ctx = run_mutation_pipeline(
+                mutation,
+                &edge_value,
+                model_kind,
+                &inner.store,
+                model,
+                &inner.metrics,
+                &inner.caps,
+                explain,
+            )
+            .map_err(internal)?;
+
+            Ok(MutationResponse {
+                affected_nodes: ctx.affected.iter().map(|n| n.as_u64()).collect(),
+                fallback: ctx.fallback,
+                fanout_capped: ctx.truncation.fanout_capped,
+                neighbors_dropped: ctx.truncation.neighbors_dropped as u64,
+                expansion_capped: ctx.truncation.expansion_capped,
+            })
         })
+        .await
     }
 }
 
@@ -281,12 +339,14 @@ impl CareGraphService for CareGraphApi {
             edge_type,
             ts: Timestamp(req.timestamp_us),
         };
-        let response = self.run_mutation(
-            mutation,
-            &EdgeValue::new(properties),
-            model_kind,
-            req.explain,
-        )?;
+        let response = self
+            .run_mutation(
+                mutation,
+                EdgeValue::new(properties),
+                model_kind,
+                req.explain,
+            )
+            .await?;
         Ok(Response::new(response))
     }
 
@@ -306,12 +366,14 @@ impl CareGraphService for CareGraphApi {
         };
         // Ignored for a removal (a tombstone is staged instead) — see
         // AtomicCommitter::stage_mutation.
-        let response = self.run_mutation(
-            mutation,
-            &EdgeValue::new(JsonValue::Null),
-            model_kind,
-            req.explain,
-        )?;
+        let response = self
+            .run_mutation(
+                mutation,
+                EdgeValue::new(JsonValue::Null),
+                model_kind,
+                req.explain,
+            )
+            .await?;
         Ok(Response::new(response))
     }
 
@@ -349,18 +411,24 @@ impl CareGraphService for CareGraphApi {
         // Always the server's own limits — a client's request only supplies
         // *values* TraversalLimits clamps, never the limits themselves. See
         // this module's doc on result limits.
-        let traverser = Traverser::new(&self.inner.store, self.inner.limits);
-        let started = std::time::Instant::now();
-        let result = traverser.traverse(&traversal_request).map_err(internal)?;
-        // Labeled by the *effective* (server-clamped) hop count, not the
-        // client's requested value — a client asking for an absurd depth
-        // that gets clamped should not pollute a different label's series
-        // with a latency it never actually paid for.
-        self.inner
-            .api_metrics
-            .traversal_latency_seconds
-            .with_label_values(&[&result.effective_max_hops.to_string()])
-            .observe(started.elapsed().as_secs_f64());
+        let permits = self.inner.read_permits.clone();
+        let result = self
+            .blocking(&permits, move |inner| {
+                let traverser = Traverser::new(&inner.store, inner.limits);
+                let started = std::time::Instant::now();
+                let result = traverser.traverse(&traversal_request).map_err(internal)?;
+                // Labeled by the *effective* (server-clamped) hop count, not the
+                // client's requested value — a client asking for an absurd depth
+                // that gets clamped should not pollute a different label's series
+                // with a latency it never actually paid for.
+                inner
+                    .api_metrics
+                    .traversal_latency_seconds
+                    .with_label_values(&[&result.effective_max_hops.to_string()])
+                    .observe(started.elapsed().as_secs_f64());
+                Ok(result)
+            })
+            .await?;
 
         Ok(Response::new(TraverseResponse {
             start: result.start.as_u64(),
@@ -394,16 +462,19 @@ impl CareGraphService for CareGraphApi {
             edge_types
         };
 
-        let reader = SnapshotReader::new(&self.inner.store, self.inner.limits);
-        let timer = self
-            .inner
-            .api_metrics
-            .point_in_time_query_seconds
-            .start_timer();
-        let snapshot = reader
-            .snapshot_of_types(NodeId(req.subject), Timestamp(req.as_of_us), &edge_types)
-            .map_err(internal)?;
-        timer.observe_duration();
+        let (subject, as_of) = (NodeId(req.subject), Timestamp(req.as_of_us));
+        let permits = self.inner.read_permits.clone();
+        let snapshot = self
+            .blocking(&permits, move |inner| {
+                let reader = SnapshotReader::new(&inner.store, inner.limits);
+                let timer = inner.api_metrics.point_in_time_query_seconds.start_timer();
+                let snapshot = reader
+                    .snapshot_of_types(subject, as_of, &edge_types)
+                    .map_err(internal)?;
+                timer.observe_duration();
+                Ok(snapshot)
+            })
+            .await?;
 
         let Some(snapshot) = snapshot else {
             return Ok(Response::new(SnapshotResponse {
@@ -442,13 +513,14 @@ impl CareGraphService for CareGraphApi {
             req.top_k as usize
         };
 
-        let result = similarity::similar_care_pathways(
-            &self.inner.store,
-            NodeId(req.node_id),
-            Timestamp(req.as_of_us),
-            top_k,
-        )
-        .map_err(internal)?;
+        let (node, as_of) = (NodeId(req.node_id), Timestamp(req.as_of_us));
+        let permits = self.inner.read_permits.clone();
+        let result = self
+            .blocking(&permits, move |inner| {
+                similarity::similar_care_pathways(&inner.store, node, as_of, top_k)
+                    .map_err(internal)
+            })
+            .await?;
 
         let Some(matches) = result else {
             return Ok(Response::new(SimilarCarePathwaysResponse {
@@ -480,21 +552,22 @@ impl CareGraphService for CareGraphApi {
             req.top_k as usize
         };
 
-        let timer = self
-            .inner
-            .api_metrics
-            .similarity_delta_seconds
-            .start_timer();
-        let result = diff::similarity_delta(
-            &self.inner.store,
+        let (node, from, to, min_abs) = (
             NodeId(req.node_id),
             Timestamp(req.from_us),
             Timestamp(req.to_us),
             req.min_abs_delta,
-            top_k,
-        )
-        .map_err(internal)?;
-        timer.observe_duration();
+        );
+        let permits = self.inner.read_permits.clone();
+        let result = self
+            .blocking(&permits, move |inner| {
+                let timer = inner.api_metrics.similarity_delta_seconds.start_timer();
+                let result = diff::similarity_delta(&inner.store, node, from, to, min_abs, top_k)
+                    .map_err(internal)?;
+                timer.observe_duration();
+                Ok(result)
+            })
+            .await?;
 
         Ok(Response::new(SimilarityDeltaResponse {
             matches: result

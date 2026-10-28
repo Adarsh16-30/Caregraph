@@ -15,9 +15,11 @@ pub mod meta;
 pub mod metrics;
 pub mod model_bridge;
 pub mod pipeline;
+pub mod repair;
 pub mod resolver;
 pub mod staged_incremental;
 pub mod state;
+pub mod worker;
 
 pub use atomic_commit::AtomicCommitter;
 pub use attribution::attribute_targets;

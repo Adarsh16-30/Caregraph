@@ -77,6 +77,11 @@ pub fn encode_commit_meta_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
     encode_node_key(node, ts)
 }
 
+/// Versioned repair-marker key for `CF_REPAIR`: `[node_id | timestamp_desc]`.
+pub fn encode_repair_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
+    encode_node_key(node, ts)
+}
+
 /// The `[src_id | edge_type]` prefix that bounds a single adjacency list.
 pub fn edge_prefix(src: NodeId, edge_type: EdgeType) -> Vec<u8> {
     let mut prefix = Vec::with_capacity(EDGE_PREFIX_LEN);

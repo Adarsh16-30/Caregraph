@@ -82,6 +82,10 @@ pub struct MutationContext {
     pub truncation: ResolutionTruncation,
     pub embeddings_after: Vec<(NodeId, Embedding)>,
     pub fallback: bool,
+    /// Nodes whose embeddings could NOT be refreshed because the forward pass
+    /// failed (set only on the fallback path). Each gets a durable `CF_REPAIR`
+    /// marker in the same batch as the structural change.
+    pub stale_nodes: Vec<NodeId>,
     /// Wall-clock time of the associative/staged aggregation dispatch alone
     /// (Phase 9) — deliberately *not* including attribution (Feature 1) or
     /// the batch write. This is what
@@ -102,6 +106,7 @@ impl MutationContext {
             truncation: ResolutionTruncation::default(),
             embeddings_after: Vec::new(),
             fallback: false,
+            stale_nodes: Vec::new(),
             embedding_duration: std::time::Duration::ZERO,
         }
     }

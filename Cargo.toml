@@ -105,6 +105,8 @@ prost = "0.13"
 dotenvy = "0.15"
 toml = "0.8"
 hdrhistogram = "7.5"
+crossbeam-channel = "0.5"
+sha2 = "0.10"
 
 [build-dependencies]
 tonic-build = "0.12"

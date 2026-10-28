@@ -334,6 +334,7 @@ sequenceDiagram
 | `CF_NODES` | `[node_id \| ts_desc]` | node properties |
 | `CF_EMBEDDINGS` | `[node_id \| ts_desc]` | vector + model_id + computation_path |
 | `CF_COMMIT_META` | `[node_id \| ts_desc]` | dispatch decision + effective caps + attribution |
+| `CF_REPAIR` | `[node_id \| ts_desc]` | durable stale-embedding marker (written when a forward pass fails) |
 
 Timestamps are stored bit-inverted, so a *newer* version produces a *smaller*
 byte sequence and sorts first. A point-in-time read is therefore a single

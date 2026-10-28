@@ -243,6 +243,7 @@ impl<'a> AtomicCommitter<'a> {
         let mut batch = WriteBatch::default();
         self.stage_mutation(&mut batch, mutation, edge_value);
         self.stage_embeddings(&mut batch, &ctx)?;
+        crate::embedding::repair::stage_repairs(&mut batch, self.store, &ctx, &model.model_id)?;
         self.stage_commit_meta(&mut batch, &ctx, &meta, &attribution_by_node)?;
 
         // The whole point of building one shared batch above instead of

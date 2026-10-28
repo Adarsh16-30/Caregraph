@@ -873,3 +873,43 @@ latency with **zero errors**: pure unbounded queueing, no load shedding.
 
 This is the "before" for the hardening work: later phases re-run the same
 sweeps and report the change, including where it does not improve.
+
+### 10.1 Effect of the binary worker protocol and supervised pool (P2)
+
+`[benchmark: benchmarks/results/gate/prod2_incremental_protocol_v2_graphsage.json]`
+`[benchmark: benchmarks/results/gate/prod2_incremental_protocol_v2_gat.json]`
+
+The JSON-over-stdio worker protocol was replaced by length-prefixed binary
+frames (raw little-endian `f32`/`u32` arrays). Same `caregraph-bench-incremental`
+method, same 30 evenly sampled real mutations, same pinned caps (512, 1500),
+same trained models, same laptop. Before = §2.3/§2.4; after = this run.
+
+| | incremental median | incremental p95 | full-recompute median | median speedup |
+|---|---|---|---|---|
+| GraphSAGE before | 820.27 ms | 1548.96 ms | ~6.4 s | 7.79x |
+| GraphSAGE after | 222.42 ms | 331.23 ms | 917.53 ms | 4.4x |
+| GAT before | 517.36 ms | 1531.04 ms | 8209.36 ms | 15.9x |
+| GAT after | 244.27 ms | 374.54 ms | 1421.81 ms | 5.9x |
+
+What this shows, and what it does not:
+
+- **A real latency win:** incremental p95 improved about 4.7x (GraphSAGE) and
+  4.1x (GAT). The old protocol serialised every float as decimal text and the
+  worker built tensors with `torch.tensor(nested_python_lists)`; the binary
+  path removes both. The exactness suites (50 random mutation sequences per
+  model, attribution completeness) pass unchanged, since `f32` bytes round-trip
+  losslessly.
+- **The 100 ms p95 target is still missed:** 331 ms and 375 ms are roughly 3.3x
+  and 3.7x over it. The remaining cost is resolution, input construction and the
+  forward pass itself (see §7.6), which later phases target.
+- **GraphSAGE now fails its own "at least 5x faster than full recompute" gate
+  (4.4x).** That is because the *baseline* improved even more than the
+  incremental path: full recompute ships the whole 174,298-node graph through
+  the pipe, which is where the old protocol spent most of its time. The gate
+  compares against a baseline that is no longer slow, so it no longer measures
+  what it was written to measure; the absolute latencies above are the honest
+  comparison. The binary exits non-zero on this gate by design and is left that
+  way rather than loosened.
+- Single run per model, a thermally variable laptop (§3), from a working tree
+  with uncommitted changes (`git_dirty: true` in the files). Treat the ratios
+  as indicative, not as precise constants.

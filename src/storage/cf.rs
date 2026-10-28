@@ -7,6 +7,7 @@
 //! | `CF_NODES`        | `[node_id \| timestamp_desc]`                     | node properties |
 //! | `CF_EMBEDDINGS`   | `[node_id \| timestamp_desc]`                     | vector + model_id + computation_path |
 //! | `CF_COMMIT_META`  | `[node_id \| timestamp_desc]`                     | dispatch decision + effective caps + attribution |
+//! | `CF_REPAIR`       | `[node_id \| timestamp_desc]`                     | stale-embedding marker (why, which model) |
 //!
 //! `CF_COMMIT_META` is a Phase 9 addition beyond PRD 3.3's four families. It
 //! carries the per-mutation provenance that makes an embedding *explainable*
@@ -29,17 +30,20 @@ pub const CF_REVERSE: &str = "cf_reverse";
 pub const CF_NODES: &str = "cf_nodes";
 pub const CF_EMBEDDINGS: &str = "cf_embeddings";
 pub const CF_COMMIT_META: &str = "cf_commit_meta";
+/// Durable "this node's embedding is stale" markers (production hardening P2).
+pub const CF_REPAIR: &str = "cf_repair";
 
 /// Every column family CareGraph opens. Used both at open time and by the
 /// integration tests that assert all five exist. `create_missing_column_families`
 /// means an existing database on disk gains a newly-added family silently on
 /// its next open — nothing here needs a migration step.
-pub const ALL: [&str; 5] = [
+pub const ALL: [&str; 6] = [
     CF_EDGES,
     CF_REVERSE,
     CF_NODES,
     CF_EMBEDDINGS,
     CF_COMMIT_META,
+    CF_REPAIR,
 ];
 
 /// Options for a family whose keys carry a fixed-width prefix before the
@@ -58,7 +62,7 @@ fn versioned_cf_options(prefix_len: usize) -> Options {
 pub fn prefix_len(cf: &str) -> Option<usize> {
     match cf {
         CF_EDGES | CF_REVERSE => Some(EDGE_PREFIX_LEN),
-        CF_NODES | CF_EMBEDDINGS | CF_COMMIT_META => Some(NODE_PREFIX_LEN),
+        CF_NODES | CF_EMBEDDINGS | CF_COMMIT_META | CF_REPAIR => Some(NODE_PREFIX_LEN),
         _ => None,
     }
 }

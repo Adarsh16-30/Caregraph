@@ -7,5 +7,6 @@
 mod api_endpoint_test;
 mod encryption_at_rest;
 mod mtls_test;
+mod repair_marker_test;
 mod storage_kv;
 mod temporal_pit;

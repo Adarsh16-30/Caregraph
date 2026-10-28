@@ -30,4 +30,15 @@ pub enum CareGraphError {
 
     #[error("encryption: {0}")]
     Encryption(String),
+
+    /// A dependency is temporarily unable to serve (embedding workers down,
+    /// circuit breaker open, queue full). Retryable by the caller; maps to
+    /// gRPC `UNAVAILABLE`, never `INTERNAL`.
+    #[error("unavailable: {0}")]
+    Unavailable(String),
+
+    /// A bounded wait elapsed (worker request deadline). Maps to
+    /// `DEADLINE_EXCEEDED`.
+    #[error("timed out: {0}")]
+    Timeout(String),
 }

@@ -72,11 +72,24 @@ pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
             ctx.fallback = false;
             Ok(())
         }
-        Err(_) => {
-            // Rule 7: a failure here is logged and counted by the caller, never
-            // silently treated as "no update needed". `pipeline.rs` increments
-            // `incremental_fallback_total` when it sees this flag.
+        Err(e) => {
+            // An unavailable/timed-out embedding service rejects the mutation
+            // (retryable) rather than committing it with stale embeddings,
+            // unless the operator opted into that (repair::should_degrade).
+            if !crate::embedding::repair::should_degrade(&e) {
+                return Err(e);
+            }
+            // Rule 7: a failure here is logged and counted by the caller
+            // (`pipeline.rs` increments `incremental_fallback_total`), never
+            // silently treated as "no update needed". Every node left stale
+            // is recorded durably (CF_REPAIR) in the same batch as the change.
+            tracing::error!(
+                error = %e,
+                affected = subgraph.affected.len(),
+                "forward pass failed; committing structure with stale embeddings"
+            );
             ctx.fallback = true;
+            ctx.stale_nodes = subgraph.affected;
             ctx.embeddings_after.clear();
             Ok(())
         }

@@ -13,3 +13,4 @@
 mod associative_correctness_test;
 mod attribution_completeness_test;
 mod gat_correctness_test;
+mod worker_supervision_test;

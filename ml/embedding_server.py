@@ -14,21 +14,27 @@ guard refuses to load them under the compatibility shim
 That is a version-support gap in PyO3 for this Python release, not a
 configuration problem to work around.
 
-This process is spawned once by CareGraph and kept alive: one line of JSON in
-on stdin is one forward-pass request, one line of JSON out on stdout is the
-response. A fresh process per mutation would pay PyTorch's import cost (whole
-seconds) on every request, which alone would blow the Phase 4 p95 target.
+This process is spawned (and supervised, and respawned if it dies) by CareGraph
+and kept alive: a fresh process per mutation would pay PyTorch's import cost
+(whole seconds) on every request.
 
-Protocol (newline-delimited JSON, no batching across lines):
-    request  {"node_features": [[...]], "edge_index": [[src...], [dst...]],
-              "target_indices": [...],
-              "attribution": {                       optional, Phase 9 Feature 1
-                "targets": [...], "edge_index_before": [[...],[...]],
-                "steps": 16, "top_k": 20
-              }}
-    response {"embeddings": [[...]],
-              "attribution": [ { ... } ]}             on success
-              {"error": "..."}                         on failure
+Protocol v2 — length-prefixed binary frames over stdin/stdout:
+
+    frame := u32 LE len | u8 type | payload                  (len = 1 + len(payload))
+    types: 0 HANDSHAKE (worker->rust, JSON: ready, protocol, architecture, ...)
+           1 FORWARD   (rust->worker)      2 PING  (rust->worker)
+           0x81 FORWARD_OK  0x82 PONG  0x8F ERROR (utf-8 message)   (worker->rust)
+    FORWARD   := u32 LE header_len | header JSON {n,d,e,t,attr|null}
+                 | features f32[n*d] | src u32[e] | dst u32[e] | targets u32[t]
+                 | (attr) attr_targets u32[at] | before_src u32[eb] | before_dst u32[eb]
+    FORWARD_OK:= u32 LE header_len | header JSON {t,dim,attribution?}
+                 | embeddings f32[t*dim]
+
+f32 -> bytes -> f32 is lossless, so this is bit-identical to the JSON protocol
+it replaced (v1 serialized every float as decimal text). This process moves its
+framing onto a private dup of fd 1 and points fd 1 / sys.stdout at stderr, so a
+stray print from any library cannot corrupt the stream; stderr is captured and
+re-logged by the Rust side.
 
 `target_indices` selects which rows of the forward pass to return — the caller
 asks for embeddings of specific nodes without the worker needing to know
@@ -64,7 +70,10 @@ error. For an associative model (mean aggregation, no self-loop pinning)
 
 from __future__ import annotations
 
+import array
 import json
+import os
+import struct
 import sys
 from pathlib import Path
 
@@ -274,50 +283,138 @@ def _attribute_one_target(
     }
 
 
+PROTOCOL_VERSION = 2
+T_HANDSHAKE, T_FORWARD, T_PING = 0, 1, 2
+T_FORWARD_OK, T_PONG, T_ERROR = 0x81, 0x82, 0x8F
+MAX_FRAME = 512 * 1024 * 1024
+
+
+def _isolate_stdout():
+    """Return a binary stream on a private dup of fd 1, then point fd 1 (and
+    sys.stdout) at stderr so a stray print from any library cannot corrupt
+    the framed protocol."""
+    out_fd = os.dup(1)
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    if sys.platform == "win32":
+        import msvcrt
+
+        msvcrt.setmode(out_fd, os.O_BINARY)
+    return os.fdopen(out_fd, "wb", buffering=0)
+
+
+def _read_exact(stream, n: int) -> bytes:
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = stream.read(n - len(buf))
+        if not chunk:
+            raise EOFError("parent closed the pipe")
+        buf += chunk
+    return bytes(buf)
+
+
+def _read_frame(stream):
+    (length,) = struct.unpack("<I", _read_exact(stream, 4))
+    if length == 0 or length > MAX_FRAME:
+        raise ValueError(f"bad frame length {length}")
+    body = _read_exact(stream, length)
+    return body[0], body[1:]
+
+
+def _write_frame(out, frame_type: int, payload: bytes) -> None:
+    out.write(struct.pack("<I", len(payload) + 1) + bytes([frame_type]) + payload)
+
+
+def _u32_tensor(buf: bytes, offset: int, count: int) -> torch.Tensor:
+    """u32 little-endian -> int64 tensor (values are node row indices < 2^31)."""
+    if count == 0:
+        return torch.zeros(0, dtype=torch.long)
+    raw = bytearray(buf[offset : offset + count * 4])
+    return torch.frombuffer(raw, dtype=torch.int32).to(torch.long)
+
+
+def _handle_forward(model, payload: bytes) -> bytes:
+    (hl,) = struct.unpack("<I", payload[:4])
+    header = json.loads(payload[4 : 4 + hl])
+    n, d, e, t = header["n"], header["d"], header["e"], header["t"]
+    off = 4 + hl
+
+    if n * d:
+        x = torch.frombuffer(bytearray(payload[off : off + n * d * 4]), dtype=torch.float32).reshape(n, d)
+    else:
+        x = torch.zeros((n, d), dtype=torch.float32)
+    off += n * d * 4
+    src = _u32_tensor(payload, off, e)
+    off += e * 4
+    dst = _u32_tensor(payload, off, e)
+    off += e * 4
+    edge_index = torch.stack([src, dst]) if e else torch.zeros((2, 0), dtype=torch.long)
+    targets = _u32_tensor(payload, off, t)
+    off += t * 4
+
+    with torch.no_grad():
+        z = model(x, edge_index)
+    out = z[targets].to(torch.float32).contiguous()
+    dim = int(out.shape[1]) if out.dim() == 2 else 0
+    resp_header: dict = {"t": t, "dim": dim}
+
+    attr = header.get("attr")
+    if attr:
+        at, eb = attr["targets"], attr["edges_before"]
+        attr_targets = _u32_tensor(payload, off, at).tolist()
+        off += at * 4
+        bsrc = _u32_tensor(payload, off, eb)
+        off += eb * 4
+        bdst = _u32_tensor(payload, off, eb)
+        edge_index_before = (
+            torch.stack([bsrc, bdst]) if eb else torch.zeros((2, 0), dtype=torch.long)
+        )
+        steps, top_k = int(attr["steps"]), int(attr["top_k"])
+        with torch.no_grad():
+            z_before = model(x, edge_index_before)
+        resp_header["attribution"] = [
+            _attribute_one_target(
+                model, x, edge_index, edge_index_before, z, z_before, tt, steps, top_k
+            )
+            for tt in attr_targets
+        ]
+
+    flat = array.array("f", out.flatten().tolist())
+    if sys.byteorder != "little":
+        flat.byteswap()
+    hb = json.dumps(resp_header).encode()
+    return struct.pack("<I", len(hb)) + hb + flat.tobytes()
+
+
 def serve(model_dir: Path) -> None:
+    out = _isolate_stdout()
+    threads = int(os.environ.get("CAREGRAPH_TORCH_THREADS", "0"))
+    if threads > 0:
+        torch.set_num_threads(threads)
+
     model, self_report = load_model(model_dir)
-    print(json.dumps({"ready": True, **self_report}), flush=True)
+    hello = json.dumps({"ready": True, "protocol": PROTOCOL_VERSION, **self_report}).encode()
+    _write_frame(out, T_HANDSHAKE, hello)
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
+    stdin = sys.stdin.buffer
+    while True:
         try:
-            req = json.loads(line)
-            x = torch.tensor(req["node_features"], dtype=torch.float32)
-            edge_index = torch.tensor(req["edge_index"], dtype=torch.long)
-            targets = req["target_indices"]
-
-            with torch.no_grad():
-                z = model(x, edge_index)
-            out = z[targets].tolist()
-            response: dict = {"embeddings": out}
-
-            attribution_req = req.get("attribution")
-            if attribution_req:
-                edge_index_before = torch.tensor(
-                    attribution_req["edge_index_before"], dtype=torch.long
-                )
-                steps = int(attribution_req.get("steps", 16))
-                top_k = int(attribution_req.get("top_k", 20))
-
-                with torch.no_grad():
-                    z_before = model(x, edge_index_before)
-
-                response["attribution"] = [
-                    _attribute_one_target(
-                        model, x, edge_index, edge_index_before, z, z_before, t, steps, top_k
-                    )
-                    for t in attribution_req["targets"]
-                ]
-
-            print(json.dumps(response), flush=True)
+            frame_type, payload = _read_frame(stdin)
+        except EOFError:
+            return  # parent closed our stdin: clean shutdown
+        try:
+            if frame_type == T_PING:
+                _write_frame(out, T_PONG, b"")
+            elif frame_type == T_FORWARD:
+                _write_frame(out, T_FORWARD_OK, _handle_forward(model, payload))
+            else:
+                raise ValueError(f"unknown frame type {frame_type}")
         except Exception as exc:  # noqa: BLE001 - reported to the caller, not swallowed
-            print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}), flush=True)
+            _write_frame(out, T_ERROR, f"{type(exc).__name__}: {exc}".encode())
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print(json.dumps({"error": "usage: embedding_server.py <model_dir>"}))
+        print("usage: embedding_server.py <model_dir>", file=sys.stderr)
         raise SystemExit(1)
     serve(Path(sys.argv[1]))
