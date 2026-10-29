@@ -49,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && useradd --system --create-home --uid 10001 caregraph
 
 COPY --from=builder /build/target/release/caregraph /usr/local/bin/caregraph
+COPY --from=builder /build/target/release/caregraph-admin /usr/local/bin/caregraph-admin
 RUN mkdir -p /var/lib/caregraph && chown -R caregraph:caregraph /var/lib/caregraph
 WORKDIR /var/lib/caregraph
 ENV CAREGRAPH_DB_PATH=/var/lib/caregraph/db

@@ -137,6 +137,7 @@ async fn a_client_with_a_trusted_certificate_completes_a_real_rpc() {
     let mut client = CareGraphServiceClient::new(channel);
     let response = client
         .snapshot(authed(SnapshotRequest {
+            min_sequence: 0,
             subject: 1,
             as_of_us: 0,
             edge_types: vec![],
@@ -168,6 +169,7 @@ async fn connect_then_attempt_rpc(
     let mut client = CareGraphServiceClient::new(channel);
     client
         .snapshot(authed(SnapshotRequest {
+            min_sequence: 0,
             subject: 1,
             as_of_us: 0,
             edge_types: vec![],

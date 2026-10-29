@@ -274,6 +274,7 @@ async fn every_read_is_recorded_with_who_and_which_subject_before_it_is_served()
     for subject in [11u64, 22, 33] {
         s.client
             .snapshot(authed(SnapshotRequest {
+                min_sequence: 0,
                 subject,
                 as_of_us: u64::MAX,
                 edge_types: vec![],
@@ -283,6 +284,7 @@ async fn every_read_is_recorded_with_who_and_which_subject_before_it_is_served()
     }
     s.client
         .traverse(authed(TraverseRequest {
+            min_sequence: 0,
             start: 44,
             as_of_us: u64::MAX,
             max_hops: 1,
@@ -316,6 +318,7 @@ async fn a_denied_request_is_audited_and_returns_nothing() {
     let err = s
         .client
         .snapshot(authed(SnapshotRequest {
+            min_sequence: 0,
             subject: 99,
             as_of_us: u64::MAX,
             edge_types: vec![],
@@ -342,6 +345,7 @@ async fn reads_are_refused_not_served_unaudited_when_the_log_cannot_keep_up() {
         tasks.push(tokio::spawn(async move {
             client
                 .snapshot(authed(SnapshotRequest {
+                    min_sequence: 0,
                     subject: i,
                     as_of_us: u64::MAX,
                     edge_types: vec![],

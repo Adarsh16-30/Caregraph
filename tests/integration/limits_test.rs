@@ -191,6 +191,7 @@ async fn requests_beyond_the_rate_limit_are_refused_with_a_retry_hint() {
         match h
             .client
             .snapshot(authed(SnapshotRequest {
+                min_sequence: 0,
                 subject: 1,
                 as_of_us: u64::MAX,
                 edge_types: vec![],

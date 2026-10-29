@@ -204,6 +204,7 @@ async fn traverse_response_varies_with_max_hops() {
 
     let one_hop = client
         .traverse(authed(TraverseRequest {
+            min_sequence: 0,
             start: PATIENT_A.as_u64(),
             as_of_us: Timestamp::now().as_u64(),
             max_hops: 1,
@@ -220,6 +221,7 @@ async fn traverse_response_varies_with_max_hops() {
 
     let two_hops = client
         .traverse(authed(TraverseRequest {
+            min_sequence: 0,
             start: PATIENT_A.as_u64(),
             as_of_us: Timestamp::now().as_u64(),
             max_hops: 2,
@@ -261,6 +263,7 @@ async fn snapshot_response_varies_with_subject_existence() {
 
     let existing = client
         .snapshot(authed(SnapshotRequest {
+            min_sequence: 0,
             subject: PATIENT_A.as_u64(),
             as_of_us: now,
             edge_types: vec![],
@@ -271,6 +274,7 @@ async fn snapshot_response_varies_with_subject_existence() {
 
     let missing = client
         .snapshot(authed(SnapshotRequest {
+            min_sequence: 0,
             subject: 999_999,
             as_of_us: now,
             edge_types: vec![],
@@ -296,6 +300,7 @@ async fn similar_care_pathways_varies_with_embedding_presence() {
 
     let has_embedding = client
         .similar_care_pathways(authed(SimilarCarePathwaysRequest {
+            min_sequence: 0,
             node_id: PATIENT_A.as_u64(),
             as_of_us: now,
             top_k: 5,
@@ -306,6 +311,7 @@ async fn similar_care_pathways_varies_with_embedding_presence() {
 
     let no_embedding = client
         .similar_care_pathways(authed(SimilarCarePathwaysRequest {
+            min_sequence: 0,
             node_id: ISOLATED.as_u64(),
             as_of_us: now,
             top_k: 5,
@@ -326,6 +332,7 @@ async fn similarity_top_k_above_the_maximum_is_rejected_and_the_maximum_is_accep
     let now = Timestamp::now().as_u64();
     let request = |top_k: u32| {
         authed(SimilarCarePathwaysRequest {
+            min_sequence: 0,
             node_id: PATIENT_A.as_u64(),
             as_of_us: now,
             top_k,
@@ -357,6 +364,7 @@ async fn similarity_delta_varies_with_the_requested_window() {
     // answer, not an unimplemented endpoint returning nothing regardless.
     let no_change = client
         .similarity_delta(authed(SimilarityDeltaRequest {
+            min_sequence: 0,
             node_id: PATIENT_A.as_u64(),
             from_us: DELTA_T1,
             to_us: DELTA_T1,
@@ -371,6 +379,7 @@ async fn similarity_delta_varies_with_the_requested_window() {
     // DELTA_T1 and DELTA_T2, a genuine delta of magnitude 1.0.
     let real_change = client
         .similarity_delta(authed(SimilarityDeltaRequest {
+            min_sequence: 0,
             node_id: PATIENT_A.as_u64(),
             from_us: DELTA_T1,
             to_us: DELTA_T2,
@@ -410,6 +419,7 @@ async fn similarity_delta_varies_with_the_requested_window() {
     // explicit flags, not conflated with "zero candidates changed."
     let no_query_embedding = client
         .similarity_delta(authed(SimilarityDeltaRequest {
+            min_sequence: 0,
             node_id: ISOLATED.as_u64(),
             from_us: DELTA_T1,
             to_us: DELTA_T2,
@@ -433,6 +443,7 @@ async fn requests_without_a_valid_bearer_token_are_rejected() {
     // No authorization metadata at all.
     let unauthenticated = client
         .snapshot(Request::new(SnapshotRequest {
+            min_sequence: 0,
             subject: PATIENT_A.as_u64(),
             as_of_us: now,
             edge_types: vec![],
@@ -445,6 +456,7 @@ async fn requests_without_a_valid_bearer_token_are_rejected() {
 
     // Wrong token.
     let mut wrong = Request::new(SnapshotRequest {
+        min_sequence: 0,
         subject: PATIENT_A.as_u64(),
         as_of_us: now,
         edge_types: vec![],
@@ -461,6 +473,7 @@ async fn requests_without_a_valid_bearer_token_are_rejected() {
     // metadata differs, and the outcome differs with it.
     let ok = client
         .snapshot(authed(SnapshotRequest {
+            min_sequence: 0,
             subject: PATIENT_A.as_u64(),
             as_of_us: now,
             edge_types: vec![],

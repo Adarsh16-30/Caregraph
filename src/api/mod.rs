@@ -101,6 +101,8 @@ pub struct ServiceOptions {
     pub audit_log: Option<std::sync::Arc<AuditLog>>,
     /// Backup and checkpoint state for the admin service. `None` disables it.
     pub admin: Option<std::sync::Arc<admin::AdminOps>>,
+    /// Role, epoch and replication progress. `None` is a standalone node.
+    pub replication: Option<std::sync::Arc<crate::replication::ReplicationState>>,
 }
 
 impl Default for ServiceOptions {
@@ -112,6 +114,7 @@ impl Default for ServiceOptions {
             policy: None,
             audit_log: None,
             admin: None,
+            replication: None,
         }
     }
 }
@@ -274,6 +277,7 @@ struct Inner {
     mutation_audit: std::sync::Arc<MutationAudit>,
     audit_log: Option<std::sync::Arc<AuditLog>>,
     admin: Option<std::sync::Arc<admin::AdminOps>>,
+    repl: std::sync::Arc<crate::replication::ReplicationState>,
     /// Attribution costs tens of seconds per request; one at a time.
     explain_permits: std::sync::Arc<tokio::sync::Semaphore>,
     read_capacity: usize,
@@ -340,6 +344,10 @@ impl CareGraphApi {
         registry: &prometheus::Registry,
         options: ServiceOptions,
     ) -> crate::error::Result<Self> {
+        let repl = options
+            .replication
+            .unwrap_or_else(crate::replication::ReplicationState::standalone);
+        repl.set_applied(store.latest_sequence());
         let sequencer = Sequencer::open(&store, options.ts_policy)?;
         let mutation_audit = MutationAudit::open(&store)?;
         let read_capacity = env_permits("CAREGRAPH_MAX_CONCURRENT_READS", 512);
@@ -371,11 +379,30 @@ impl CareGraphApi {
                 mutation_audit,
                 audit_log: options.audit_log,
                 admin: options.admin,
+                repl,
                 explain_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
                 read_capacity,
                 write_capacity,
             }),
         })
+    }
+
+    /// The database handle, for the replication and admin layers.
+    pub fn store(&self) -> &RocksKv {
+        &self.inner.store
+    }
+
+    pub fn replication(&self) -> &std::sync::Arc<crate::replication::ReplicationState> {
+        &self.inner.repl
+    }
+
+    /// Runs `f` against the store on the blocking pool.
+    pub async fn on_store<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&RocksKv) -> R + Send + 'static,
+    ) -> Result<R, tokio::task::JoinError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || f(&inner.store)).await
     }
 
     /// The caller's name, as set by the authentication layer.
@@ -391,6 +418,17 @@ impl CareGraphApi {
     /// request is charged against the caller's rate-limit budget. A denial says
     /// nothing about which roles exist or what the caller would need.
     fn admit<T>(&self, request: &Request<T>, rpc: Rpc, class: RpcClass) -> Result<(), Status> {
+        self.authorize(request, rpc)?;
+        let principal = Self::principal(request);
+        let Some(limiter) = &self.inner.rate_limiter else {
+            return Ok(());
+        };
+        limiter.check(principal, class).map_err(rate_limited)
+    }
+
+    /// The role check alone, without rate limiting: for internal streams (the
+    /// replication ack is sent after every batch and must never be throttled).
+    pub(crate) fn authorize<T>(&self, request: &Request<T>, rpc: Rpc) -> Result<(), Status> {
         let principal = Self::principal(request);
         if !self.inner.policy.allows(principal, rpc) {
             tracing::warn!(rpc = rpc.name(), "request denied by access policy");
@@ -404,10 +442,48 @@ impl CareGraphApi {
             }
             return Err(Status::permission_denied("not permitted"));
         }
-        let Some(limiter) = &self.inner.rate_limiter else {
+        Ok(())
+    }
+
+    /// Refuses a client write on a node that is not the leader.
+    fn require_writable(&self) -> Result<(), Status> {
+        use crate::replication::WriteRefusal;
+        self.inner.repl.writable().map_err(|refusal| match refusal {
+            WriteRefusal::Follower => Status::failed_precondition(
+                "this node is a read replica; send writes to the leader",
+            ),
+            WriteRefusal::Fenced => Status::failed_precondition(
+                "this node has been replaced as leader and no longer accepts writes",
+            ),
+        })
+    }
+
+    /// Read-your-writes: waits until this node has the database state at
+    /// `min_sequence` (taken from a mutation's `db_sequence`).
+    async fn await_sequence(&self, min_sequence: u64) -> Result<(), Status> {
+        if min_sequence == 0 {
             return Ok(());
-        };
-        limiter.check(principal, class).map_err(rate_limited)
+        }
+        if self.inner.repl.role() == crate::replication::Role::Follower {
+            if self
+                .inner
+                .repl
+                .wait_applied(min_sequence, std::time::Duration::from_secs(2))
+                .await
+            {
+                return Ok(());
+            }
+            return Err(Status::unavailable(
+                "this replica has not yet applied the requested sequence; retry or read from the leader",
+            ));
+        }
+        if self.inner.store.latest_sequence() >= min_sequence {
+            Ok(())
+        } else {
+            Err(Status::failed_precondition(
+                "min_sequence is ahead of this node's database",
+            ))
+        }
     }
 
     /// Records that `principal` is reading `subject`, durably, before the read
@@ -490,6 +566,25 @@ impl CareGraphApi {
         tokio::time::timeout(deadline, wait).await.is_ok()
     }
 
+    /// Waits until no write is executing (reads are not waited for), up to
+    /// `deadline`. After a demotion has stopped new writes this makes the
+    /// database's latest sequence number final.
+    pub async fn quiesce_writes(&self, deadline: std::time::Duration) -> bool {
+        let wait = self
+            .inner
+            .write_permits
+            .acquire_many(self.inner.write_capacity as u32);
+        tokio::time::timeout(deadline, wait).await.is_ok()
+    }
+
+    /// Re-derives the in-memory write-path state (commit high-water mark, audit
+    /// chain head) from the database. Called when a follower becomes leader:
+    /// replication changed the database underneath both.
+    pub(crate) fn reload_write_state(&self) -> crate::error::Result<()> {
+        self.inner.sequencer.reload(&self.inner.store)?;
+        self.inner.mutation_audit.reload(&self.inner.store)
+    }
+
     /// Forces the write-ahead log to stable storage.
     pub fn flush(&self) -> crate::error::Result<()> {
         use crate::storage::KvStore;
@@ -549,6 +644,7 @@ impl CareGraphApi {
         principal: String,
         rpc: Rpc,
     ) -> Result<MutationResponse, Status> {
+        self.require_writable()?;
         // GCN has no trained, deployed model anywhere in this codebase (only
         // GraphSAGE and GAT were ever trained — see ml/train_graphsage.py,
         // ml/train_gat.py) — routing it through the GraphSAGE worker would
@@ -587,42 +683,62 @@ impl CareGraphApi {
         };
 
         let permits = self.inner.write_permits.clone();
-        self.blocking(&permits, move |inner| {
-            let _explain_permit = explain_permit;
-            let model = Self::model_in(inner, model_kind)?;
-            let request_id = (!request_id.is_empty()).then_some(request_id.as_str());
-            let outcome = run_mutation_pipeline(
-                mutation,
-                &edge_value,
-                model_kind,
-                &inner.store,
-                model,
-                &inner.metrics,
-                &inner.caps,
-                &inner.sequencer,
-                request_id,
-                explain,
-                Some(AuditContext {
-                    chain: &inner.mutation_audit,
-                    principal: &principal,
-                    rpc: rpc.name(),
-                }),
-            )
-            .map_err(internal)?;
-            let ctx = &outcome.ctx;
+        let mut response = self
+            .blocking(&permits, move |inner| {
+                let _explain_permit = explain_permit;
+                let model = Self::model_in(inner, model_kind)?;
+                let request_id = (!request_id.is_empty()).then_some(request_id.as_str());
+                let outcome = run_mutation_pipeline(
+                    mutation,
+                    &edge_value,
+                    model_kind,
+                    &inner.store,
+                    model,
+                    &inner.metrics,
+                    &inner.caps,
+                    &inner.sequencer,
+                    request_id,
+                    explain,
+                    Some(AuditContext {
+                        chain: &inner.mutation_audit,
+                        principal: &principal,
+                        rpc: rpc.name(),
+                    }),
+                )
+                .map_err(internal)?;
+                let ctx = &outcome.ctx;
 
-            Ok(MutationResponse {
-                affected_nodes: ctx.affected.iter().map(|n| n.as_u64()).collect(),
-                fallback: ctx.fallback,
-                fanout_capped: ctx.truncation.fanout_capped,
-                neighbors_dropped: ctx.truncation.neighbors_dropped as u64,
-                expansion_capped: ctx.truncation.expansion_capped,
-                commit_seq: outcome.commit_seq,
-                timestamp_us: outcome.timestamp.as_u64(),
-                replayed: outcome.replayed,
+                Ok(MutationResponse {
+                    affected_nodes: ctx.affected.iter().map(|n| n.as_u64()).collect(),
+                    fallback: ctx.fallback,
+                    fanout_capped: ctx.truncation.fanout_capped,
+                    neighbors_dropped: ctx.truncation.neighbors_dropped as u64,
+                    expansion_capped: ctx.truncation.expansion_capped,
+                    commit_seq: outcome.commit_seq,
+                    timestamp_us: outcome.timestamp.as_u64(),
+                    replayed: outcome.replayed,
+                    db_sequence: 0,
+                })
             })
-        })
-        .await
+            .await?;
+
+        // The commit is durable here. With synchronous replication the client
+        // is told so only once a standby has it too.
+        use crate::replication::AckOutcome;
+        let sequence = self.inner.store.latest_sequence();
+        response.db_sequence = sequence;
+        match self
+            .inner
+            .repl
+            .wait_acked(sequence, || self.inner.store.latest_sequence())
+            .await
+        {
+            AckOutcome::Acked | AckOutcome::Degraded => Ok(response),
+            AckOutcome::Unconfirmed => Err(Status::deadline_exceeded(
+                "committed on the leader, but a standby did not confirm it in time; the outcome \
+                 is unconfirmed. Retry with the same request_id: it is idempotent",
+            )),
+        }
     }
 }
 
@@ -704,6 +820,7 @@ impl CareGraphService for CareGraphApi {
         self.admit(&request, Rpc::Traverse, RpcClass::Read)?;
         let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.await_sequence(req.min_sequence).await?;
         self.audit_read(&principal, Rpc::Traverse, req.start)
             .await?;
 
@@ -778,6 +895,7 @@ impl CareGraphService for CareGraphApi {
         self.admit(&request, Rpc::Snapshot, RpcClass::Read)?;
         let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.await_sequence(req.min_sequence).await?;
         self.audit_read(&principal, Rpc::Snapshot, req.subject)
             .await?;
         let mut edge_types = Vec::new();
@@ -837,6 +955,7 @@ impl CareGraphService for CareGraphApi {
         self.admit(&request, Rpc::SimilarCarePathways, RpcClass::Read)?;
         let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.await_sequence(req.min_sequence).await?;
         self.audit_read(&principal, Rpc::SimilarCarePathways, req.node_id)
             .await?;
         let top_k = clamp_top_k(req.top_k)?;
@@ -876,6 +995,7 @@ impl CareGraphService for CareGraphApi {
         self.admit(&request, Rpc::SimilarityDelta, RpcClass::Read)?;
         let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.await_sequence(req.min_sequence).await?;
         self.audit_read(&principal, Rpc::SimilarityDelta, req.node_id)
             .await?;
         let top_k = clamp_top_k(req.top_k)?;

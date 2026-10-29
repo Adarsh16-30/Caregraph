@@ -51,7 +51,7 @@ A valid certificate with no usable name is refused as unauthenticated.
 | `reader` | `Traverse`, `Snapshot`, `SimilarCarePathways`, `SimilarityDelta` |
 | `writer` | the reads, plus `AddEdge`, `RemoveEdge` |
 | `admin` | the admin service only (backup, checkpoint, audit verification, status) |
-| `replicator` | write-ahead-log streaming only |
+| `replicator` | write-ahead-log streaming only (`Replicate`, `Ack`) |
 
 A principal not in the file has no access. A denial returns `PERMISSION_DENIED`
 with the fixed message `not permitted` (it does not describe roles). The file is
@@ -153,7 +153,6 @@ target is the deliberate exception and is treated as sensitive).
 - External KMS / Vault providers.
 - Anchoring the audit heads to object storage: the lines are emitted; the uploader
   is deployment work (see the Helm chart).
-- Authentication of the replication stream and promotion (added with replication).
 - Repairing stale embeddings: `caregraph-admin repair-status` lists the nodes
   waiting for a fresh embedding; re-embedding them is not implemented.
 

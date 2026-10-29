@@ -1,0 +1,123 @@
+# standalone_1
+leader replication_ack_wait_seconds_count 0
+leader replication_ack_wait_seconds_sum 0
+leader replication_degraded_writes_total 0
+leader replication_ack_timeouts_total 0
+leader replication_connected_followers 0
+-- offered 8 req/s for 20s (+5s warm-up)
+   achieved 8.0 ok/s  p50 74.94ms  p95 108.22ms  p99 276.74ms  errors {}  dropped 0  late_slots 1
+-- offered 12 req/s for 20s (+5s warm-up)
+   achieved 12.0 ok/s  p50 142.21ms  p95 685.05ms  p99 704.00ms  errors {}  dropped 0  late_slots 3
+# sync_1
+leader replication_ack_wait_seconds_count 500
+leader replication_ack_wait_seconds_sum 3.707667999999997
+leader replication_degraded_writes_total 0
+leader replication_ack_timeouts_total 0
+leader replication_connected_followers 1
+leader ack wait histogram (seconds, cumulative):
+  {le="0.0005"} 1
+  {le="0.001"} 2
+  {le="0.0025"} 54
+  {le="0.005"} 121
+  {le="0.01"} 404
+  {le="0.025"} 495
+  {le="0.05"} 500
+  {le="0.1"} 500
+  {le="0.25"} 500
+  {le="0.5"} 500
+  {le="1"} 500
+  {le="5"} 500
+  {le="+Inf"} 500
+follower replication_batches_applied_total 500
+follower final lag 0
+lag samples (sequence numbers): n=133 max=1057 p50=0 p99=1051
+-- offered 8 req/s for 20s (+5s warm-up)
+   achieved 8.0 ok/s  p50 86.97ms  p95 220.93ms  p99 365.57ms  errors {}  dropped 0  late_slots 2
+-- offered 12 req/s for 20s (+5s warm-up)
+   achieved 12.0 ok/s  p50 1829.89ms  p95 3985.41ms  p99 4106.24ms  errors {}  dropped 0  late_slots 4
+# async_1
+leader replication_ack_wait_seconds_count 0
+leader replication_ack_wait_seconds_sum 0
+leader replication_degraded_writes_total 0
+leader replication_ack_timeouts_total 0
+leader replication_connected_followers 1
+follower replication_batches_applied_total 500
+follower final lag 0
+lag samples (sequence numbers): n=133 max=1059 p50=0 p99=1057
+-- offered 8 req/s for 20s (+5s warm-up)
+   achieved 8.0 ok/s  p50 88.25ms  p95 249.98ms  p99 325.38ms  errors {}  dropped 0  late_slots 1
+-- offered 12 req/s for 20s (+5s warm-up)
+   achieved 12.0 ok/s  p50 1189.89ms  p95 3209.22ms  p99 3276.80ms  errors {}  dropped 0  late_slots 5
+# standalone_2
+leader replication_ack_wait_seconds_count 0
+leader replication_ack_wait_seconds_sum 0
+leader replication_degraded_writes_total 0
+leader replication_ack_timeouts_total 0
+leader replication_connected_followers 0
+-- offered 8 req/s for 20s (+5s warm-up)
+   achieved 8.0 ok/s  p50 77.50ms  p95 127.49ms  p99 287.74ms  errors {}  dropped 0  late_slots 1
+-- offered 12 req/s for 20s (+5s warm-up)
+   achieved 12.0 ok/s  p50 1798.14ms  p95 3117.05ms  p99 3201.02ms  errors {}  dropped 0  late_slots 6
+# sync_2
+leader replication_ack_wait_seconds_count 500
+leader replication_ack_wait_seconds_sum 3.1674900999999998
+leader replication_degraded_writes_total 0
+leader replication_ack_timeouts_total 0
+leader replication_connected_followers 1
+leader ack wait histogram (seconds, cumulative):
+  {le="0.0005"} 3
+  {le="0.001"} 3
+  {le="0.0025"} 73
+  {le="0.005"} 199
+  {le="0.01"} 444
+  {le="0.025"} 499
+  {le="0.05"} 499
+  {le="0.1"} 500
+  {le="0.25"} 500
+  {le="0.5"} 500
+  {le="1"} 500
+  {le="5"} 500
+  {le="+Inf"} 500
+follower replication_batches_applied_total 500
+follower final lag 0
+lag samples (sequence numbers): n=134 max=1069 p50=0 p99=1057
+-- offered 8 req/s for 20s (+5s warm-up)
+   achieved 8.0 ok/s  p50 86.85ms  p95 202.75ms  p99 324.10ms  errors {}  dropped 0  late_slots 0
+-- offered 12 req/s for 20s (+5s warm-up)
+   achieved 12.0 ok/s  p50 2232.32ms  p95 4231.17ms  p99 4284.41ms  errors {}  dropped 0  late_slots 15
+# async_2
+leader replication_ack_wait_seconds_count 0
+leader replication_ack_wait_seconds_sum 0
+leader replication_degraded_writes_total 0
+leader replication_ack_timeouts_total 0
+leader replication_connected_followers 1
+follower replication_batches_applied_total 500
+follower final lag 0
+lag samples (sequence numbers): n=133 max=1073 p50=0 p99=1071
+-- offered 8 req/s for 20s (+5s warm-up)
+   achieved 8.0 ok/s  p50 76.73ms  p95 116.61ms  p99 247.94ms  errors {}  dropped 0  late_slots 2
+-- offered 12 req/s for 20s (+5s warm-up)
+   achieved 12.0 ok/s  p50 1475.58ms  p95 3074.05ms  p99 3115.01ms  errors {}  dropped 0  late_slots 3
+# catch-up
+follower applied up to sequence 1602961 in 1591 ms (includes process start and readiness), 256 batches
+approx batches/s including startup: 160
+# reads served by the leader
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 0.95ms  p95 15.41ms  p99 34.53ms  errors {}  dropped 0  late_slots 13
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 6483.97ms  p95 9797.63ms  p99 10182.66ms  errors {}  dropped 0  late_slots 29513
+# reads served by the follower
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 1.25ms  p95 22.69ms  p99 48.29ms  errors {}  dropped 0  late_slots 256
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 4374.53ms  p95 6389.76ms  p99 6852.61ms  errors {}  dropped 0  late_slots 29884
+# reads served by the leader
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 1.09ms  p95 20.48ms  p99 40.90ms  errors {}  dropped 0  late_slots 8
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 6701.06ms  p95 10067.97ms  p99 10534.91ms  errors {}  dropped 0  late_slots 28423
+# reads served by the follower
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 1.16ms  p95 19.45ms  p99 38.81ms  errors {}  dropped 0  late_slots 23
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 6160.38ms  p95 8552.45ms  p99 9338.88ms  errors {}  dropped 0  late_slots 29014

@@ -29,6 +29,20 @@ service AdminService {
   rpc VerifyAudit(VerifyAuditRequest) returns (AuditVerification);
 
   rpc Status(StatusRequest) returns (StatusResponse);
+
+  // Failover. Demote the old leader first, then promote the standby with the
+  // sequence number Demote returned.
+  //
+  // Demote stops this node accepting writes (permanently: it must be rebuilt
+  // from a checkpoint of the new leader before it rejoins), waits for in-flight
+  // writes to finish, and keeps streaming until the standby has everything up
+  // to `final_sequence`.
+  rpc Demote(DemoteRequest) returns (DemoteResponse);
+
+  // Promote makes a follower the leader: it waits until it has applied
+  // `wait_for_sequence`, starts a new leadership epoch and begins accepting
+  // writes.
+  rpc Promote(PromoteRequest) returns (PromoteResponse);
 }
 
 message CreateBackupRequest {}
@@ -83,4 +97,50 @@ message StatusResponse {
   uint32 backups = 5;
   int64 last_backup_unix = 6;
   bool backups_configured = 7;
+  // standalone | leader | follower | demoted | fenced
+  string role = 8;
+  uint64 epoch = 9;
+  // Follower: the leader's newest sequence number as last reported.
+  uint64 leader_sequence = 10;
+  // Follower: sequence numbers behind the leader.
+  uint64 lag = 11;
+  bool needs_bootstrap = 12;
+  bool ready_for_reads = 13;
+  // Leader: connected followers and how far each has confirmed.
+  repeated FollowerInfo followers = 14;
+}
+
+message FollowerInfo {
+  string id = 1;
+  uint64 acked_sequence = 2;
+}
+
+message DemoteRequest {
+  // How long to wait for in-flight writes and for a follower to catch up.
+  // 0 = 30 seconds.
+  uint32 timeout_ms = 1;
+}
+
+message DemoteResponse {
+  // The last sequence number this node committed. Nothing is written after it.
+  uint64 final_sequence = 1;
+  uint64 epoch = 2;
+  // Whether a follower confirmed everything up to final_sequence in time.
+  bool follower_caught_up = 3;
+}
+
+message PromoteRequest {
+  // Wait until this node has applied at least this sequence (the old leader's
+  // final_sequence). 0 = do not wait.
+  uint64 wait_for_sequence = 1;
+  // 0 = 30 seconds.
+  uint32 wait_timeout_ms = 2;
+  // Promote even if wait_for_sequence was not reached. Anything the old leader
+  // committed beyond what this node has is lost.
+  bool force = 3;
+}
+
+message PromoteResponse {
+  uint64 epoch = 1;
+  uint64 sequence = 2;
 }

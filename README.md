@@ -196,6 +196,16 @@ a database and a backup directory refuses the wrong key), re-encrypting under a 
 data key, rotating the key-encryption key, generating tokens, and listing nodes with
 stale embeddings. See [docs/runbooks/](docs/runbooks/).
 
+**Replication.** `CAREGRAPH_ROLE=leader` plus `follower` nodes give read replicas and a
+standby by shipping the write-ahead log: a follower applies the leader's batches in order
+and is byte-for-byte the leader's database as of a sequence number, or stops and says it
+needs rebuilding. Writes are acknowledged only after a standby has them (synchronous, with
+a counted fall back to asynchronous if none is connected), reads on a replica can wait for
+a sequence number to read their own writes, and `caregraph-admin remote failover` moves
+leadership under an epoch number that fences the old leader. There is no automatic
+failover and no quorum; see [docs/replication.md](docs/replication.md) for exactly what
+is and is not guaranteed.
+
 **Container images.** `docker build --target runtime-reader` (no Python) or
 `--target runtime-writer` (Python + CPU torch + deployed models, the default)
 from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it

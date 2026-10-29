@@ -1,0 +1,57 @@
+// CareGraph replication stream (leader -> follower).
+//
+// Internal: callers need the `replicator` role. The batches are plaintext
+// after the leader's storage decrypts them, so this stream must only ever run
+// over mutual TLS in production.
+
+syntax = "proto3";
+
+package caregraph.internal.v1;
+
+service ReplicationService {
+  // Streams the leader's write-ahead log from `from_seq` onwards, then new
+  // batches as they commit, with a heartbeat when idle. Ends with
+  // FAILED_PRECONDITION when the follower cannot continue: a message starting
+  // `needs_bootstrap` means it must be rebuilt from a leader checkpoint; one
+  // starting `stale_leader` means this node is no longer the leader.
+  rpc Replicate(ReplicateRequest) returns (stream ReplicatedBatch);
+
+  // Reports how far the follower has durably applied. A synchronous leader
+  // holds each client write until a standby's ack covers it.
+  rpc Ack(AckRequest) returns (AckResponse);
+}
+
+message ReplicateRequest {
+  string follower_id = 1;
+  // First sequence number wanted: the follower's latest applied + 1.
+  uint64 from_seq = 2;
+  // Highest leadership epoch recorded in the follower's own database.
+  uint64 follower_epoch = 3;
+  // Column-family name -> numeric id on the follower. Batches name families
+  // by id, so the maps must be identical.
+  map<string, uint32> column_families = 4;
+}
+
+message ReplicatedBatch {
+  uint64 epoch = 1;
+  // Sequence number of the batch's first operation; 0 on a heartbeat.
+  uint64 seq = 2;
+  // Operations in the batch (the sequence advances by this much); 0 on a
+  // heartbeat.
+  uint32 count = 3;
+  // The serialized write batch, exactly as the leader wrote it.
+  bytes data = 4;
+  // The leader's newest sequence number when this message was sent.
+  uint64 leader_seq = 5;
+}
+
+message AckRequest {
+  string follower_id = 1;
+  uint64 applied_seq = 2;
+  uint64 epoch = 3;
+}
+
+message AckResponse {
+  uint64 leader_epoch = 1;
+  uint64 leader_seq = 2;
+}

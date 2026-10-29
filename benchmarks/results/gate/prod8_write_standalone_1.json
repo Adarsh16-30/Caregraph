@@ -1,0 +1,85 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793268834,
+    "git_commit": "cba8bb7efcb8ec6aaac5828aa9e52085143dfe7b",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --addr http://127.0.0.1:50091 --api-key bench-key --trace benchmarks/traces/diabetes130_full.jsonl --rates 8,12 --duration-secs 20 --warmup-secs 5 --mix add_edge=100 --server-timestamps --out-dir C:/Users/adars/cg_p8/out_standalone_1",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": null
+  },
+  "addr": "http://127.0.0.1:50091",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "add_edge": 100
+  },
+  "arrivals": "constant",
+  "server_timestamps": true,
+  "duration_secs": 20,
+  "warmup_secs": 5,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 8.0,
+      "achieved_ok_rps": 8.0,
+      "sent": 160,
+      "ok": 160,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 1,
+      "per_op": {
+        "add_edge": {
+          "count": 160,
+          "p50_ms": 74.943,
+          "p95_ms": 108.223,
+          "p99_ms": 276.735,
+          "p999_ms": 332.287,
+          "max_ms": 332.287,
+          "mean_ms": 76.5653
+        },
+        "all": {
+          "count": 160,
+          "p50_ms": 74.943,
+          "p95_ms": 108.223,
+          "p99_ms": 276.735,
+          "p999_ms": 332.287,
+          "max_ms": 332.287,
+          "mean_ms": 76.5653
+        }
+      }
+    },
+    {
+      "offered_rps": 12.0,
+      "achieved_ok_rps": 12.0,
+      "sent": 240,
+      "ok": 240,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 3,
+      "per_op": {
+        "add_edge": {
+          "count": 240,
+          "p50_ms": 142.207,
+          "p95_ms": 685.055,
+          "p99_ms": 703.999,
+          "p999_ms": 716.799,
+          "max_ms": 716.799,
+          "mean_ms": 207.04980000000003
+        },
+        "all": {
+          "count": 240,
+          "p50_ms": 142.207,
+          "p95_ms": 685.055,
+          "p99_ms": 703.999,
+          "p999_ms": 716.799,
+          "max_ms": 716.799,
+          "mean_ms": 207.04980000000003
+        }
+      }
+    }
+  ]
+}

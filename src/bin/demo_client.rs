@@ -228,6 +228,7 @@ async fn main() -> Result<()> {
     let traverse_resp = client
         .traverse(authed(
             TraverseRequest {
+                min_sequence: 0,
                 start: focus_patient,
                 as_of_us: u64::MAX,
                 max_hops: 2,
@@ -269,6 +270,7 @@ async fn main() -> Result<()> {
     let before = client
         .snapshot(authed(
             SnapshotRequest {
+                min_sequence: 0,
                 subject: focus_patient,
                 as_of_us: focus_before,
                 edge_types: vec![],
@@ -281,6 +283,7 @@ async fn main() -> Result<()> {
     let after = client
         .snapshot(authed(
             SnapshotRequest {
+                min_sequence: 0,
                 subject: focus_patient,
                 as_of_us: focus_after,
                 edge_types: vec![],
@@ -317,6 +320,7 @@ async fn main() -> Result<()> {
     let sim = client
         .similar_care_pathways(authed(
             SimilarCarePathwaysRequest {
+                min_sequence: 0,
                 node_id: focus_patient,
                 as_of_us: u64::MAX,
                 top_k: args.top_k,

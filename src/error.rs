@@ -47,4 +47,11 @@ pub enum CareGraphError {
     /// `DEADLINE_EXCEEDED`.
     #[error("timed out: {0}")]
     Timeout(String),
+
+    /// A follower's database no longer matches the leader's history (a batch
+    /// arrived out of order, or applying it did not advance the sequence number
+    /// as it did on the leader). The follower must stop serving and be
+    /// re-bootstrapped from a leader checkpoint.
+    #[error("diverged: {0}")]
+    Diverged(String),
 }

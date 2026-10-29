@@ -22,6 +22,7 @@ pub mod embedding;
 pub mod error;
 pub mod graph;
 pub mod metrics_server;
+pub mod replication;
 pub mod security;
 pub mod server;
 pub mod storage;

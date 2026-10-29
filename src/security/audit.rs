@@ -303,6 +303,17 @@ impl MutationAudit {
         }))
     }
 
+    /// Re-reads the chain head from storage (after a promotion: while a
+    /// follower, the chain grew by replication underneath this in-memory head).
+    pub fn reload(&self, store: &RocksKv) -> Result<()> {
+        let fresh = Self::open(store)?;
+        let head = fresh.head.lock().unwrap_or_else(|e| e.into_inner());
+        let mut mine = self.head.lock().unwrap_or_else(|e| e.into_inner());
+        mine.seq = head.seq;
+        mine.hash = head.hash;
+        Ok(())
+    }
+
     /// Stages the record and the new chain head into `batch`. Call
     /// [`advance`](Self::advance) only after the batch is durably written.
     pub fn stage(&self, batch: &mut WriteBatch, store: &RocksKv, f: Fields) -> Result<Pending> {

@@ -13,12 +13,15 @@ use anyhow::{bail, Context};
 use caregraph::api::admin::AdminOps;
 use caregraph::api::{AuthInterceptor, CareGraphApi, MutualTlsInterceptor, ServiceOptions};
 use caregraph::config::{Config, Layered, ProcessEnv};
+use caregraph::replication::epoch::EpochHistory;
+use caregraph::replication::follower::{self, FollowerOptions};
+use caregraph::replication::{ReplicationConfig, ReplicationState};
 use caregraph::security::audit::AuditLog;
 use caregraph::security::{tls, PolicyHandle, TlsPaths, TlsState, TokenHandle};
 use caregraph::server::shutdown::{run_until_shutdown, wait_for_signal};
 use caregraph::server::{Health, PoolCollector, RateLimiter};
 use caregraph::storage::backup::BackupManager;
-use caregraph::storage::{cf, decode_hex_key, RocksKv};
+use caregraph::storage::{cf, decode_hex_key, RocksKv, WalRetention};
 use caregraph::Timestamp;
 use tonic::transport::Server;
 
@@ -132,10 +135,15 @@ async fn main() -> anyhow::Result<()> {
             .transpose()
             .map_err(anyhow::Error::msg)?,
     };
+    // How much write-ahead log a leader keeps for followers to resume from.
+    let retention = WalRetention {
+        ttl_seconds: cfg.replication.wal_ttl_secs,
+        size_limit_mb: cfg.replication.wal_size_mb,
+    };
     let store = match &dek {
         Some(key) => {
             tracing::info!("encryption at rest enabled (AES-256-CTR, Rule 8)");
-            RocksKv::open_encrypted(&path, key.as_ref())
+            RocksKv::open_with(&path, Some(&key[..]), retention)
                 .with_context(|| format!("opening encrypted RocksDB at {path}"))?
         }
         None => {
@@ -145,7 +153,8 @@ async fn main() -> anyhow::Result<()> {
                      export CAREGRAPH_ENCRYPTION_KEY=\"$(openssl rand -hex 32)\"
 "
             );
-            RocksKv::open(&path).with_context(|| format!("opening RocksDB at {path}"))?
+            RocksKv::open_with(&path, None, retention)
+                .with_context(|| format!("opening RocksDB at {path}"))?
         }
     };
     store.set_sync_writes(cfg.sync_writes);
@@ -233,6 +242,32 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+    let repl = ReplicationState::open(
+        ReplicationConfig {
+            role: cfg.replication.role,
+            replica_id: cfg.pod_name.clone(),
+            min_acks: cfg.replication.min_acks,
+            ack_timeout: std::time::Duration::from_millis(cfg.replication.ack_timeout_ms),
+            sync_lag_threshold: cfg.replication.sync_lag,
+            max_lag_for_ready: cfg.replication.ready_lag,
+            leader_addr: cfg.replication.leader_addr.clone(),
+            state_file: cfg.replication.state_file.clone(),
+        },
+        EpochHistory::read(&store)
+            .context("reading the leadership epoch history")?
+            .current(),
+    )
+    .context("opening the replication state")?;
+    caregraph::replication::ensure_epoch(&store, &repl).context("recording the leader epoch")?;
+    repl.register_metrics(&registry)
+        .context("registering replication metrics")?;
+    tracing::info!(
+        role = repl.role().name(),
+        epoch = repl.epoch(),
+        min_acks = cfg.replication.min_acks,
+        "replication"
+    );
+
     let admin = {
         let manager = match &cfg.backup_dir {
             Some(dir) => Some(
@@ -259,6 +294,7 @@ async fn main() -> anyhow::Result<()> {
             policy,
             audit_log,
             admin,
+            replication: Some(repl.clone()),
         },
     )
     .context("building the gRPC service")?;
@@ -275,7 +311,7 @@ async fn main() -> anyhow::Result<()> {
         "caregraph gRPC service starting"
     );
 
-    let health = Health::new(
+    let health = Health::with_replica(
         {
             let api = api.clone();
             Arc::new(move || api.model_statuses())
@@ -283,6 +319,10 @@ async fn main() -> anyhow::Result<()> {
         {
             let api = api.clone();
             Arc::new(move || api.store_responds())
+        },
+        {
+            let repl = repl.clone();
+            Arc::new(move || repl.not_ready_reason())
         },
     );
     PoolCollector::register(health.clone(), &registry).context("registering pool metrics")?;
@@ -310,6 +350,35 @@ async fn main() -> anyhow::Result<()> {
             .max_decoding_message_size(limits.max_decoding_bytes)
             .max_encoding_message_size(limits.max_encoding_bytes)
     };
+
+    let replication_server = || {
+        caregraph::replication::proto::replication_service_server::ReplicationServiceServer::new(
+            api.clone(),
+        )
+        // A write batch is one message, and a bulk load can make a large one;
+        // this service is authenticated and internal, so it is not held to the
+        // client-facing message limits.
+        .max_decoding_message_size(limits.max_decoding_bytes)
+        .max_encoding_message_size(caregraph::replication::MAX_BATCH_MESSAGE_BYTES)
+    };
+
+    // A follower applies the leader's stream for as long as it is one.
+    let (follower_stop, follower_stop_rx) = tokio::sync::watch::channel(false);
+    let follower_task = (repl.role() == caregraph::replication::Role::Follower).then(|| {
+        let r = &cfg.replication;
+        tokio::spawn(follower::run(
+            api.clone(),
+            FollowerOptions {
+                leader_addr: r.leader_addr.clone().unwrap_or_default(),
+                ca: r.ca.clone(),
+                cert: r.cert.clone(),
+                key: r.key.clone(),
+                server_name: r.server_name.clone(),
+                token: r.token.clone(),
+            },
+            follower_stop_rx,
+        ))
+    });
 
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
@@ -361,6 +430,10 @@ async fn main() -> anyhow::Result<()> {
             );
             let admin_service = tonic::service::interceptor::InterceptedService::new(
                 admin_server(),
+                MutualTlsInterceptor::new(tokens.clone()),
+            );
+            let replication_service = tonic::service::interceptor::InterceptedService::new(
+                replication_server(),
                 MutualTlsInterceptor::new(tokens),
             );
             run_until_shutdown(
@@ -369,6 +442,7 @@ async fn main() -> anyhow::Result<()> {
                         .add_service(health_service)
                         .add_service(service)
                         .add_service(admin_service)
+                        .add_service(replication_service)
                         .serve_with_incoming_shutdown(incoming, stop)
                 },
                 wait_for_signal(),
@@ -384,6 +458,10 @@ async fn main() -> anyhow::Result<()> {
             );
             let admin_service = tonic::service::interceptor::InterceptedService::new(
                 admin_server(),
+                AuthInterceptor::new(key.clone()),
+            );
+            let replication_service = tonic::service::interceptor::InterceptedService::new(
+                replication_server(),
                 AuthInterceptor::new(key),
             );
             run_until_shutdown(
@@ -392,6 +470,7 @@ async fn main() -> anyhow::Result<()> {
                         .add_service(health_service)
                         .add_service(service)
                         .add_service(admin_service)
+                        .add_service(replication_service)
                         .serve_with_shutdown(addr, stop)
                 },
                 wait_for_signal(),
@@ -403,6 +482,10 @@ async fn main() -> anyhow::Result<()> {
         (None, None) => unreachable!("checked above: plaintext requires CAREGRAPH_API_KEY"),
     };
     tracing::info!(?outcome, "gRPC server stopped");
+    let _ = follower_stop.send(true);
+    if let Some(task) = follower_task {
+        let _ = task.await;
+    }
 
     // Requests whose clients went away keep running on the blocking pool;
     // wait for them, then force the WAL to disk before the store closes.

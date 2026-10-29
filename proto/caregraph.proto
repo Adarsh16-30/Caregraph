@@ -111,6 +111,9 @@ message MutationResponse {
   // True when this is the stored result of an earlier request with the same
   // request_id; nothing was applied this time.
   bool replayed = 8;
+  // RocksDB sequence number at (or just after) this mutation's commit. Pass it
+  // as `min_sequence` on a read to a replica to read your own write.
+  uint64 db_sequence = 9;
 }
 
 enum Direction {
@@ -138,6 +141,9 @@ message TraverseRequest {
   // means "unspecified", which yields the server default, not zero results.
   uint64 max_nodes = 8;
   uint64 max_edges = 9;
+  // Read-your-writes on a replica: wait (briefly) until the replica has applied
+  // at least this database sequence number, else UNAVAILABLE. 0 = no wait.
+  uint64 min_sequence = 10;
 }
 
 message VisitedNodeMsg {
@@ -179,6 +185,9 @@ message SnapshotRequest {
   uint64 as_of_us = 2;
   // Empty means every EdgeType.
   repeated EdgeType edge_types = 3;
+  // Read-your-writes on a replica: wait (briefly) until the replica has applied
+  // at least this database sequence number, else UNAVAILABLE. 0 = no wait.
+  uint64 min_sequence = 4;
 }
 
 message NodeMsg {
@@ -210,6 +219,9 @@ message SimilarCarePathwaysRequest {
   uint64 node_id = 1;
   uint64 as_of_us = 2;
   uint32 top_k = 3;
+  // Read-your-writes on a replica: wait (briefly) until the replica has applied
+  // at least this database sequence number, else UNAVAILABLE. 0 = no wait.
+  uint64 min_sequence = 4;
 }
 
 message SimilarPathwayMatch {
@@ -237,6 +249,9 @@ message SimilarityDeltaRequest {
   // timestamp is returned.
   float min_abs_delta = 4;
   uint32 top_k = 5;
+  // Read-your-writes on a replica: wait (briefly) until the replica has applied
+  // at least this database sequence number, else UNAVAILABLE. 0 = no wait.
+  uint64 min_sequence = 6;
 }
 
 message SimilarityDeltaMatch {

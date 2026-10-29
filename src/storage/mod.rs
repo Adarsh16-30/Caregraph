@@ -12,4 +12,4 @@ pub use cf::{
     CF_REVERSE,
 };
 pub use encryption::{decode_hex_key, open_encrypted_env, ENCRYPTION_KEY_ENV, KEY_LEN};
-pub use kv::{Db, Entry, KvStore, RocksKv};
+pub use kv::{Db, Entry, KvStore, RocksKv, WalRetention};

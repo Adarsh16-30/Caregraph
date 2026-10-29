@@ -1144,3 +1144,80 @@ size) rather than measured on this dataset.
 The restore and verify paths read the backup through the same encrypted
 environment, so a wrong data key, a missing key, or a plaintext/encrypted mix-up is
 refused before anything is read (last section of the result file).
+
+### 10.7 Replication (P8)
+
+`[benchmark: benchmarks/results/gate/prod8_replication.txt]` (with the six
+`prod8_write_*.json` files), produced by `scripts/p8_replication_bench.sh` on the real
+174,298-node database: a leader and a follower (and the load generator) on the same
+16-thread laptop, strict timestamps, `sync_writes` on for both, one GraphSAGE worker
+on the leader, a fresh copy of the database per run, runs interleaved (standalone,
+synchronous, asynchronous, twice).
+
+**An earlier version was slow, and why.** The first run of this benchmark showed
+synchronous replication adding about 100 ms at p50 (mean standby-confirmation wait
+120-150 ms). Timestamping each stage of the path showed the cost was not the network,
+the follower's apply (5.7 ms median, fsync included) or the acknowledgement (0.4 ms),
+but the leader reading each new batch back from the write-ahead log: 70 ms at the
+median on this database, because opening a log iterator scans the log directory and
+seeks into the file. The leader now keeps the last 32 MiB of batches in memory
+(byte-identical to what the log holds, `the_in_memory_tail_holds_exactly_the_batches_written_and_is_bounded`)
+and streams from it; only a follower that is catching up reads the log. The numbers
+below are from after that change.
+
+Write latency at 8 requests/s (below saturation; 20 s per run after a 5 s warm-up;
+the two numbers per cell are the two runs):
+
+| mode | p50 | p95 | p99 |
+|---|---|---|---|
+| standalone (no replica) | 75 / 78 ms | 108 / 127 ms | 277 / 288 ms |
+| asynchronous replica | 88 / 77 ms | 250 / 117 ms | 325 / 248 ms |
+| **synchronous replica** | **87 / 87 ms** | **221 / 203 ms** | **366 / 324 ms** |
+
+- Synchronous replication costs about **10 ms at the median** over standalone. The
+  leader's own measurement of the wait for the standby's confirmation, over 500
+  writes per run, averaged 7.4 ms and 6.3 ms; the first run's histogram shows 81% of
+  writes confirmed within 10 ms, 99% within 25 ms and all within 50 ms.
+- The tails are noisy on this machine (the asynchronous run's p95 was 250 ms in one
+  run and 117 ms in the other, which should be no different from standalone), so the
+  p95/p99 gap between synchronous and standalone, roughly 80-100 ms at p95, is
+  suggestive rather than established. It is within the spread the asynchronous mode
+  shows against itself.
+- Replication lag, sampled every 250 ms from the follower, had a median of 0 and a
+  maximum of about 1,050 sequence numbers, which is one to two write batches in
+  flight (a mutation is one batch of about 800 operations on average: 207,672
+  operations in the 256 batches of the catch-up run). Both followers
+  ended every run at lag 0, having applied exactly the 500 batches the leader
+  committed.
+- **12 requests/s is saturation for one worker on this machine** and the results are
+  not interpretable: standalone alone measured p50 142 ms in one run and 1,798 ms in
+  the other. Nothing about replication can be concluded from that row (it is in the
+  result files).
+
+**Catch-up.** A follower that was down while the leader committed 256 batches
+(30 s at 8 requests/s), started from the old copy, reached lag 0 in 1.6 s including
+process start and readiness. That is a bound on, not a measurement of, apply
+throughput: start-up dominates at this size, and the follower's own apply step is
+about 6 ms per batch with fsync (about 170 batches/s sustained, derived from the
+stage timings, not measured end to end).
+
+**Reads from a replica.** At 1,000 requests/s of the read mix, the follower matched
+the leader: p50 1.2 ms against 1.0-1.1 ms, p99 39-48 ms against 35-41 ms, over two
+runs each. At 3,000 requests/s both are overloaded on this shared machine (the load
+generator falls behind, as in section 10.4), so the 3,000 rows show only that
+neither collapses differently. **This benchmark does not show read throughput
+scaling with replica count**: the leader, the follower and the load generator share
+the same CPUs, so adding a replica here adds contention, not capacity. A scaling
+claim needs replicas on separate hardware, which this laptop cannot provide.
+
+**Not measured:** write latency with the standby on separate hardware (the network
+round trip here is loopback), behaviour when the standby is slow rather than absent,
+and replication under the full 100 req/s-class write load of section 10.2's saturation
+rows (one worker saturates near 16 req/s, so there is little headroom to measure).
+
+**Fault injection after the storage-write change.** The commit path now serialises
+writes in `RocksKv::write` (so the in-memory tail records exact sequence ranges) and
+routes single-key puts and deletes through it. 30 SIGKILLs per model with the real
+mutation pipeline (`benchmarks/results/gate/prod8_fault_injection.log`): GraphSAGE 20
+kills, GAT 28 kills, every run fully committed or fully uncommitted, **0 non-atomic
+states**. This is 30 per model, not the full 100.

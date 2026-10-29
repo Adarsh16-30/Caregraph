@@ -12,6 +12,7 @@ mod encryption_at_rest;
 mod limits_test;
 mod mtls_test;
 mod repair_marker_test;
+mod replication_test;
 mod security_test;
 mod shutdown_health_test;
 mod storage_kv;

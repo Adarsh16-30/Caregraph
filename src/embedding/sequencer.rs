@@ -160,6 +160,16 @@ impl Sequencer {
         Ok(Self::new(policy, hwm))
     }
 
+    /// Re-reads the commit high-water mark from storage. A follower's database
+    /// changes underneath this in-memory state as batches are applied, so a
+    /// promotion must refresh it before the first write is admitted.
+    pub fn reload(&self, store: &RocksKv) -> Result<()> {
+        let stored = Self::open(store, self.policy)?.high_water_mark();
+        let mut st = self.lock();
+        st.hwm_admitted = st.hwm_admitted.max(stored);
+        Ok(())
+    }
+
     pub fn policy(&self) -> TsPolicy {
         self.policy
     }

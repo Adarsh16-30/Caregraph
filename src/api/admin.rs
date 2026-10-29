@@ -17,10 +17,13 @@ use prometheus::{IntCounter, IntGauge, Registry};
 use tonic::{Request, Response, Status};
 
 use crate::api::{internal, CareGraphApi};
+use crate::replication::epoch::{stage_epoch, EpochHistory};
+use crate::replication::Role;
 use crate::security::audit::{self, Fields as AuditFields};
 use crate::security::Rpc;
 use crate::server::RpcClass;
 use crate::storage::backup::{self, BackupManager};
+use crate::storage::KvStore;
 
 pub mod proto {
     tonic::include_proto!("caregraph.admin.v1");
@@ -29,7 +32,8 @@ pub mod proto {
 use proto::admin_service_server::AdminService;
 use proto::{
     AuditVerification, BackupInfo, CheckpointInfo, CreateBackupRequest, CreateCheckpointRequest,
-    ListBackupsRequest, ListBackupsResponse, StatusRequest, StatusResponse, VerifyAuditRequest,
+    DemoteRequest, DemoteResponse, FollowerInfo, ListBackupsRequest, ListBackupsResponse,
+    PromoteRequest, PromoteResponse, StatusRequest, StatusResponse, VerifyAuditRequest,
 };
 
 /// Backup configuration and state shared by the admin RPCs.
@@ -254,6 +258,7 @@ impl AdminService for CareGraphApi {
         self.admit_admin(&request, "Status").await?;
         let ops = self.admin_ops()?;
         let backups = ops.backups.as_ref().map(|b| b.list()).unwrap_or_default();
+        let repl = self.replication();
         let (audit_records, audit_head) = self.inner.mutation_audit.head();
         Ok(Response::new(StatusResponse {
             latest_sequence: self.inner.store.raw().latest_sequence_number(),
@@ -263,7 +268,137 @@ impl AdminService for CareGraphApi {
             backups: backups.len() as u32,
             last_backup_unix: backups.last().map(|b| b.created_unix).unwrap_or(0),
             backups_configured: ops.backups.is_some(),
+            role: repl.role().name().to_string(),
+            epoch: repl.epoch(),
+            leader_sequence: repl.leader_seq(),
+            lag: repl.lag(),
+            needs_bootstrap: repl.needs_bootstrap(),
+            ready_for_reads: repl.ready_for_reads(),
+            followers: repl
+                .followers()
+                .into_iter()
+                .map(|(id, acked_sequence)| FollowerInfo { id, acked_sequence })
+                .collect(),
         }))
+    }
+
+    async fn demote(
+        &self,
+        request: Request<DemoteRequest>,
+    ) -> Result<Response<DemoteResponse>, Status> {
+        self.admit_admin(&request, "Demote").await?;
+        let timeout = wait_from_ms(request.into_inner().timeout_ms);
+        let repl = self.replication().clone();
+        match repl.role() {
+            // Calling it again is how an interrupted demotion is finished.
+            Role::Leader | Role::Demoted => {}
+            other => {
+                return Err(Status::failed_precondition(format!(
+                    "only a leader can be demoted; this node is {}",
+                    other.name()
+                )))
+            }
+        }
+        repl.demote();
+        // New writes are refused from here; wait for the ones in flight so the
+        // sequence number below is final.
+        if !self.quiesce_writes(timeout).await {
+            return Err(Status::deadline_exceeded(
+                "in-flight writes did not finish in time; call Demote again",
+            ));
+        }
+        let final_sequence = self.store().latest_sequence();
+        // The stream stays up so the standby can receive everything up to it.
+        let caught_up = wait_for_follower(&repl, final_sequence, timeout).await;
+        tracing::warn!(final_sequence, caught_up, "leader demoted");
+        Ok(Response::new(DemoteResponse {
+            final_sequence,
+            epoch: repl.epoch(),
+            follower_caught_up: caught_up,
+        }))
+    }
+
+    async fn promote(
+        &self,
+        request: Request<PromoteRequest>,
+    ) -> Result<Response<PromoteResponse>, Status> {
+        self.admit_admin(&request, "Promote").await?;
+        let req = request.into_inner();
+        let repl = self.replication().clone();
+        if repl.role() != Role::Follower {
+            return Err(Status::failed_precondition(format!(
+                "only a follower can be promoted; this node is {}",
+                repl.role().name()
+            )));
+        }
+        if repl.needs_bootstrap() {
+            return Err(Status::failed_precondition(
+                "this follower must be re-bootstrapped from a checkpoint and cannot be promoted",
+            ));
+        }
+        if req.wait_for_sequence > 0
+            && !repl
+                .wait_applied(req.wait_for_sequence, wait_from_ms(req.wait_timeout_ms))
+                .await
+            && !req.force
+        {
+            return Err(Status::deadline_exceeded(format!(
+                "this follower has applied up to {} but the old leader committed {}; wait for it                  to catch up, or pass force to accept losing the difference",
+                self.store().latest_sequence(),
+                req.wait_for_sequence
+            )));
+        }
+
+        // No batch may be half-applied when leadership changes hands.
+        let _applying = repl.apply_lock().lock().await;
+        if repl.role() != Role::Follower {
+            return Err(Status::aborted("the role changed while promoting"));
+        }
+        let known = repl.epoch();
+        let epoch = self
+            .on_store(move |s| -> crate::error::Result<u64> {
+                let epoch = EpochHistory::read(s)?.current().max(known) + 1;
+                let mut batch = rocksdb::WriteBatch::default();
+                stage_epoch(&mut batch, s, epoch, s.latest_sequence() + 1)?;
+                s.write(batch)?;
+                Ok(epoch)
+            })
+            .await
+            .map_err(|e| Status::internal(format!("promotion task failed: {e}")))?
+            .map_err(internal)?;
+        self.reload_write_state().map_err(internal)?;
+        repl.become_leader(epoch);
+        tracing::warn!(
+            epoch,
+            sequence = self.store().latest_sequence(),
+            "promoted to leader"
+        );
+        Ok(Response::new(PromoteResponse {
+            epoch,
+            sequence: self.store().latest_sequence(),
+        }))
+    }
+}
+
+fn wait_from_ms(ms: u32) -> std::time::Duration {
+    std::time::Duration::from_millis(if ms == 0 { 30_000 } else { u64::from(ms) })
+}
+
+/// Waits until some follower has confirmed `sequence`, or `timeout`.
+async fn wait_for_follower(
+    repl: &crate::replication::ReplicationState,
+    sequence: u64,
+    timeout: std::time::Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if repl.followers().iter().any(|(_, acked)| *acked >= sequence) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 }
 

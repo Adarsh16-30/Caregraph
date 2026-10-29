@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use caregraph::api::admin::proto::admin_service_client::AdminServiceClient;
 use caregraph::api::admin::proto::{
-    CreateBackupRequest, CreateCheckpointRequest, ListBackupsRequest, StatusRequest,
-    VerifyAuditRequest,
+    CreateBackupRequest, CreateCheckpointRequest, DemoteRequest, ListBackupsRequest,
+    PromoteRequest, StatusRequest, VerifyAuditRequest,
 };
 use caregraph::embedding::repair::pending_repairs;
 use caregraph::security::audit::verify_store;
@@ -31,6 +31,7 @@ use caregraph::storage::{decode_hex_key, RocksKv};
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
 use tonic::metadata::MetadataValue;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tonic::Request;
 
@@ -283,6 +284,79 @@ enum RemoteCmd {
         #[command(flatten)]
         remote: RemoteArgs,
     },
+    /// Stop a leader accepting writes (permanently; it must be rebuilt from a
+    /// checkpoint of the new leader to rejoin) and print the last sequence
+    /// number it committed.
+    Demote {
+        #[command(flatten)]
+        remote: RemoteArgs,
+        #[arg(long, default_value_t = 30)]
+        timeout_secs: u32,
+    },
+    /// Make a follower the leader.
+    Promote {
+        #[command(flatten)]
+        remote: RemoteArgs,
+        /// Wait until the follower has applied at least this sequence (the old
+        /// leader's final sequence, from `demote`).
+        #[arg(long, default_value_t = 0)]
+        wait_for_sequence: u64,
+        /// Promote even if that sequence was not reached. Whatever the old
+        /// leader committed beyond what this node has is lost.
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value_t = 30)]
+        timeout_secs: u32,
+    },
+    /// Planned failover: demote the leader at --addr, then promote the follower
+    /// at --new-addr with the sequence the demotion reported.
+    ///
+    /// If the old leader cannot be reached, confirm it is down (or its volume is
+    /// detached) and pass --old-leader-down: the follower is then promoted
+    /// without waiting. With synchronous replication every write the old leader
+    /// acknowledged is already on the follower, but a write it committed and had
+    /// not yet acknowledged may be lost.
+    Failover {
+        #[command(flatten)]
+        remote: RemoteArgs,
+        #[arg(long)]
+        new_addr: String,
+        #[arg(long)]
+        old_leader_down: bool,
+        #[arg(long, default_value_t = 30)]
+        timeout_secs: u32,
+    },
+}
+
+/// Adds the bearer token, if any, to every request.
+#[derive(Clone)]
+struct Bearer(Option<MetadataValue<tonic::metadata::Ascii>>);
+
+impl tonic::service::Interceptor for Bearer {
+    fn call(&mut self, mut req: Request<()>) -> Result<Request<()>, tonic::Status> {
+        if let Some(v) = &self.0 {
+            req.metadata_mut().insert("authorization", v.clone());
+        }
+        Ok(req)
+    }
+}
+
+type Admin = AdminServiceClient<InterceptedService<Channel, Bearer>>;
+
+async fn admin_client(remote: &RemoteArgs) -> Result<Admin> {
+    let channel = connect(remote).await?;
+    let bearer = match &remote.token {
+        Some(t) => Some(
+            format!("Bearer {t}")
+                .parse()
+                .map_err(|_| anyhow::anyhow!("the token is not a valid header value"))?,
+        ),
+        None => None,
+    };
+    Ok(AdminServiceClient::with_interceptor(
+        channel,
+        Bearer(bearer),
+    ))
 }
 
 fn main() -> Result<()> {
@@ -618,29 +692,18 @@ async fn connect(remote: &RemoteArgs) -> Result<Channel> {
         .with_context(|| format!("connecting to {}", remote.addr))
 }
 
-#[allow(clippy::result_large_err)] // tonic's interceptor signature fixes the error type
 async fn remote(cmd: RemoteCmd, json: bool) -> Result<()> {
     let args = match &cmd {
         RemoteCmd::Status { remote }
         | RemoteCmd::CreateBackup { remote }
         | RemoteCmd::ListBackups { remote }
         | RemoteCmd::Checkpoint { remote, .. }
-        | RemoteCmd::VerifyAudit { remote } => remote.clone(),
+        | RemoteCmd::VerifyAudit { remote }
+        | RemoteCmd::Demote { remote, .. }
+        | RemoteCmd::Promote { remote, .. }
+        | RemoteCmd::Failover { remote, .. } => remote.clone(),
     };
-    let channel = connect(&args).await?;
-    let token = args.token.clone();
-    let mut client = AdminServiceClient::with_interceptor(
-        channel,
-        move |mut req: Request<()>| -> Result<Request<()>, tonic::Status> {
-            if let Some(token) = &token {
-                let value: MetadataValue<_> = format!("Bearer {token}")
-                    .parse()
-                    .map_err(|_| tonic::Status::invalid_argument("token is not a valid header"))?;
-                req.metadata_mut().insert("authorization", value);
-            }
-            Ok(req)
-        },
-    );
+    let mut client = admin_client(&args).await?;
     match cmd {
         RemoteCmd::Status { .. } => {
             let s = client.status(StatusRequest {}).await?.into_inner();
@@ -651,10 +714,33 @@ async fn remote(cmd: RemoteCmd, json: bool) -> Result<()> {
                     "audit_records": s.audit_records, "audit_head": s.audit_head,
                     "backups": s.backups, "last_backup_unix": s.last_backup_unix,
                     "backups_configured": s.backups_configured,
+                    "role": s.role, "epoch": s.epoch, "leader_sequence": s.leader_sequence,
+                    "lag": s.lag, "needs_bootstrap": s.needs_bootstrap,
+                    "ready_for_reads": s.ready_for_reads,
+                    "followers": s.followers.iter().map(|f| json!({"id": f.id, "acked_sequence": f.acked_sequence})).collect::<Vec<_>>(),
                 }),
                 || {
+                    let mut replication = format!("role {}  epoch {}", s.role, s.epoch);
+                    if s.role == "follower" {
+                        replication.push_str(&format!(
+                            "  lag {} (leader at {}){}",
+                            s.lag,
+                            s.leader_sequence,
+                            if s.needs_bootstrap {
+                                "  NEEDS RE-BOOTSTRAP"
+                            } else {
+                                ""
+                            }
+                        ));
+                    }
+                    for f in &s.followers {
+                        replication.push_str(&format!(
+                            "\n  follower {} confirmed {}",
+                            f.id, f.acked_sequence
+                        ));
+                    }
                     format!(
-                        "sequence {}  commit high-water mark {}\naudit: {} records, head {}\nbackups: {} (newest {}){}",
+                        "{replication}\nsequence {}  commit high-water mark {}\naudit: {} records, head {}\nbackups: {} (newest {}){}",
                         s.latest_sequence,
                         s.hwm_us,
                         s.audit_records,
@@ -721,6 +807,93 @@ async fn remote(cmd: RemoteCmd, json: bool) -> Result<()> {
                     format!(
                         "checkpoint {} at sequence {} in {}",
                         c.name, c.sequence, c.path
+                    )
+                },
+            );
+        }
+        RemoteCmd::Demote { timeout_secs, .. } => {
+            let d = client
+                .demote(DemoteRequest {
+                    timeout_ms: timeout_secs.saturating_mul(1000),
+                })
+                .await?
+                .into_inner();
+            emit(
+                json,
+                json!({"final_sequence": d.final_sequence, "epoch": d.epoch, "follower_caught_up": d.follower_caught_up}),
+                || {
+                    format!(
+                        "demoted: final sequence {}, epoch {}, follower caught up: {}\n\
+                         this node must be rebuilt from a checkpoint of the new leader to rejoin",
+                        d.final_sequence, d.epoch, d.follower_caught_up
+                    )
+                },
+            );
+        }
+        RemoteCmd::Promote {
+            wait_for_sequence,
+            force,
+            timeout_secs,
+            ..
+        } => {
+            let p = client
+                .promote(PromoteRequest {
+                    wait_for_sequence,
+                    wait_timeout_ms: timeout_secs.saturating_mul(1000),
+                    force,
+                })
+                .await?
+                .into_inner();
+            emit(
+                json,
+                json!({"epoch": p.epoch, "sequence": p.sequence}),
+                || format!("promoted: epoch {}, sequence {}", p.epoch, p.sequence),
+            );
+        }
+        RemoteCmd::Failover {
+            new_addr,
+            old_leader_down,
+            timeout_secs,
+            ..
+        } => {
+            let timeout_ms = timeout_secs.saturating_mul(1000);
+            let final_sequence = if old_leader_down {
+                eprintln!(
+                    "warning: promoting without contacting the old leader; a write it committed \
+                     but had not acknowledged may be lost"
+                );
+                0
+            } else {
+                let d = client
+                    .demote(DemoteRequest { timeout_ms })
+                    .await?
+                    .into_inner();
+                eprintln!(
+                    "old leader demoted: final sequence {}, follower caught up: {}",
+                    d.final_sequence, d.follower_caught_up
+                );
+                d.final_sequence
+            };
+            let mut target = args.clone();
+            target.addr = new_addr;
+            let mut new_leader = admin_client(&target).await?;
+            let p = new_leader
+                .promote(PromoteRequest {
+                    wait_for_sequence: final_sequence,
+                    wait_timeout_ms: timeout_ms,
+                    force: old_leader_down,
+                })
+                .await?
+                .into_inner();
+            emit(
+                json,
+                json!({"epoch": p.epoch, "sequence": p.sequence, "old_final_sequence": final_sequence}),
+                || {
+                    format!(
+                        "failover complete: new leader is at epoch {}, sequence {}.\n\
+                         next: move the write Service to the new leader, and rebuild the old one \
+                         from a checkpoint of it before it rejoins",
+                        p.epoch, p.sequence
                     )
                 },
             );

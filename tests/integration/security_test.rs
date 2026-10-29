@@ -167,6 +167,7 @@ async fn client(
 
 fn snapshot() -> SnapshotRequest {
     SnapshotRequest {
+        min_sequence: 0,
         subject: 1,
         as_of_us: u64::MAX,
         edge_types: vec![],

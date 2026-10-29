@@ -1,0 +1,3 @@
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime ... model=diabetes130_graphsage (graphsage): 30 iterations: 20 killed, 10 fully committed, 20 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat ... model=diabetes130_gat (gat): 30 iterations: 28 killed, 2 fully committed, 28 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 393.20s

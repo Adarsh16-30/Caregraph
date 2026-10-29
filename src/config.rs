@@ -68,6 +68,87 @@ pub struct Config {
     pub log_json: bool,
     pub server: crate::server::ServerLimits,
     pub input: crate::server::InputLimits,
+    pub replication: ReplicationSettings,
+}
+
+/// Replication role, how a follower reaches its leader, and how the leader
+/// waits for standbys.
+#[derive(Debug, Clone)]
+pub struct ReplicationSettings {
+    pub role: crate::replication::Role,
+    pub leader_addr: Option<String>,
+    /// CA, certificate and key a follower uses to authenticate to the leader.
+    pub ca: Option<PathBuf>,
+    pub cert: Option<PathBuf>,
+    pub key: Option<PathBuf>,
+    pub server_name: Option<String>,
+    pub token: Option<String>,
+    /// Standby confirmations a write waits for (0 = asynchronous).
+    pub min_acks: usize,
+    pub ack_timeout_ms: u64,
+    pub sync_lag: u64,
+    pub ready_lag: u64,
+    pub wal_ttl_secs: u64,
+    pub wal_size_mb: u64,
+    pub state_file: Option<PathBuf>,
+}
+
+impl ReplicationSettings {
+    fn load(src: &dyn Source, db_path: &str) -> Result<Self> {
+        use crate::replication::Role;
+        let role = match src.get("CAREGRAPH_ROLE") {
+            None => Role::Standalone,
+            Some(v) => match Role::parse(&v) {
+                Some(r @ (Role::Standalone | Role::Leader | Role::Follower)) => r,
+                _ => bail!("CAREGRAPH_ROLE must be standalone|leader|follower, got `{v}`"),
+            },
+        };
+        let number = |name: &str, default: u64| -> Result<u64> {
+            match src.get(name) {
+                Some(v) => v
+                    .parse()
+                    .with_context(|| format!("{name} must be a non-negative integer")),
+                None => Ok(default),
+            }
+        };
+        let replicated = role != Role::Standalone;
+        Ok(ReplicationSettings {
+            role,
+            leader_addr: src.get("CAREGRAPH_LEADER_ADDR"),
+            ca: src.get("CAREGRAPH_REPLICATION_CA").map(PathBuf::from),
+            cert: src.get("CAREGRAPH_REPLICATION_CERT").map(PathBuf::from),
+            key: src.get("CAREGRAPH_REPLICATION_KEY").map(PathBuf::from),
+            server_name: src.get("CAREGRAPH_REPLICATION_SERVER_NAME"),
+            token: secret(src, "CAREGRAPH_REPLICATION_TOKEN")?,
+            min_acks: number(
+                "CAREGRAPH_REPLICATION_MIN_ACKS",
+                u64::from(role == Role::Leader),
+            )? as usize,
+            ack_timeout_ms: number("CAREGRAPH_REPLICATION_ACK_TIMEOUT_MS", 5_000)?,
+            sync_lag: number("CAREGRAPH_REPLICATION_SYNC_LAG", 10_000)?,
+            ready_lag: number("CAREGRAPH_REPLICATION_READY_LAG", 10_000)?,
+            wal_ttl_secs: number(
+                "CAREGRAPH_WAL_TTL_SECS",
+                if replicated { 6 * 3600 } else { 0 },
+            )?,
+            wal_size_mb: number("CAREGRAPH_WAL_SIZE_MB", 0)?,
+            state_file: match src.get("CAREGRAPH_STATE_FILE") {
+                Some(p) => Some(PathBuf::from(p)),
+                None if replicated => Some(PathBuf::from(format!("{db_path}.role.json"))),
+                None => None,
+            },
+        })
+    }
+
+    pub fn summary(&self) -> String {
+        format!(
+            "{} (leader {}, min_acks {}, wal_ttl {}s)",
+            self.role.name(),
+            self.leader_addr.as_deref().unwrap_or("-"),
+            self.min_acks,
+            self.wal_ttl_secs
+        )
+    }
 }
 
 /// Source of raw string settings, keyed by the env var name
@@ -239,6 +320,11 @@ impl Config {
             log_json: boolean("CAREGRAPH_LOG_JSON", prod)?,
             server: crate::server::ServerLimits::load(src)?,
             input: crate::server::InputLimits::load(src, explain_enabled)?,
+            replication: ReplicationSettings::load(
+                src,
+                &src.get("CAREGRAPH_DB_PATH")
+                    .unwrap_or_else(|| crate::DEFAULT_DB_PATH.to_string()),
+            )?,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -266,6 +352,24 @@ impl Config {
         if self.kek_file.is_some() && self.encryption_key_hex.is_some() {
             bail!("set either CAREGRAPH_ENCRYPTION_KEY or the KEK/wrapped-key pair, not both");
         }
+        {
+            use crate::replication::Role;
+            let r = &self.replication;
+            if r.role == Role::Follower && r.leader_addr.is_none() {
+                bail!("CAREGRAPH_LEADER_ADDR is required when CAREGRAPH_ROLE=follower");
+            }
+            if r.role == Role::Follower
+                && r.leader_addr
+                    .as_deref()
+                    .is_some_and(|a| a.starts_with("https://"))
+                && (r.cert.is_none() || r.key.is_none())
+            {
+                bail!(
+                    "a follower reaching its leader over https needs CAREGRAPH_REPLICATION_CERT \
+                     and CAREGRAPH_REPLICATION_KEY (and normally CAREGRAPH_REPLICATION_CA)"
+                );
+            }
+        }
         if self.environment == Environment::Production {
             let mut problems = Vec::new();
             if tls_set != 3 {
@@ -287,6 +391,17 @@ impl Config {
             }
             if self.audit_dir.is_none() {
                 problems.push("CAREGRAPH_AUDIT_DIR is required (read auditing is fail-closed)");
+            }
+            if self.replication.role == crate::replication::Role::Follower
+                && !self
+                    .replication
+                    .leader_addr
+                    .as_deref()
+                    .is_some_and(|a| a.starts_with("https://"))
+            {
+                problems.push(
+                    "CAREGRAPH_LEADER_ADDR must be an https:// address: the replication stream                      carries decrypted data",
+                );
             }
             if !problems.is_empty() {
                 bail!("refusing to start in production: {}", problems.join("; "));
@@ -319,6 +434,7 @@ impl Config {
              tokens_file      = {}\n\
              audit_dir        = {}\n\
              backup_dir       = {}\n\
+             replication      = {}\n\
              pod_name         = {}\n\
              graphsage_model  = {}\n\
              gat_model        = {}\n\
@@ -350,6 +466,7 @@ impl Config {
             path(&self.tokens_file),
             path(&self.audit_dir),
             path(&self.backup_dir),
+            self.replication.summary(),
             self.pod_name,
             self.graphsage_model,
             self.gat_model,
@@ -399,6 +516,55 @@ mod tests {
             ("CAREGRAPH_RBAC_POLICY", "/rbac.toml"),
             ("CAREGRAPH_AUDIT_DIR", "/audit"),
         ])
+    }
+
+    #[test]
+    fn a_follower_needs_its_leader_and_in_production_a_tls_connection_to_it() {
+        // Development: a follower must know where its leader is.
+        let mut m = HashMap::from([("CAREGRAPH_ROLE", "follower")]);
+        assert!(Config::load(&Map(m.clone()))
+            .unwrap_err()
+            .to_string()
+            .contains("CAREGRAPH_LEADER_ADDR"));
+        m.insert("CAREGRAPH_LEADER_ADDR", "http://leader:50051");
+        let cfg = Config::load(&Map(m)).unwrap();
+        assert_eq!(cfg.replication.role, crate::replication::Role::Follower);
+        assert_eq!(
+            cfg.replication.min_acks, 0,
+            "only a leader waits for standbys"
+        );
+        assert!(cfg.replication.state_file.is_some());
+
+        // Production: plaintext to the leader is refused, https needs a client identity.
+        let mut p = prod_ok();
+        p.insert("CAREGRAPH_ROLE", "follower");
+        p.insert("CAREGRAPH_LEADER_ADDR", "http://leader:50051");
+        let err = Config::load(&Map(p.clone())).unwrap_err().to_string();
+        assert!(err.contains("https://"), "{err}");
+        p.insert("CAREGRAPH_LEADER_ADDR", "https://leader:50051");
+        let err = Config::load(&Map(p.clone())).unwrap_err().to_string();
+        assert!(err.contains("REPLICATION_CERT"), "{err}");
+        p.insert("CAREGRAPH_REPLICATION_CERT", "/rc");
+        p.insert("CAREGRAPH_REPLICATION_KEY", "/rk");
+        Config::load(&Map(p)).unwrap();
+    }
+
+    #[test]
+    fn a_leader_waits_for_one_standby_by_default_and_a_standalone_node_never_does() {
+        let leader = Config::load(&Map(HashMap::from([("CAREGRAPH_ROLE", "leader")]))).unwrap();
+        assert_eq!(leader.replication.min_acks, 1);
+        assert_eq!(leader.replication.wal_ttl_secs, 6 * 3600);
+        let alone = Config::load(&Map(HashMap::new())).unwrap();
+        assert_eq!(alone.replication.min_acks, 0);
+        assert_eq!(
+            alone.replication.wal_ttl_secs, 0,
+            "no log is retained without replication"
+        );
+        assert!(alone.replication.state_file.is_none());
+        let err = Config::load(&Map(HashMap::from([("CAREGRAPH_ROLE", "demoted")])))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("standalone|leader|follower"), "{err}");
     }
 
     #[test]

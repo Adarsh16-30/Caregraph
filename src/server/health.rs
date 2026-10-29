@@ -31,12 +31,16 @@ pub struct ModelStatus {
 
 type ModelProbe = Arc<dyn Fn() -> Vec<ModelStatus> + Send + Sync>;
 type DbProbe = Arc<dyn Fn() -> bool + Send + Sync>;
+/// `Some(reason)` when this node's replication state means it must not take
+/// traffic (a follower that is behind, disconnected or diverged; a fenced node).
+type ReplicaProbe = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 pub struct Health {
     started: AtomicBool,
     draining: AtomicBool,
     models: ModelProbe,
     db: DbProbe,
+    replica: ReplicaProbe,
 }
 
 /// A readiness verdict with the reasons it is negative.
@@ -48,11 +52,16 @@ pub struct Readiness {
 
 impl Health {
     pub fn new(models: ModelProbe, db: DbProbe) -> Arc<Self> {
+        Self::with_replica(models, db, Arc::new(|| None))
+    }
+
+    pub fn with_replica(models: ModelProbe, db: DbProbe, replica: ReplicaProbe) -> Arc<Self> {
         Arc::new(Health {
             started: AtomicBool::new(false),
             draining: AtomicBool::new(false),
             models,
             db,
+            replica,
         })
     }
 
@@ -84,6 +93,9 @@ impl Health {
         }
         if self.is_draining() {
             reasons.push("draining for shutdown".to_string());
+        }
+        if let Some(reason) = (self.replica)() {
+            reasons.push(reason);
         }
         for m in (self.models)() {
             if m.stats.breaker_open {

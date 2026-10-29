@@ -289,6 +289,7 @@ async fn fire(
         Op::Snapshot => client
             .snapshot(authed(
                 SnapshotRequest {
+                    min_sequence: 0,
                     subject: patient,
                     as_of_us: AS_OF_NOW,
                     edge_types: vec![],
@@ -300,6 +301,7 @@ async fn fire(
         Op::Traverse => client
             .traverse(authed(
                 TraverseRequest {
+                    min_sequence: 0,
                     start: patient,
                     as_of_us: AS_OF_NOW,
                     max_hops: 2,
@@ -317,6 +319,7 @@ async fn fire(
         Op::Similar => client
             .similar_care_pathways(authed(
                 SimilarCarePathwaysRequest {
+                    min_sequence: 0,
                     node_id: patient,
                     as_of_us: AS_OF_NOW,
                     top_k: 10,

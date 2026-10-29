@@ -194,9 +194,33 @@ command-line client.
 | `ListBackups` | Backup ids, sizes, creation times and the RocksDB sequence each one captured. |
 | `CreateCheckpoint(name)` | Hard-linked point-in-time copy under `<backup dir>/checkpoints/<name>`. The name must be 1-64 characters of `[A-Za-z0-9._-]` and not start with `.`; the server chooses the directory. `ALREADY_EXISTS` if the name is taken. |
 | `VerifyAudit` | Verifies the mutation audit chain against its recorded head. |
-| `Status` | Latest sequence, commit high-water mark, audit chain length and head, backup count and newest backup time. |
+| `Status` | Latest sequence, commit high-water mark, audit chain length and head, backup count and newest backup time, and the replication state: role, epoch, lag, whether it needs a bootstrap, and each connected follower's confirmed sequence. |
+| `Demote` | Stops a leader accepting writes (permanently: it must be rebuilt from a checkpoint of the new leader), waits for in-flight writes, and reports its final sequence; keeps streaming until a follower has confirmed it. Repeatable. |
+| `Promote(wait_for_sequence, force)` | Makes a follower the leader: waits until it has applied `wait_for_sequence`, starts a new epoch, accepts writes. `DEADLINE_EXCEEDED` if it has not caught up and `force` is not set. |
 
 Backup metrics: `backup_last_success_timestamp`, `backup_failures_total`.
+
+## Replication
+
+`caregraph.internal.v1.ReplicationService` (`proto/caregraph_internal.proto`) carries the
+leader's write batches to followers; it needs the `replicator` role and is not rate
+limited. `Replicate(from_seq, follower_epoch, column_families)` streams batches from
+`from_seq`, then new ones as they commit, with a one-second heartbeat when idle; it ends
+with `FAILED_PRECONDITION` whose message starts `needs_bootstrap`, `schema_mismatch` or
+`stale_leader`. `Ack(applied_seq, epoch)` reports what the follower has durably applied.
+See `docs/replication.md`.
+
+Behaviour visible to ordinary clients:
+
+- `MutationResponse.db_sequence` is the database sequence number at the commit. Pass it as
+  `min_sequence` on `Traverse`, `Snapshot`, `SimilarCarePathways` or `SimilarityDelta` to
+  read your own write from a replica: the replica waits up to two seconds, then answers
+  `UNAVAILABLE`.
+- A follower answers mutations with `FAILED_PRECONDITION` ("read replica"); a demoted or
+  fenced leader with `FAILED_PRECONDITION` ("replaced as leader").
+- With synchronous replication a mutation is acknowledged only after a standby has it. If
+  the standby does not confirm in time the client gets `DEADLINE_EXCEEDED` ("outcome
+  unconfirmed"): retry with the same `request_id`, which is idempotent.
 
 ## Enums
 
