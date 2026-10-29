@@ -102,7 +102,10 @@ unaudited. Denials are queued without waiting (the request is already refused)
 and counted if dropped.
 
 Each record is also emitted as one JSON line on the `audit` log target for a
-SIEM, and every 60 seconds an `audit_anchor` line carries `(pod, seq, head hash)`.
+SIEM, and every 60 seconds an `audit_anchor` line per chain carries
+`(pod, chain, seq, head hash)` for both the mutation chain and the pod's read chain;
+the same record is appended to `anchors.jsonl` in the audit directory
+(`security::anchor`), and `audit_last_anchor_timestamp_seconds` alerts if it stops.
 Ship those lines to write-once storage: a verifier can then detect removal of the
 tail of either chain, which a self-contained chain cannot prove on its own
 (`audit_test::removing_the_tail_is_caught_by_the_recorded_head` covers the
@@ -151,8 +154,11 @@ target is the deliberate exception and is treated as sensitive).
 
 - FIPS 140 validated cryptography (not requested; the TLS provider is `ring`).
 - External KMS / Vault providers.
-- Anchoring the audit heads to object storage: the lines are emitted; the uploader
-  is deployment work (see the Helm chart).
+- Uploading the audit anchors to object storage: the anchors are produced, logged and
+  appended to a file, and the Helm chart has an uploader slot that mounts the audit
+  directory read-only; CareGraph ships no uploader, because the destination and its
+  credentials are the deployment's. Until one is configured the anchors protect nothing
+  an attacker with the volume could not also rewrite.
 - Repairing stale embeddings: `caregraph-admin repair-status` lists the nodes
   waiting for a fresh embedding; re-embedding them is not implemented.
 

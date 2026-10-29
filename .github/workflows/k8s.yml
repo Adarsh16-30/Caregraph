@@ -1,0 +1,101 @@
+name: kubernetes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infrastructure/**"
+      - "observability/**"
+      - "scripts/k8s_smoke.sh"
+      - "scripts/check_alert_rules.py"
+      - "docs/runbooks/**"
+      - "src/**"
+      - "proto/**"
+      - ".github/workflows/k8s.yml"
+  pull_request:
+    paths:
+      - "infrastructure/**"
+      - "observability/**"
+      - "scripts/k8s_smoke.sh"
+      - "scripts/check_alert_rules.py"
+      - "docs/runbooks/**"
+      - "src/**"
+      - "proto/**"
+      - ".github/workflows/k8s.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.16.3
+  KUBECONFORM_VERSION: v0.6.7
+  KIND_VERSION: v0.24.0
+
+jobs:
+  chart:
+    name: helm lint + kubeconform + alert rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install kubeconform
+        run: |
+          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSLo CHECKSUMS "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS"
+          grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sed 's# kubeconform-linux-amd64.tar.gz# kubeconform.tgz#' | sha256sum -c -
+          tar -xzf kubeconform.tgz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+      - name: The chart's copies of the rules and dashboards match their sources
+        run: |
+          bash scripts/sync_chart_files.sh
+          git diff --exit-code -- infrastructure/helm/caregraph/files
+      - name: Alert rules, dashboards and runbooks reference real metrics
+        run: |
+          pip install pyyaml
+          python scripts/check_alert_rules.py
+      - name: helm lint (development, kind, production)
+        run: |
+          chart=infrastructure/helm/caregraph
+          helm lint $chart --set auth.apiKey=lint
+          helm lint $chart -f $chart/values-kind.yaml
+          helm lint $chart -f $chart/values-production.yaml \
+            --set backup.uploader.enabled=false
+      - name: The chart refuses an unsafe production install
+        run: |
+          chart=infrastructure/helm/caregraph
+          for bad in "tls.enabled=false" "encryption.secretName=" "config.tsPolicy=legacy" "config.syncWrites=false" "writer.replicas=3"; do
+            if helm template t $chart -f $chart/values-production.yaml --set "$bad" >/dev/null 2>&1; then
+              echo "production render accepted: $bad"; exit 1
+            fi
+          done
+      - name: kubeconform (CRDs from the Prometheus Operator and external-secrets are skipped)
+        run: |
+          chart=infrastructure/helm/caregraph
+          for values in "--set auth.apiKey=x" "-f $chart/values-kind.yaml" "-f $chart/values-production.yaml"; do
+            helm template t $chart $values --namespace ns \
+              | kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.30.0
+          done
+
+  smoke:
+    name: kind smoke test (install, write, read replica, failover)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: chart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang libclang-dev cmake protobuf-compiler
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+          version: ${{ env.KIND_VERSION }}
+      - name: Smoke test
+        run: bash scripts/k8s_smoke.sh

@@ -1,0 +1,295 @@
+# Alerting rules for CareGraph.
+#
+# Every expression uses a series the server exports today (src/server/observe.rs,
+# src/replication/state.rs, src/server/health.rs, src/security/{tls,anchor}.rs,
+# src/api/admin.rs, src/memory.rs, src/embedding/metrics.rs) or a standard kubelet
+# series (disk). scripts/check_alert_rules.py checks each name against the sources, so a
+# renamed metric fails CI instead of silently turning an alert into a no-op.
+#
+# The thresholds are starting points chosen from the measurements in
+# docs/benchmark_report.md (one laptop, one graph); tune them against your own
+# traffic. Each alert links to the runbook that says what to do.
+#
+# The chart ships a copy at infrastructure/helm/caregraph/files/alert-rules.yaml;
+# scripts/sync_chart_files.sh keeps the two identical and CI fails if they drift.
+
+groups:
+  - name: caregraph.availability
+    rules:
+      - alert: CareGraphDown
+        expr: up{job=~".*caregraph.*"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }} is not being scraped"
+          runbook: docs/runbooks/failover.md
+
+      - alert: CareGraphNoStandbyConnected
+        # The leader streams to its standby; with none connected, synchronous writes
+        # degrade to unreplicated ones (or time out).
+        expr: sum(replication_connected_followers{component="writer"}) == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "no standby is connected to the leader; writes are unreplicated"
+          runbook: docs/runbooks/replica-bootstrap.md
+
+      - alert: CareGraphErrorRatioHigh
+        # INTERNAL, UNAVAILABLE, DATA_LOSS and UNKNOWN are server faults. Back-pressure
+        # (RESOURCE_EXHAUSTED) and client errors are deliberately not counted.
+        expr: |
+          sum by (pod) (rate(rpc_requests_total{code=~"INTERNAL|UNAVAILABLE|DATA_LOSS|UNKNOWN"}[5m]))
+            /
+          clamp_min(sum by (pod) (rate(rpc_requests_total[5m])), 1e-9) > 0.02
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: more than 2% of requests are failing server-side"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphLoadShedding
+        expr: sum by (pod) (rate(rpc_requests_total{code="RESOURCE_EXHAUSTED"}[5m])) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }} is rejecting requests at its concurrency or rate limit"
+          runbook: docs/runbooks/worker-crashloop.md
+
+  - name: caregraph.latency
+    rules:
+      - alert: CareGraphReadLatencyHigh
+        expr: |
+          histogram_quantile(0.99, sum by (le, pod) (
+            rate(rpc_duration_seconds_bucket{rpc=~"Snapshot|Traverse|SimilarCarePathways|SimilarityDelta"}[5m])
+          )) > 0.25
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: read p99 above 250 ms"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphWriteLatencyHigh
+        expr: |
+          histogram_quantile(0.99, sum by (le, pod) (
+            rate(rpc_duration_seconds_bucket{rpc=~"AddEdge|RemoveEdge"}[5m])
+          )) > 2
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: write p99 above 2 s"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphCommitWaitHigh
+        # Time a computed mutation waits for earlier timestamps to commit.
+        expr: histogram_quantile(0.99, sum by (le, pod) (rate(commit_wait_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: writes are queueing behind slow earlier writes"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphConflictRetriesHigh
+        expr: |
+          rate(mutation_conflict_retries_total[10m])
+            / clamp_min(rate(mutations_total[10m]), 1e-9) > 0.2
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: more than 20% of writes are recomputed after a concurrent commit"
+          runbook: docs/runbooks/worker-crashloop.md
+
+  - name: caregraph.workers
+    rules:
+      - alert: CareGraphWorkerRestarting
+        expr: increase(worker_restarts_total[15m]) >= 3
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: the {{ $labels.model }} embedding worker restarted 3+ times in 15 minutes"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphBreakerOpen
+        expr: breaker_open == 1
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: the {{ $labels.model }} circuit breaker is open; writes to it fail fast"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphWorkersUnhealthy
+        expr: worker_healthy < workers_configured
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: fewer {{ $labels.model }} workers healthy than configured"
+          runbook: docs/runbooks/worker-crashloop.md
+
+      - alert: CareGraphIncrementalFallbackHigh
+        # Rule 7 of the project: full-recompute fallbacks must stay under 5% of writes.
+        expr: |
+          rate(incremental_fallback_total[30m])
+            / clamp_min(rate(mutations_total[30m]), 1e-9) > 0.05
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: more than 5% of embedding updates fell back to full recompute"
+          runbook: docs/runbooks/worker-crashloop.md
+
+  - name: caregraph.replication
+    rules:
+      - alert: CareGraphReplicationLag
+        # The server stops reporting ready at READY_LAG (default 10,000). Alert well before.
+        expr: replication_lag_sequences > 5000
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }} is {{ $value }} sequence numbers behind the leader"
+          runbook: docs/runbooks/replica-bootstrap.md
+
+      - alert: CareGraphReplicaNeedsBootstrap
+        expr: replication_needs_bootstrap == 1
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }} fell behind the leader's retained log and must be re-bootstrapped"
+          runbook: docs/runbooks/replica-bootstrap.md
+
+      - alert: CareGraphSyncReplicationDegraded
+        # RPO is no longer zero: a write was acknowledged with no standby confirmation.
+        expr: replication_sync_degraded == 1
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: writes are not being confirmed by a standby (RPO > 0)"
+          runbook: docs/runbooks/replica-bootstrap.md
+
+      - alert: CareGraphReplicationAckTimeouts
+        expr: increase(replication_ack_timeouts_total[10m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: writes returned unconfirmed because the standby did not acknowledge in time"
+          runbook: docs/runbooks/failover.md
+
+      - alert: CareGraphEpochDisagreement
+        # Writers that disagree about the leadership epoch mean a failover is half
+        # done or a deposed leader is still running.
+        expr: max(replication_epoch{component="writer"}) != min(replication_epoch{component="writer"})
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "writer pods disagree about the leadership epoch"
+          runbook: docs/runbooks/failover.md
+
+  - name: caregraph.storage
+    rules:
+      - alert: CareGraphDiskFilling
+        expr: |
+          kubelet_volume_stats_used_bytes{persistentvolumeclaim=~".*caregraph.*"}
+            / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~".*caregraph.*"} > 0.80
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.persistentvolumeclaim }} is over 80% full"
+          runbook: docs/runbooks/disk-full.md
+
+      - alert: CareGraphDiskAlmostFull
+        expr: |
+          kubelet_volume_stats_used_bytes{persistentvolumeclaim=~".*caregraph.*"}
+            / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~".*caregraph.*"} > 0.92
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.persistentvolumeclaim }} is over 92% full; a full disk stops writes"
+          runbook: docs/runbooks/disk-full.md
+
+      - alert: CareGraphDiskFillsInFourHours
+        expr: |
+          predict_linear(kubelet_volume_stats_available_bytes{persistentvolumeclaim=~".*caregraph.*"}[1h], 4 * 3600) < 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.persistentvolumeclaim }} will fill within four hours at the current rate"
+          runbook: docs/runbooks/disk-full.md
+
+      - alert: CareGraphMemoryOverBudget
+        expr: tree_resident_memory_bytes > memory_budget_bytes
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: the server and its workers use more memory than CAREGRAPH_MEMORY_MB"
+          runbook: docs/memory.md
+
+  - name: caregraph.security
+    rules:
+      - alert: CareGraphCertExpiresSoon
+        expr: tls_cert_expiry_seconds < 21 * 24 * 3600
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: the serving certificate expires in under 21 days"
+          runbook: docs/runbooks/cert-rotation.md
+
+      - alert: CareGraphCertExpiresVerySoon
+        expr: tls_cert_expiry_seconds < 3 * 24 * 3600
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: the serving certificate expires in under 3 days"
+          runbook: docs/runbooks/cert-rotation.md
+
+      - alert: CareGraphCertReloadFailing
+        expr: increase(tls_reload_failures[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: a rotated certificate failed to load; the old one is still serving"
+          runbook: docs/runbooks/cert-rotation.md
+
+      - alert: CareGraphReadAuditSaturated
+        # A full audit queue refuses reads (fail-closed) rather than serve them unaudited.
+        expr: increase(audit_queue_full_total[5m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: reads are being refused because the audit log cannot keep up"
+          runbook: docs/runbooks/audit-tamper-response.md
+
+      - alert: CareGraphAuditEventsDropped
+        expr: increase(audit_dropped_total[15m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: denial events were dropped from the audit log"
+          runbook: docs/runbooks/audit-tamper-response.md
+
+      - alert: CareGraphAuditAnchorStale
+        # The anchor is written every 60 s; 10 minutes without one means the audit
+        # directory is unwritable or the anchoring task has stopped.
+        expr: time() - audit_last_anchor_timestamp_seconds > 600
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: the audit chain has not been anchored for over 10 minutes"
+          runbook: docs/runbooks/audit-tamper-response.md
+
+      - alert: CareGraphAccessDenialsSpiking
+        expr: sum(rate(rpc_requests_total{code=~"PERMISSION_DENIED|UNAUTHENTICATED"}[5m])) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "more than one denied or unauthenticated request per second for 10 minutes"
+          runbook: docs/runbooks/audit-tamper-response.md
+
+  - name: caregraph.backup
+    rules:
+      - alert: CareGraphBackupStale
+        # Backups run on the standby. 26 hours allows a daily job one late run.
+        expr: time() - backup_last_success_timestamp > 26 * 3600
+        for: 15m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: no successful backup in over 26 hours (or none has ever succeeded)"
+          runbook: docs/runbooks/backup-and-restore.md
+
+      - alert: CareGraphBackupFailing
+        expr: increase(backup_failures_total[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: a backup failed"
+          runbook: docs/runbooks/backup-and-restore.md

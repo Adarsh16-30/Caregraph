@@ -80,6 +80,12 @@ async fn readyz(State(state): State<Probes>) -> impl IntoResponse {
     }
 }
 
+/// The node's replication role as one word. The chart's label sidecar reads this to
+/// keep the pod's `caregraph.io/role` label, and with it the write Service, correct.
+async fn role(State(state): State<Probes>) -> impl IntoResponse {
+    state.health.role().to_string()
+}
+
 async fn startupz(State(state): State<Probes>) -> impl IntoResponse {
     if state.health.is_started() {
         (
@@ -109,6 +115,7 @@ pub fn router(registry: Registry, health: Arc<Health>) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/startupz", get(startupz))
+        .route("/role", get(role))
         .with_state(Probes { health });
     Router::new()
         .route("/metrics", get(metrics_handler))

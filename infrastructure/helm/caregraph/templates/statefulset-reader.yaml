@@ -1,0 +1,143 @@
+{{- if .Values.reader.enabled }}
+{{- $full := include "caregraph.fullname" . -}}
+{{- $selector := dict "root" . "component" "reader" -}}
+# Read replicas: no Python, no models. Each builds its database from the leader's
+# checkpoint on first start, then follows the leader's log. They answer reads only
+# and cannot be promoted (a promotable standby needs the models; that is a writer).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $full }}-reader
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: reader
+spec:
+  serviceName: {{ include "caregraph.headless" . }}
+  {{- if not .Values.reader.autoscaling.enabled }}
+  replicas: {{ .Values.reader.replicas }}
+  {{- end }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Delete
+  selector:
+    matchLabels:
+      {{- include "caregraph.selectorLabels" $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "caregraph.commonLabels" . | nindent 8 }}
+        {{- include "caregraph.selectorLabels" $selector | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/rbac: {{ include (print $.Template.BasePath "/configmap-rbac.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $full }}
+      # Nothing in a reader talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        {{- include "caregraph.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.reader.affinity }}
+      affinity:
+        {{- toYaml .Values.reader.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "caregraph.selectorLabels" $selector | nindent 20 }}
+      {{- end }}
+      {{- with .Values.reader.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.reader.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Builds this replica's database from the leader's checkpoint, once. A pod that
+        # already has a database follows the leader from where it stopped instead.
+        - name: bootstrap
+          image: {{ include "caregraph.readerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              if [ -z "$(ls -A /var/lib/caregraph/db 2>/dev/null)" ]; then
+                exec caregraph-admin bootstrap --dest /var/lib/caregraph/db --follower-id "$POD_NAME"
+              fi
+              echo "a database is already present; not bootstrapping"
+          env:
+            {{- include "caregraph.commonEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/caregraph}
+            - {name: tmp, mountPath: /tmp}
+            {{- include "caregraph.secretMounts" . | nindent 12 }}
+      containers:
+        - name: caregraph
+          image: {{ include "caregraph.readerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - {name: grpc, containerPort: 50051}
+            - {name: metrics, containerPort: 9100}
+          env:
+            {{- include "caregraph.commonEnv" . | nindent 12 }}
+            - name: CAREGRAPH_ROLE
+              value: follower
+            - name: CAREGRAPH_MEMORY_MB
+              value: {{ .Values.reader.memoryMB | quote }}
+            - name: CAREGRAPH_GRAPHSAGE_MODEL
+              value: none
+            - name: CAREGRAPH_GAT_MODEL
+              value: none
+          {{- include "caregraph.probes" . | nindent 10 }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "5"]
+          resources:
+            {{- toYaml .Values.reader.resources | nindent 12 }}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/caregraph}
+            - {name: tmp, mountPath: /tmp}
+            {{- include "caregraph.secretMounts" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        {{- include "caregraph.secretVolumes" . | nindent 8 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.reader.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.reader.persistence.size }}
+{{- end }}

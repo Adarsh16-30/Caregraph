@@ -219,6 +219,22 @@ leadership under an epoch number that fences the old leader. There is no automat
 failover and no quorum; see [docs/replication.md](docs/replication.md) for exactly what
 is and is not guaranteed.
 
+**Kubernetes.** `infrastructure/helm/caregraph` deploys a leader and a synchronous
+standby (never autoscaled) plus read replicas (autoscaled), each with its own volume, a
+write Service that follows whichever pod the server says is the leader, hardened pods
+(non-root, read-only filesystem, no capabilities), disruption budgets, network policies,
+an encrypted-backup job that runs on the standby, and optional Prometheus Operator and
+external-secrets objects. A new replica builds itself from the leader over the network;
+an empty volume can never start a second leader. The chart refuses a production install
+without mutual TLS, an encryption key and an RBAC policy. See
+[docs/kubernetes.md](docs/kubernetes.md).
+
+**Observability.** Per-request metrics, 30 alerts that each name a runbook, three Grafana
+dashboards, and OpenTelemetry traces (one span per pipeline stage, W3C context
+propagation, no identifiers in any span) are described in
+[docs/observability.md](docs/observability.md). `scripts/check_alert_rules.py` fails the
+build if an alert or panel uses a metric the server does not export.
+
 **Container images.** `docker build --target runtime-reader` (no Python) or
 `--target runtime-writer` (Python + CPU torch + deployed models, the default)
 from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it
@@ -448,7 +464,7 @@ data/           Diabetes 130 loader and clinical graph schema
 ml/             GNN training and incremental-update reference
 benchmarks/     Baseline harness and mutation traces
 observability/  Prometheus rules, Grafana provisioning
-infrastructure/ Docker Compose dev stack
+infrastructure/ Docker Compose dev stack, Helm chart (helm/caregraph)
 scripts/        check_rules.sh, run_demo.sh
 tests/          integration/, unit/, fault_injection/
 docs/           Design notes, benchmark reports, API reference, runbooks

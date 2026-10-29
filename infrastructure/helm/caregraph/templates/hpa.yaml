@@ -1,0 +1,33 @@
+{{- if and .Values.reader.enabled .Values.reader.autoscaling.enabled }}
+# Only the read replicas autoscale. A new replica builds its database from the leader's
+# checkpoint (one at a time), so scale-up is paced by how fast the leader can stream it.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "caregraph.fullname" . }}-reader
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ include "caregraph.fullname" . }}-reader
+  minReplicas: {{ .Values.reader.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.reader.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.reader.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 120}
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 300}
+{{- end }}

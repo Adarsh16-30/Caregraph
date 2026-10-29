@@ -1,0 +1,63 @@
+{{- $full := include "caregraph.fullname" . -}}
+# Pod DNS for the StatefulSets. Not-ready pods are published too: a starting pod
+# needs to find its peers (to learn whether a leader exists) before anyone is ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caregraph.headless" . }}
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: {{ include "caregraph.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: grpc, port: 50051, targetPort: grpc}
+    - {name: metrics, port: 9100, targetPort: metrics}
+---
+# Writes go to the leader. The selector is the role label the sidecar maintains, and
+# only a ready pod receives traffic, so a fenced or starting node gets none.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caregraph.writeService" . }}
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "caregraph.selectorLabels" (dict "root" . "component" "writer") | nindent 4 }}
+    caregraph.io/role: leader
+  ports:
+    - {name: grpc, port: 50051, targetPort: grpc}
+---
+# The synchronous standby: what the backup job targets, so a backup never loads the
+# leader.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caregraph.standbyService" . }}
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "caregraph.selectorLabels" (dict "root" . "component" "writer") | nindent 4 }}
+    caregraph.io/role: follower
+  ports:
+    - {name: grpc, port: 50051, targetPort: grpc}
+{{- if .Values.reader.enabled }}
+---
+# Reads are spread over the read replicas.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caregraph.readService" . }}
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "caregraph.selectorLabels" (dict "root" . "component" "reader") | nindent 4 }}
+  ports:
+    - {name: grpc, port: 50051, targetPort: grpc}
+{{- end }}

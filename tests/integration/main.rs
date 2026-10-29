@@ -9,6 +9,7 @@ mod api_endpoint_test;
 mod audit_test;
 mod backup_restore_test;
 mod encryption_at_rest;
+mod kube_label_test;
 mod limits_test;
 mod repair_marker_test;
 mod replication_test;

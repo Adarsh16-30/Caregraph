@@ -89,6 +89,7 @@ pub fn admit_mutation<'a>(
     sequencer: &'a Sequencer,
     request_id: Option<&str>,
 ) -> Result<Admitted<'a>> {
+    let _span = tracing::info_span!("admission").entered();
     let request_id = request_id.filter(|id| !id.is_empty());
     let guard = request_id
         .map(|id| sequencer.begin_request(id))
@@ -203,7 +204,7 @@ pub fn execute_admitted(
     let pos0 = sequencer.head();
     let mut prepared = prepare()?;
 
-    let waited = sequencer.wait_turn(&ticket)?;
+    let waited = tracing::info_span!("commit_wait").in_scope(|| sequencer.wait_turn(&ticket))?;
     metrics.commit_wait_seconds.observe(waited.as_secs_f64());
 
     // Everything with a smaller timestamp has now committed or been dropped.
@@ -241,6 +242,7 @@ pub fn execute_admitted(
             idempotency::stage_outcome(batch, store, id, &outcome)?;
         }
         if let Some(a) = &audit {
+            let _span = tracing::info_span!("audit").entered();
             pending_audit = Some(a.chain.stage(
                 batch,
                 store,

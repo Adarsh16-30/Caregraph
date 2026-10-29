@@ -208,7 +208,18 @@ limited. `Replicate(from_seq, follower_epoch, column_families)` streams batches 
 `from_seq`, then new ones as they commit, with a one-second heartbeat when idle; it ends
 with `FAILED_PRECONDITION` whose message starts `needs_bootstrap`, `schema_mismatch` or
 `stale_leader`. `Ack(applied_seq, epoch)` reports what the follower has durably applied.
-See `docs/replication.md`.
+`FetchCheckpoint(follower_id)` streams a consistent copy of the leader's database, file
+by file (a header with the sequence number, epoch and file list; the files' bytes in
+order; a footer), so a new replica can be built over the network; only a leader serves
+it, one transfer at a time (`RESOURCE_EXHAUSTED` otherwise), and a stream that ends
+without its footer is incomplete. See `docs/replication.md`.
+
+The command line has three commands for running in Kubernetes
+(`docs/kubernetes.md`): `caregraph-admin bootstrap` (build a replica's database from the
+leader), `caregraph-admin init-pod` (the init container's start decision: keep the data,
+join a leader, or, only in a new cluster, start as the first leader) and
+`caregraph-admin kube-label-role` (the sidecar that keeps the pod's `caregraph.io/role`
+label equal to the server's role, read from `GET /role` on the metrics port).
 
 Behaviour visible to ordinary clients:
 

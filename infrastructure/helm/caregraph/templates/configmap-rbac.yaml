@@ -1,0 +1,16 @@
+{{- if .Values.rbac.principals }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "caregraph.fullname" . }}-rbac
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+data:
+  # Re-read by the server within seconds of a change; a syntax error keeps the
+  # previous policy.
+  policy.toml: |
+    [principals]
+    {{- range $principal, $roles := .Values.rbac.principals }}
+    {{ $principal | quote }} = [{{ range $i, $r := $roles }}{{ if $i }}, {{ end }}{{ $r | quote }}{{ end }}]
+    {{- end }}
+{{- end }}

@@ -116,8 +116,8 @@ fn run_forward_pass<S: KvStore + ?Sized>(
     timings: &mut crate::embedding::state::PhaseTimings,
 ) -> Result<Vec<(crate::types::NodeId, Embedding)>> {
     let t = std::time::Instant::now();
-    let (features, edge_index, local) =
-        build_model_input(store, &subgraph.nodes, &subgraph.edges, as_of)?;
+    let (features, edge_index, local) = tracing::info_span!("build_input")
+        .in_scope(|| build_model_input(store, &subgraph.nodes, &subgraph.edges, as_of))?;
     timings.build_input = t.elapsed();
 
     let targets: Vec<usize> = subgraph
@@ -127,7 +127,8 @@ fn run_forward_pass<S: KvStore + ?Sized>(
         .collect();
 
     let t = std::time::Instant::now();
-    let vectors = model.forward(&features, &edge_index, &targets)?;
+    let vectors = tracing::info_span!("forward", model = %model.model_id)
+        .in_scope(|| model.forward(&features, &edge_index, &targets))?;
     timings.forward = t.elapsed();
 
     Ok(subgraph

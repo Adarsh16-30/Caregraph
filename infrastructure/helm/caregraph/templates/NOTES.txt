@@ -1,0 +1,24 @@
+CareGraph {{ .Chart.AppVersion }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Where to connect (gRPC, port 50051):
+  writes   {{ include "caregraph.writeService" . }}.{{ .Release.Namespace }}.svc   (the leader)
+{{- if .Values.reader.enabled }}
+  reads    {{ include "caregraph.readService" . }}.{{ .Release.Namespace }}.svc    (read replicas)
+{{- end }}
+
+Check the cluster:
+  kubectl -n {{ .Release.Namespace }} get pods -L caregraph.io/role -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} exec {{ include "caregraph.fullname" . }}-writer-0 -c caregraph -- caregraph-admin remote status
+{{ if .Values.writer.bootstrapLeader }}
+writer.bootstrapLeader is true: the first writer starts as an empty leader when its volume
+is empty. After the cluster is up, run
+  helm upgrade {{ .Release.Name }} <chart> --reuse-values --set writer.bootstrapLeader=false
+so a pod that is rebuilt later can only join an existing leader.
+{{- end }}
+{{ if include "caregraph.isProduction" . }}
+Production mode: mutual TLS, encryption at rest, role policy and audit are required and enforced.
+{{- else }}
+Development mode: plaintext gRPC with a shared API key. Do not use this for real data.
+{{- end }}
+
+Failover, replica rebuilds, backups and the alerts are in docs/runbooks/ and docs/kubernetes.md.

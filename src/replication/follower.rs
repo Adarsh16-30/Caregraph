@@ -54,7 +54,7 @@ enum Ended {
     Stop,
 }
 
-async fn connect(opts: &FollowerOptions) -> Result<Channel> {
+pub(crate) async fn connect(opts: &FollowerOptions) -> Result<Channel> {
     let mut endpoint = Channel::from_shared(opts.leader_addr.clone())
         .context("invalid leader address")?
         .connect_timeout(Duration::from_secs(5))
@@ -82,7 +82,7 @@ async fn connect(opts: &FollowerOptions) -> Result<Channel> {
     Ok(endpoint.connect().await?)
 }
 
-fn bearer(token: &Option<String>) -> Option<MetadataValue<tonic::metadata::Ascii>> {
+pub(crate) fn bearer(token: &Option<String>) -> Option<MetadataValue<tonic::metadata::Ascii>> {
     token
         .as_ref()
         .and_then(|t| format!("Bearer {t}").parse().ok())

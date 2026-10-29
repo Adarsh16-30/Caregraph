@@ -519,6 +519,11 @@ impl CareGraphApi {
         })
     }
 
+    /// Sequence number and hash of the head of the mutation audit chain.
+    pub fn mutation_audit_head(&self) -> (u64, String) {
+        self.inner.mutation_audit.head()
+    }
+
     /// Process ids of each deployed model's workers, for memory accounting.
     pub fn worker_pids(&self) -> Vec<(String, Vec<u32>)> {
         let mut out = Vec::new();
@@ -620,9 +625,12 @@ impl CareGraphApi {
             Status::resource_exhausted("server is at its concurrency limit; retry with backoff")
         })?;
         let inner = self.inner.clone();
+        // The blocking pool runs on other threads: carry the request's span over so
+        // the pipeline stages nest under it.
+        let span = tracing::Span::current();
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            f(&inner)
+            span.in_scope(|| f(&inner))
         })
         .await
         .map_err(|e| {

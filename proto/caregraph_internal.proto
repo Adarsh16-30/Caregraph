@@ -19,6 +19,51 @@ service ReplicationService {
   // Reports how far the follower has durably applied. A synchronous leader
   // holds each client write until a standby's ack covers it.
   rpc Ack(AckRequest) returns (AckResponse);
+
+  // Streams a consistent copy of the leader's database, file by file, so a new
+  // or rebuilt replica can start from it and then follow the log with
+  // `Replicate`. The files are the leader's on-disk files as they are (so
+  // encrypted under the leader's data key, which the replica must share).
+  // First message is a header, then the files' bytes in order, then a footer; a
+  // stream that ends without the footer is incomplete and must be discarded.
+  rpc FetchCheckpoint(FetchCheckpointRequest) returns (stream CheckpointChunk);
+}
+
+message FetchCheckpointRequest {
+  string follower_id = 1;
+}
+
+message CheckpointChunk {
+  oneof payload {
+    CheckpointHeader header = 1;
+    FileChunk file = 2;
+    CheckpointFooter footer = 3;
+  }
+}
+
+message CheckpointHeader {
+  // The leader's newest sequence number inside the checkpoint: a replica
+  // started from it asks for `sequence + 1` onwards.
+  uint64 sequence = 1;
+  uint64 epoch = 2;
+  repeated CheckpointFile files = 3;
+}
+
+message CheckpointFile {
+  // A plain file name; never a path.
+  string name = 1;
+  uint64 size = 2;
+}
+
+message FileChunk {
+  string name = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message CheckpointFooter {
+  uint64 files = 1;
+  uint64 bytes = 2;
 }
 
 message ReplicateRequest {

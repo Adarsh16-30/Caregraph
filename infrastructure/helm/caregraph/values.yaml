@@ -1,0 +1,203 @@
+# CareGraph chart values. These defaults give a working development install
+# (plaintext, one shared API key). Production overrides are in values-production.yaml;
+# read docs/kubernetes.md before using them.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ghcr.io/adarsh16-30
+  # Leader and standby: Python + torch + the deployed models.
+  writer:
+    repository: caregraph-writer
+    tag: ""            # defaults to the chart's appVersion
+  # Read replicas: no Python, no models.
+  reader:
+    repository: caregraph-reader
+    tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# development: plaintext gRPC with CAREGRAPH_API_KEY, no RBAC. production: the server
+# refuses to start without mTLS, an encryption key, an RBAC policy and an audit directory.
+environment: development
+
+auth:
+  # Development only. Either name an existing Secret holding the key, or give a key
+  # here and the chart creates one. Never used when environment=production.
+  existingSecret: ""
+  existingSecretKey: api-key
+  apiKey: ""
+
+tls:
+  enabled: false
+  # Secret with tls.crt, tls.key (the serving certificate, which replicas also present
+  # to the leader as their client certificate, so it needs both serverAuth and
+  # clientAuth usages) and ca.crt (the CA that signed client certificates).
+  secretName: ""
+  # The name replicas verify in the leader's certificate. Defaults to the write Service.
+  serverName: ""
+  # Secret with tls.crt, tls.key, ca.crt for the identity of the backup job: it needs
+  # the `admin` role in the RBAC policy.
+  adminSecretName: ""
+
+# Role policy (principal -> roles). Required in production.
+rbac:
+  principals: {}
+  #  "spiffe://caregraph/ingest": [writer]
+  #  "spiffe://caregraph/analyst": [reader]
+  #  "spiffe://caregraph/ops": [admin]
+  #  "spiffe://caregraph/caregraph": [replicator]
+
+# Optional second factor: a Secret holding tokens.toml (hashes only), and one holding
+# the token replicas and the backup job present (key: token).
+tokens:
+  secretName: ""
+  replicationTokenSecret: ""
+  adminTokenSecret: ""
+
+# Encryption at rest: a Secret with `kek` (the key-encryption key, hex) and
+# `wrapped-dek` (the data key wrapped by it). Replicas share the leader's data key.
+encryption:
+  secretName: ""
+
+# Creates ExternalSecret objects (external-secrets.io) for the Secrets named above, so
+# credentials stay in your secret manager. Needs the operator installed.
+externalSecrets:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore
+  # Keys in the secret store.
+  remoteRefs:
+    tlsCert: ""
+    tlsKey: ""
+    clientCa: ""
+    kek: ""
+    wrappedDek: ""
+    tokens: ""
+    replicationToken: ""
+    adminCert: ""
+    adminKey: ""
+    adminCa: ""
+    adminToken: ""
+
+writer:
+  # Leader and synchronous standby. Fixed at two: the write path does not scale out,
+  # and a failover promotes the standby. Never autoscaled.
+  replicas: 2
+  # Set true ONLY when creating a brand-new cluster: it lets the first pod start as an
+  # empty leader. With it false, an empty pod waits until a leader is reachable, so a
+  # rebuilt pod can never start a second leader. See docs/kubernetes.md.
+  bootstrapLeader: true
+  # Synchronous standby confirmations a write waits for (0 = asynchronous).
+  minAcks: 1
+  # Embedding workers per model, and which models are loaded. Each worker is about
+  # 330-450 MB resident (docs/memory.md); a model you do not serve costs nothing when
+  # disabled.
+  workers: 1
+  torchThreads: 1
+  models:
+    graphsage: true
+    gat: true
+  # CAREGRAPH_MEMORY_MB: one number for the whole process tree. Keep it below the
+  # container memory limit. Measured need for both models: about 970 MB under load.
+  memoryMB: 1500
+  resources:
+    requests: {cpu: "1", memory: 1536Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  persistence:
+    size: 50Gi
+    storageClass: ""
+  backupPersistence:
+    size: 50Gi
+    storageClass: ""
+  # Seconds the server keeps serving after SIGTERM before it drains.
+  terminationGracePeriodSeconds: 120
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Spread the two writers across nodes and zones by default.
+  spreadAcrossNodes: true
+  # Testing and one-off migrations only: a database directory on the node's disk that
+  # the first leader copies into its empty volume.
+  seed:
+    hostPath: ""
+
+reader:
+  enabled: true
+  replicas: 2
+  memoryMB: 512
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {cpu: "1", memory: 768Mi}
+  persistence:
+    size: 50Gi
+    storageClass: ""
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Server tuning that is the same for every pod.
+config:
+  syncWrites: true
+  tsPolicy: strict
+  walTtlSecs: 21600
+  # Extra CAREGRAPH_* variables, as a map.
+  extra: {}
+
+# OpenTelemetry. Spans carry stage names and counts only, never identifiers.
+otel:
+  endpoint: ""           # e.g. http://otel-collector.observability:4317
+  sampleRatio: 0.05
+
+metrics:
+  podMonitor:
+    enabled: false       # needs the Prometheus Operator
+    interval: 15s
+  prometheusRule:
+    enabled: false       # needs the Prometheus Operator
+    labels: {}
+  grafanaDashboards:
+    enabled: false       # ConfigMaps for the Grafana sidecar (label grafana_dashboard=1)
+
+networkPolicy:
+  enabled: true
+  # Who may call the gRPC port, besides the release's own pods. Each entry is a
+  # NetworkPolicyPeer (podSelector / namespaceSelector).
+  clientPeers: []
+  # Who may scrape the metrics port (Prometheus).
+  metricsPeers: []
+
+podDisruptionBudget:
+  enabled: true
+
+backup:
+  enabled: false
+  schedule: "17 2 * * *"
+  # The job calls CreateBackup on the standby, so the primary pays nothing.
+  keepJobs: 3
+  # A sidecar on each writer that ships the backup directory and the audit anchors
+  # to storage the pod cannot rewrite (object storage with object lock). Supply an
+  # image that has your uploader and the command to run; CareGraph ships none, since
+  # the credentials and the destination are yours. /backup and /audit are mounted
+  # read-only.
+  uploader:
+    enabled: false
+    image: ""
+    command: []
+    args: []
+    env: []
+    envFrom: []
+
+podAnnotations: {}
+podLabels: {}
+serviceAccount:
+  annotations: {}
+extraEnv: []

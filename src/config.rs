@@ -66,6 +66,12 @@ pub struct Config {
     pub explain_enabled: bool,
     pub rbac_policy: Option<PathBuf>,
     pub log_json: bool,
+    /// OTLP/gRPC collector for traces (`CAREGRAPH_OTEL_ENDPOINT`, or the standard
+    /// `OTEL_EXPORTER_OTLP_ENDPOINT`). Unset: no traces are exported.
+    pub otel_endpoint: Option<String>,
+    /// Fraction of root traces sampled (`CAREGRAPH_OTEL_SAMPLE_RATIO`). A caller that
+    /// already sampled a trace (W3C `traceparent`) is always followed.
+    pub otel_sample_ratio: f64,
     pub server: crate::server::ServerLimits,
     pub input: crate::server::InputLimits,
     pub replication: ReplicationSettings,
@@ -96,6 +102,8 @@ pub struct ReplicationSettings {
     pub wal_ttl_secs: u64,
     pub wal_size_mb: u64,
     pub state_file: Option<PathBuf>,
+    /// Scratch space, on the database volume, for checkpoints streamed to new replicas.
+    pub bootstrap_dir: Option<PathBuf>,
 }
 
 impl ReplicationSettings {
@@ -140,6 +148,11 @@ impl ReplicationSettings {
             state_file: match src.get("CAREGRAPH_STATE_FILE") {
                 Some(p) => Some(PathBuf::from(p)),
                 None if replicated => Some(PathBuf::from(format!("{db_path}.role.json"))),
+                None => None,
+            },
+            bootstrap_dir: match src.get("CAREGRAPH_BOOTSTRAP_DIR") {
+                Some(p) => Some(PathBuf::from(p)),
+                None if replicated => Some(PathBuf::from(format!("{db_path}.bootstrap"))),
                 None => None,
             },
         })
@@ -323,6 +336,21 @@ impl Config {
             explain_enabled,
             rbac_policy: src.get("CAREGRAPH_RBAC_POLICY").map(PathBuf::from),
             log_json: boolean("CAREGRAPH_LOG_JSON", prod)?,
+            otel_endpoint: src
+                .get("CAREGRAPH_OTEL_ENDPOINT")
+                .or_else(|| src.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
+                .filter(|v| !v.trim().is_empty()),
+            otel_sample_ratio: match src.get("CAREGRAPH_OTEL_SAMPLE_RATIO") {
+                None => 0.05,
+                Some(v) => v
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|r| (0.0..=1.0).contains(r))
+                    .ok_or_else(|| {
+                        anyhow!("CAREGRAPH_OTEL_SAMPLE_RATIO must be between 0 and 1, got `{v}`")
+                    })?,
+            },
             server: crate::server::ServerLimits::load(src)?,
             input: crate::server::InputLimits::load(src, explain_enabled)?,
             memory_mb: match src
@@ -477,6 +505,7 @@ impl Config {
              explain_enabled  = {}\n\
              rbac_policy      = {}\n\
              log_json         = {}\n\
+             otel             = {}\n\
              request_timeout  = {}s\n\
              max_request_bytes= {}\n\
              drain_deadline   = {}s\n\
@@ -513,6 +542,10 @@ impl Config {
             self.explain_enabled,
             path(&self.rbac_policy),
             self.log_json,
+            self.otel_endpoint.as_deref().map_or_else(
+                || "<off>".to_string(),
+                |e| format!("{e} (sample {})", self.otel_sample_ratio)
+            ),
             self.server.request_timeout.as_secs(),
             self.server.max_decoding_bytes,
             self.server.drain_deadline.as_secs(),

@@ -1,0 +1,478 @@
+{
+  "id": null,
+  "uid": "caregraph-security",
+  "title": "CareGraph - security, audit, backup and memory",
+  "description": "Certificate lifetime, the audit chains and their anchoring, access denials, backup freshness and memory against the budget.",
+  "tags": [
+    "caregraph",
+    "security",
+    "audit",
+    "backup",
+    "memory"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Serving certificate: days until expiry",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "green",
+                "value": 21
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "tls_cert_expiry_seconds / 86400",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Certificate reload failures",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "increase(tls_reload_failures[1h])",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Hours since last audit anchor",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.17
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "(time() - audit_last_anchor_timestamp_seconds) / 3600",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Anchored every minute; ten minutes without one raises an alert."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Hours since last backup",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 26
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "(time() - backup_last_success_timestamp) / 3600",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Audit chain sequence",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "audit_chain_sequence",
+          "legendFormat": "{{chain}} {{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Audit queue full / events dropped (5 min)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "increase(audit_queue_full_total[5m])",
+          "legendFormat": "reads refused {{pod}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "increase(audit_dropped_total[5m])",
+          "legendFormat": "denials dropped {{pod}}",
+          "refId": "B"
+        }
+      ],
+      "description": "A full queue refuses reads rather than serve them unaudited (fail-closed)."
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Denied and unauthenticated requests per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "sum by (code) (rate(rpc_requests_total{code=~\"PERMISSION_DENIED|UNAUTHENTICATED\"}[5m]))",
+          "legendFormat": "{{code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Load shedding per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "sum by (pod) (rate(rpc_requests_total{code=\"RESOURCE_EXHAUSTED\"}[5m]))",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Memory: tree resident vs budget",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "tree_resident_memory_bytes",
+          "legendFormat": "resident {{pod}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "memory_budget_bytes",
+          "legendFormat": "budget {{pod}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Memory planned by component",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "memory_planned_bytes",
+          "legendFormat": "{{component}} {{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Persistent volume used",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "kubelet_volume_stats_used_bytes{persistentvolumeclaim=~\".*caregraph.*\"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~\".*caregraph.*\"}",
+          "legendFormat": "{{persistentvolumeclaim}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

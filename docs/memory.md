@@ -157,6 +157,16 @@ slow but were not the problem, and changing them would change what was benchmark
 For the heaviest suites, run them one at a time: the embedding and fault-injection
 suites start Python workers (about 330 MB each).
 
+### Building the images
+
+A container build compiles RocksDB and every dependency in release mode inside Docker's
+VM. At the default of one compile job per CPU (16 here) that crashed Docker Desktop's VM
+on this laptop; at 2 jobs host free memory still fell to about 550 MB during the
+dependency compile, before the RocksDB C++ build and the fat-LTO link, and the build was
+stopped. The Dockerfile now defaults to `CARGO_BUILD_JOBS=4` (override with
+`--build-arg CARGO_BUILD_JOBS=N`). Build images on a machine or CI runner with at least
+8 GB free, not on a laptop that is also running other work.
+
 ## Containers
 
 `infrastructure/docker-compose/dev-stack.yml` now starts **only CareGraph** by default;

@@ -19,7 +19,46 @@ reason; the common ones:
 A follower in this state serves nothing it should not (it is not ready), and it will
 not apply anything further. It does not repair itself.
 
-## Procedure
+## On Kubernetes
+
+The chart does this for you. A pod with an **empty volume** builds its database from the
+leader's checkpoint when it starts (`caregraph-admin init-pod` for a writer,
+`caregraph-admin bootstrap` for a reader), over mutual TLS, and then follows the log. To
+rebuild a replica, delete its pod **and its volume**:
+
+```
+kubectl -n NS delete pod RELEASE-reader-3
+kubectl -n NS delete pvc data-RELEASE-reader-3        # readers: the chart deletes it on scale-in
+```
+
+For a writer (the standby, or a deposed leader after a failover) the same applies:
+
+```
+kubectl -n NS delete pod RELEASE-writer-0
+kubectl -n NS delete pvc data-RELEASE-writer-0 backup-RELEASE-writer-0
+```
+
+Deleting a volume is irreversible: for a deposed leader, first read the "Rebuilding the
+old leader" section below, and keep the volume until you know nothing was
+acknowledged only on it. The recreated pod finds a leader reachable, fetches a checkpoint
+and starts as a follower; it is never started as a leader unless the cluster is new and
+`writer.bootstrapLeader` is set (`docs/kubernetes.md`).
+
+If the pod waits, `kubectl logs POD -c init-role` says why: no leader is reachable, or
+the transfer is being retried (only one runs at a time).
+
+By hand, outside Kubernetes (or when you want a copy on a specific disk):
+
+```
+caregraph-admin bootstrap --leader-addr https://leader:50051 --dest /data/db \
+    --ca ca.pem --cert replica.pem --key replica-key.pem
+```
+
+It builds into `/data/db.partial` and renames it into place only when every file has
+arrived whole and the stream ended with its footer; a failed transfer leaves nothing at
+`/data/db`, and a directory that already holds data is refused.
+
+## Procedure (by hand, from a checkpoint on the leader's disk)
 
 1. **On the current leader**, take a checkpoint:
 

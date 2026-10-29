@@ -4,6 +4,10 @@
 //! same. Failover, fencing and the synchronous-acknowledgement gate are checked
 //! on the same footing.
 
+// tonic fixes `Status` as the error type of a stream item; the scripted-leader helpers below
+// return stream items.
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
@@ -18,11 +22,18 @@ use caregraph::api::proto::care_graph_service_client::CareGraphServiceClient;
 use caregraph::api::proto::care_graph_service_server::CareGraphServiceServer;
 use caregraph::api::proto::{AddEdgeRequest, EdgeType, ModelKind, SnapshotRequest};
 use caregraph::api::{CareGraphApi, ServiceOptions};
+use caregraph::replication::bootstrap::{fetch, fetch_with_retry};
 use caregraph::replication::epoch::EpochHistory;
 use caregraph::replication::follower::{self, FollowerOptions};
+use caregraph::replication::proto::checkpoint_chunk::Payload;
 use caregraph::replication::proto::replication_service_client::ReplicationServiceClient;
-use caregraph::replication::proto::replication_service_server::ReplicationServiceServer;
-use caregraph::replication::proto::{AckRequest, ReplicateRequest};
+use caregraph::replication::proto::replication_service_server::{
+    ReplicationService, ReplicationServiceServer,
+};
+use caregraph::replication::proto::{
+    AckRequest, AckResponse, CheckpointChunk, CheckpointFile, CheckpointFooter, CheckpointHeader,
+    FetchCheckpointRequest, FileChunk, ReplicateRequest, ReplicatedBatch,
+};
 use caregraph::replication::{ensure_epoch, AckOutcome, ReplicationConfig, ReplicationState, Role};
 use caregraph::security::audit::{Fields, MutationAudit};
 use caregraph::storage::{cf, KvStore, RocksKv, WalRetention};
@@ -104,6 +115,8 @@ struct Spec<'a> {
     leader: Option<SocketAddr>,
     min_acks: usize,
     ack_timeout: Duration,
+    /// Data key, when the node's database is encrypted at rest.
+    key: Option<[u8; 32]>,
 }
 
 impl<'a> Spec<'a> {
@@ -114,6 +127,7 @@ impl<'a> Spec<'a> {
             leader: None,
             min_acks: 0,
             ack_timeout: Duration::from_secs(5),
+            key: None,
         }
     }
     fn follower(dir: &'a Path, leader: SocketAddr) -> Self {
@@ -123,6 +137,7 @@ impl<'a> Spec<'a> {
             leader: Some(leader),
             min_acks: 0,
             ack_timeout: Duration::from_secs(5),
+            key: None,
         }
     }
 }
@@ -131,7 +146,7 @@ async fn start(spec: Spec<'_>) -> Node {
     std::fs::create_dir_all(spec.dir).unwrap();
     let store = RocksKv::open_with(
         spec.dir.join("db"),
-        None,
+        spec.key.as_ref().map(|k| &k[..]),
         WalRetention {
             ttl_seconds: 3600,
             size_limit_mb: 0,
@@ -149,6 +164,7 @@ async fn start(spec: Spec<'_>) -> Node {
             max_lag_for_ready: 1_000_000,
             leader_addr: spec.leader.map(|a| format!("http://{a}")),
             state_file: Some(spec.dir.join("role.json")),
+            bootstrap_dir: Some(spec.dir.join("bootstrap")),
         },
         epoch,
     )
@@ -1051,4 +1067,356 @@ fn the_in_memory_tail_holds_exactly_the_batches_written_and_is_bounded() {
     assert!(store.recent_since(1, 100, usize::MAX).is_none(), "evicted");
     let last = store.recent_since(newest, 100, usize::MAX).unwrap();
     assert_eq!((last.len(), last[0].first_seq), (1, newest));
+}
+
+// ---------------------------------------------------------------------------
+// Building a replica over the network: FetchCheckpoint
+// ---------------------------------------------------------------------------
+
+fn options_for(addr: SocketAddr) -> FollowerOptions {
+    FollowerOptions {
+        leader_addr: format!("http://{addr}"),
+        ..FollowerOptions::default()
+    }
+}
+
+#[tokio::test]
+async fn a_replica_built_from_the_leaders_checkpoint_has_its_exact_state_and_then_follows() {
+    let (_root, a, b) = dirs();
+    let leader = start(Spec::leader(&a)).await;
+    let audit = MutationAudit::open(leader.store()).unwrap();
+    commit(leader.store(), &audit, 1..=200);
+
+    let dest = b.join("db");
+    let done = fetch_with_retry(
+        &options_for(leader.addr),
+        "replica-1",
+        &dest,
+        Duration::from_secs(10),
+    )
+    .await
+    .unwrap();
+    assert_eq!(done.sequence, leader.store().latest_sequence());
+    assert!(done.files > 0 && done.bytes > 0);
+    assert!(
+        !b.join("db.partial").exists(),
+        "the staging directory is gone after a successful fetch"
+    );
+
+    // The copy, opened on its own, is the leader's database as of the checkpoint.
+    {
+        let copy = RocksKv::open(&dest).unwrap();
+        assert_eq!(copy.latest_sequence(), done.sequence);
+        assert_eq!(dump(&copy), dump(leader.store()));
+    }
+
+    // And it can become a follower and catch up on what happened after.
+    commit(leader.store(), &audit, 201..=260);
+    let follower = start(Spec::follower(&b, leader.addr)).await;
+    converged(&leader, &follower).await;
+    assert_eq!(dump(follower.store()), dump(leader.store()));
+
+    follower.stop().await;
+    leader.stop().await;
+}
+
+#[tokio::test]
+async fn a_later_checkpoint_reports_a_later_sequence() {
+    let (root, a, _b) = dirs();
+    let leader = start(Spec::leader(&a)).await;
+    let audit = MutationAudit::open(leader.store()).unwrap();
+    commit(leader.store(), &audit, 1..=10);
+    let first = fetch(&options_for(leader.addr), "r", &root.path().join("first"))
+        .await
+        .unwrap();
+    commit(leader.store(), &audit, 11..=40);
+    let second = fetch(&options_for(leader.addr), "r", &root.path().join("second"))
+        .await
+        .unwrap();
+    assert!(second.sequence > first.sequence, "{first:?} vs {second:?}");
+    assert_eq!(second.sequence, leader.store().latest_sequence());
+    leader.stop().await;
+}
+
+#[tokio::test]
+async fn a_follower_does_not_serve_checkpoints() {
+    let (root, a, b) = dirs();
+    let leader = start(Spec::leader(&a)).await;
+    let follower = start(Spec::follower(&b, leader.addr)).await;
+    let error = fetch(&options_for(follower.addr), "r", &root.path().join("out"))
+        .await
+        .unwrap_err();
+    let status = error
+        .chain()
+        .find_map(|c| c.downcast_ref::<tonic::Status>())
+        .expect("a gRPC status");
+    assert_eq!(status.code(), Code::FailedPrecondition, "{status:?}");
+    assert!(!root.path().join("out").exists());
+    follower.stop().await;
+    leader.stop().await;
+}
+
+#[tokio::test]
+async fn a_database_is_never_overwritten_by_a_bootstrap() {
+    let (root, a, _b) = dirs();
+    let leader = start(Spec::leader(&a)).await;
+    let dest = root.path().join("existing");
+    std::fs::create_dir_all(&dest).unwrap();
+    std::fs::write(dest.join("CURRENT"), b"precious").unwrap();
+    let error = fetch_with_retry(
+        &options_for(leader.addr),
+        "r",
+        &dest,
+        Duration::from_secs(5),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("already holds data"),
+        "{error:#}"
+    );
+    assert_eq!(std::fs::read(dest.join("CURRENT")).unwrap(), b"precious");
+    leader.stop().await;
+}
+
+/// A stand-in leader that sends whatever checkpoint it is told to, to show the
+/// client refuses every way a transfer can be wrong.
+struct Scripted(Vec<Result<CheckpointChunk, tonic::Status>>);
+
+#[tonic::async_trait]
+impl ReplicationService for Scripted {
+    type ReplicateStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ReplicatedBatch, tonic::Status>>;
+    type FetchCheckpointStream =
+        tokio_stream::wrappers::ReceiverStream<Result<CheckpointChunk, tonic::Status>>;
+
+    async fn replicate(
+        &self,
+        _: tonic::Request<ReplicateRequest>,
+    ) -> Result<tonic::Response<Self::ReplicateStream>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not part of this test"))
+    }
+
+    async fn ack(
+        &self,
+        _: tonic::Request<AckRequest>,
+    ) -> Result<tonic::Response<AckResponse>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not part of this test"))
+    }
+
+    async fn fetch_checkpoint(
+        &self,
+        _: tonic::Request<FetchCheckpointRequest>,
+    ) -> Result<tonic::Response<Self::FetchCheckpointStream>, tonic::Status> {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        for m in &self.0 {
+            let m = match m {
+                Ok(c) => Ok(c.clone()),
+                Err(s) => Err(tonic::Status::new(s.code(), s.message())),
+            };
+            tx.send(m).await.unwrap();
+        }
+        Ok(tonic::Response::new(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        ))
+    }
+}
+
+async fn scripted(chunks: Vec<Result<CheckpointChunk, tonic::Status>>) -> SocketAddr {
+    let addr = free_addr();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(ReplicationServiceServer::new(Scripted(chunks)))
+            .serve(addr)
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    addr
+}
+
+fn header(files: &[(&str, u64)]) -> Result<CheckpointChunk, tonic::Status> {
+    Ok(CheckpointChunk {
+        payload: Some(Payload::Header(CheckpointHeader {
+            sequence: 7,
+            epoch: 1,
+            files: files
+                .iter()
+                .map(|(n, s)| CheckpointFile {
+                    name: n.to_string(),
+                    size: *s,
+                })
+                .collect(),
+        })),
+    })
+}
+
+fn file(name: &str, offset: u64, data: &[u8]) -> Result<CheckpointChunk, tonic::Status> {
+    Ok(CheckpointChunk {
+        payload: Some(Payload::File(FileChunk {
+            name: name.to_string(),
+            offset,
+            data: data.to_vec(),
+        })),
+    })
+}
+
+fn footer(files: u64, bytes: u64) -> Result<CheckpointChunk, tonic::Status> {
+    Ok(CheckpointChunk {
+        payload: Some(Payload::Footer(CheckpointFooter { files, bytes })),
+    })
+}
+
+async fn assert_refused(chunks: Vec<Result<CheckpointChunk, tonic::Status>>, why: &str) {
+    let root = TempDir::new().unwrap();
+    let addr = scripted(chunks).await;
+    let dest = root.path().join("db");
+    let error = fetch(&options_for(addr), "r", &dest).await.unwrap_err();
+    assert!(
+        !dest.exists(),
+        "{why}: nothing may appear at the destination"
+    );
+    assert!(
+        !root.path().join("db.partial").exists(),
+        "{why}: the staging directory must be cleaned up"
+    );
+    eprintln!("{why}: refused with: {error:#}");
+}
+
+#[tokio::test]
+async fn a_checkpoint_that_does_not_arrive_whole_is_refused_and_leaves_nothing() {
+    // Ends without the footer.
+    assert_refused(
+        vec![header(&[("CURRENT", 4)]), file("CURRENT", 0, b"abcd")],
+        "no footer",
+    )
+    .await;
+    // Stops in the middle of a file.
+    assert_refused(
+        vec![
+            header(&[("000001.sst", 10)]),
+            file("000001.sst", 0, b"abc"),
+            footer(1, 3),
+        ],
+        "short file",
+    )
+    .await;
+    // More bytes than announced.
+    assert_refused(
+        vec![
+            header(&[("000001.sst", 2)]),
+            file("000001.sst", 0, b"abcd"),
+            footer(1, 4),
+        ],
+        "long file",
+    )
+    .await;
+    // A chunk at the wrong offset.
+    assert_refused(
+        vec![
+            header(&[("000001.sst", 4)]),
+            file("000001.sst", 2, b"ab"),
+            footer(1, 2),
+        ],
+        "wrong offset",
+    )
+    .await;
+    // A footer that disagrees with what arrived.
+    assert_refused(
+        vec![
+            header(&[("CURRENT", 4)]),
+            file("CURRENT", 0, b"abcd"),
+            footer(1, 99),
+        ],
+        "footer mismatch",
+    )
+    .await;
+    // The leader fails midway.
+    assert_refused(
+        vec![
+            header(&[("CURRENT", 4)]),
+            file("CURRENT", 0, b"ab"),
+            Err(tonic::Status::internal("disk error on the leader")),
+        ],
+        "leader error",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_leader_cannot_make_the_replica_write_outside_its_directory() {
+    let root = TempDir::new().unwrap();
+    let outside = root.path().join("evil");
+    for name in ["../evil", "a/b", "..", "x\\y"] {
+        let addr = scripted(vec![
+            header(&[(name, 4)]),
+            file(name, 0, b"evil"),
+            footer(1, 4),
+        ])
+        .await;
+        let dest = root.path().join("inner").join("db");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        let error = fetch(&options_for(addr), "r", &dest).await.unwrap_err();
+        assert!(
+            error.to_string().contains("not a plain file name"),
+            "{name:?}: {error:#}"
+        );
+        assert!(!outside.exists() && !dest.exists());
+    }
+}
+
+#[tokio::test]
+async fn a_well_formed_checkpoint_with_empty_files_is_assembled_exactly() {
+    let root = TempDir::new().unwrap();
+    let addr = scripted(vec![
+        header(&[("CURRENT", 4), ("IDENTITY", 0), ("LOCK", 0)]),
+        file("CURRENT", 0, b"ab"),
+        file("CURRENT", 2, b"cd"),
+        footer(3, 4),
+    ])
+    .await;
+    let dest = root.path().join("db");
+    let done = fetch(&options_for(addr), "r", &dest).await.unwrap();
+    assert_eq!(
+        (done.sequence, done.epoch, done.files, done.bytes),
+        (7, 1, 3, 4)
+    );
+    assert_eq!(std::fs::read(dest.join("CURRENT")).unwrap(), b"abcd");
+    assert_eq!(std::fs::read(dest.join("IDENTITY")).unwrap(), b"");
+    assert_eq!(std::fs::read(dest.join("LOCK")).unwrap(), b"");
+}
+
+#[tokio::test]
+async fn an_encrypted_leader_streams_files_that_are_still_encrypted_and_open_only_with_its_key() {
+    let (_root, a, b) = dirs();
+    let key = [7u8; 32];
+    let leader = start(Spec {
+        key: Some(key),
+        ..Spec::leader(&a)
+    })
+    .await;
+    let audit = MutationAudit::open(leader.store()).unwrap();
+    commit(leader.store(), &audit, 1..=50);
+
+    let dest = b.join("db");
+    fetch(&options_for(leader.addr), "r", &dest).await.unwrap();
+
+    // Nothing on the replica's disk is readable without the key: the plaintext
+    // value the commits wrote ("edge-1", ...) appears in no file.
+    for entry in std::fs::read_dir(&dest).unwrap().flatten() {
+        let bytes = std::fs::read(entry.path()).unwrap();
+        assert!(
+            !bytes.windows(5).any(|w| w == b"edge-"),
+            "{} holds plaintext",
+            entry.path().display()
+        );
+    }
+    assert!(
+        RocksKv::open(&dest).is_err(),
+        "opening without the key must fail"
+    );
+    let copy = RocksKv::open_encrypted(&dest, &key).unwrap();
+    assert_eq!(dump(&copy), dump(leader.store()));
+    drop(copy);
+    leader.stop().await;
 }

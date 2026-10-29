@@ -96,16 +96,8 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "caregraph=info".into());
-    if cfg.log_json {
-        tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(filter)
-            .init();
-    } else {
-        tracing_subscriber::fmt().with_env_filter(filter).init();
-    }
+    // Held to the end of main so the trace exporter flushes on shutdown.
+    let _telemetry = caregraph::telemetry::init(&cfg);
 
     // The memory plan must be fixed before the first database is opened: the
     // shared cache and the memtable limit are created from it.
@@ -236,16 +228,6 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("opening audit database at {}", dir.display()))?;
             let log = AuditLog::start(audit_store, &cfg.pod_name, 4096)
                 .context("starting the audit log")?;
-            // Periodic anchor: ship these lines to write-once storage so the
-            // chain head cannot be quietly rewound.
-            let anchor = log.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                    let (seq, head) = anchor.head();
-                    tracing::info!(target: "audit", pod = anchor.pod(), seq, head = %head, "audit_anchor");
-                }
-            });
             tracing::info!(dir = %dir.display(), "read auditing enabled (fail-closed)");
             Some(log)
         }
@@ -264,6 +246,7 @@ async fn main() -> anyhow::Result<()> {
             max_lag_for_ready: cfg.replication.ready_lag,
             leader_addr: cfg.replication.leader_addr.clone(),
             state_file: cfg.replication.state_file.clone(),
+            bootstrap_dir: cfg.replication.bootstrap_dir.clone(),
         },
         EpochHistory::read(&store)
             .context("reading the leadership epoch history")?
@@ -304,7 +287,7 @@ async fn main() -> anyhow::Result<()> {
             input: cfg.input.clone(),
             rate_limiter: RateLimiter::new(cfg.server.rate_limit_rps, cfg.server.rate_limit_burst),
             policy,
-            audit_log,
+            audit_log: audit_log.clone(),
             admin,
             replication: Some(repl.clone()),
         },
@@ -337,7 +320,25 @@ async fn main() -> anyhow::Result<()> {
             Arc::new(move || repl.not_ready_reason())
         },
     );
+    {
+        let repl = repl.clone();
+        health.set_role_probe(Arc::new(move || repl.role().name()));
+    }
     PoolCollector::register(health.clone(), &registry).context("registering pool metrics")?;
+    let rpc_metrics = caregraph::server::observe::RpcMetrics::register(&registry)
+        .context("registering rpc metrics")?;
+    if let (Some(log), Some(dir)) = (&audit_log, &cfg.audit_dir) {
+        let audit_metrics = caregraph::security::anchor::AuditMetrics::register(&registry)
+            .context("registering audit metrics")?;
+        let head_source = api.clone();
+        caregraph::security::anchor::spawn(
+            log.clone(),
+            Arc::new(move || head_source.mutation_audit_head()),
+            dir.clone(),
+            audit_metrics,
+            std::time::Duration::from_secs(60),
+        );
+    }
     {
         let api = api.clone();
         caregraph::memory::MemoryCollector::register(
@@ -433,7 +434,8 @@ async fn main() -> anyhow::Result<()> {
         .max_concurrent_streams(Some(limits.max_concurrent_streams))
         .http2_keepalive_interval(Some(limits.http2_keepalive_interval))
         .http2_keepalive_timeout(Some(limits.http2_keepalive_timeout))
-        .tcp_nodelay(true);
+        .tcp_nodelay(true)
+        .layer(caregraph::server::observe::ObserveLayer::new(rpc_metrics));
 
     health.mark_started();
     let outcome = match (tls, api_key) {

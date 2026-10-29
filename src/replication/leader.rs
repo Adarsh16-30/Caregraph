@@ -21,8 +21,12 @@ use tonic::{Request, Response, Status};
 use crate::api::CareGraphApi;
 use crate::error::CareGraphError;
 use crate::replication::epoch::{decide, EpochHistory, StreamDecision};
+use crate::replication::proto::checkpoint_chunk::Payload;
 use crate::replication::proto::replication_service_server::ReplicationService;
-use crate::replication::proto::{AckRequest, AckResponse, ReplicateRequest, ReplicatedBatch};
+use crate::replication::proto::{
+    AckRequest, AckResponse, CheckpointChunk, CheckpointFile, CheckpointFooter, CheckpointHeader,
+    FetchCheckpointRequest, FileChunk, ReplicateRequest, ReplicatedBatch,
+};
 use crate::security::Rpc;
 use crate::storage::RocksKv;
 
@@ -214,9 +218,164 @@ impl CareGraphApi {
     }
 }
 
+/// Bytes of a checkpoint file per message.
+const CHECKPOINT_CHUNK: usize = 1 << 20;
+
+/// Deletes a checkpoint's scratch copy when the transfer ends, however it ends.
+struct Scratch(std::path::PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Builds a checkpoint under `dir` and streams it: header, every file's bytes in
+/// order, footer. Everything under `dir` named `cp-*` is a leftover of an earlier
+/// transfer (only one runs at a time) and is removed first.
+async fn send_checkpoint(
+    api: &CareGraphApi,
+    dir: std::path::PathBuf,
+    tx: &mpsc::Sender<Result<CheckpointChunk, Status>>,
+) -> Result<(), Status> {
+    let internal = |what: &str, e: &dyn std::fmt::Display| {
+        tracing::error!(error = %e, "{what}");
+        Status::internal(format!("{what}; see the leader's log"))
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| internal("creating the checkpoint directory", &e))?;
+    for entry in std::fs::read_dir(&dir)
+        .map_err(|e| internal("reading the checkpoint directory", &e))?
+        .flatten()
+    {
+        if entry.file_name().to_string_lossy().starts_with("cp-") {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let target = dir.join(format!("cp-{unique}"));
+    let _scratch = Scratch(target.clone());
+
+    let made = target.clone();
+    let sequence = api
+        .on_store(move |s| crate::storage::backup::create_checkpoint(s, &made))
+        .await
+        .map_err(|e| internal("the checkpoint task failed", &e))?
+        .map_err(|e| internal("creating the checkpoint failed", &e))?;
+
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&target).map_err(|e| internal("listing the checkpoint", &e))? {
+        let entry = entry.map_err(|e| internal("listing the checkpoint", &e))?;
+        let meta = entry
+            .metadata()
+            .map_err(|e| internal("listing the checkpoint", &e))?;
+        if meta.is_file() {
+            files.push(CheckpointFile {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                size: meta.len(),
+            });
+        }
+    }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let send = |payload: Payload| {
+        tx.send(Ok(CheckpointChunk {
+            payload: Some(payload),
+        }))
+    };
+    let gone = |_| Status::cancelled("the replica stopped reading the checkpoint");
+    send(Payload::Header(CheckpointHeader {
+        sequence,
+        epoch: api.replication().epoch(),
+        files: files.clone(),
+    }))
+    .await
+    .map_err(gone)?;
+
+    let mut bytes = 0u64;
+    for file in &files {
+        let mut f = tokio::fs::File::open(target.join(&file.name))
+            .await
+            .map_err(|e| internal("opening a checkpoint file", &e))?;
+        let mut offset = 0u64;
+        let mut buf = vec![0u8; CHECKPOINT_CHUNK];
+        loop {
+            use tokio::io::AsyncReadExt;
+            let n = f
+                .read(&mut buf)
+                .await
+                .map_err(|e| internal("reading a checkpoint file", &e))?;
+            if n == 0 {
+                break;
+            }
+            send(Payload::File(FileChunk {
+                name: file.name.clone(),
+                offset,
+                data: buf[..n].to_vec(),
+            }))
+            .await
+            .map_err(gone)?;
+            offset += n as u64;
+            bytes += n as u64;
+        }
+        if offset != file.size {
+            return Err(internal(
+                "a checkpoint file changed size while it was being sent",
+                &file.name,
+            ));
+        }
+    }
+    send(Payload::Footer(CheckpointFooter {
+        files: files.len() as u64,
+        bytes,
+    }))
+    .await
+    .map_err(gone)?;
+    Ok(())
+}
+
 #[tonic::async_trait]
 impl ReplicationService for CareGraphApi {
     type ReplicateStream = ReceiverStream<Result<ReplicatedBatch, Status>>;
+    type FetchCheckpointStream = ReceiverStream<Result<CheckpointChunk, Status>>;
+
+    async fn fetch_checkpoint(
+        &self,
+        request: Request<FetchCheckpointRequest>,
+    ) -> Result<Response<Self::FetchCheckpointStream>, Status> {
+        self.authorize(&request, Rpc::Replicate)?;
+        let req = request.into_inner();
+        if req.follower_id.is_empty() || req.follower_id.len() > MAX_FOLLOWER_ID {
+            return Err(Status::invalid_argument(
+                "follower_id must be 1-64 characters",
+            ));
+        }
+        let repl = self.replication().clone();
+        if !repl.serves_stream() {
+            return Err(precondition("this node is not the leader"));
+        }
+        let Some(dir) = repl.config().bootstrap_dir.clone() else {
+            return Err(precondition(
+                "this server has no bootstrap directory (CAREGRAPH_BOOTSTRAP_DIR)",
+            ));
+        };
+        let Some(transfer) = repl.begin_checkpoint_transfer() else {
+            return Err(Status::resource_exhausted(
+                "another replica is being bootstrapped; retry shortly",
+            ));
+        };
+        let (tx, rx) = mpsc::channel(4);
+        let api = self.clone();
+        tokio::spawn(async move {
+            let _transfer = transfer;
+            if let Err(status) = send_checkpoint(&api, dir, &tx).await {
+                let _ = tx.send(Err(status)).await;
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 
     async fn replicate(
         &self,

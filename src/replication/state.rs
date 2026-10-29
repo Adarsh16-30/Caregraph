@@ -102,6 +102,9 @@ pub struct ReplicationConfig {
     pub leader_addr: Option<String>,
     /// Where the role is persisted. `None` keeps it in memory only (tests).
     pub state_file: Option<PathBuf>,
+    /// Scratch directory, on the database's own volume, where `FetchCheckpoint`
+    /// builds the copy it streams. `None` disables serving checkpoints.
+    pub bootstrap_dir: Option<PathBuf>,
 }
 
 impl Default for ReplicationConfig {
@@ -115,6 +118,7 @@ impl Default for ReplicationConfig {
             max_lag_for_ready: 10_000,
             leader_addr: None,
             state_file: None,
+            bootstrap_dir: None,
         }
     }
 }
@@ -177,7 +181,18 @@ pub struct ReplicationState {
     /// Held while a follower applies a batch, so a promotion can be certain no
     /// batch is half-applied when it takes over.
     apply_lock: tokio::sync::Mutex<()>,
+    /// Set while a checkpoint is being streamed to a new replica.
+    transferring: AtomicBool,
     metrics: Metrics,
+}
+
+/// The one checkpoint-transfer slot; released on drop.
+pub struct TransferSlot(std::sync::Arc<ReplicationState>);
+
+impl Drop for TransferSlot {
+    fn drop(&mut self) {
+        self.0.transferring.store(false, Ordering::Release);
+    }
 }
 
 impl ReplicationState {
@@ -269,6 +284,7 @@ impl ReplicationState {
             acks: Notify::new(),
             applied_changed: Notify::new(),
             apply_lock: tokio::sync::Mutex::new(()),
+            transferring: AtomicBool::new(false),
             metrics,
         }))
     }
@@ -340,6 +356,14 @@ impl ReplicationState {
             Role::Follower => Err(WriteRefusal::Follower),
             Role::Demoted | Role::Fenced => Err(WriteRefusal::Fenced),
         }
+    }
+
+    /// Takes the single checkpoint-transfer slot, or `None` if one is running.
+    pub fn begin_checkpoint_transfer(self: &std::sync::Arc<Self>) -> Option<TransferSlot> {
+        self.transferring
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| TransferSlot(self.clone()))
     }
 
     /// Whether this node may serve the replication stream.
@@ -699,6 +723,21 @@ mod tests {
     async fn asynchronous_replication_never_waits() {
         let s = leader(0, 50);
         assert_eq!(s.wait_acked(10, || 10).await, AckOutcome::Acked);
+    }
+
+    #[test]
+    fn only_one_checkpoint_transfer_runs_at_a_time_and_the_slot_is_released() {
+        let s = ReplicationState::standalone();
+        let first = s.begin_checkpoint_transfer().expect("the slot is free");
+        assert!(
+            s.begin_checkpoint_transfer().is_none(),
+            "a second transfer must wait"
+        );
+        drop(first);
+        assert!(
+            s.begin_checkpoint_transfer().is_some(),
+            "dropping the slot, however the transfer ended, frees it"
+        );
     }
 
     #[tokio::test]

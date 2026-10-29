@@ -1,0 +1,39 @@
+{{- if .Values.networkPolicy.enabled }}
+# Ingress only: the gRPC port is open to this release's own pods (replication, the
+# bootstrap and role checks, the backup job) and to the clients listed in values; the
+# metrics port to this release and to the scraper listed in values. Everything else is
+# refused.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "caregraph.fullname" . }}
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "caregraph.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "caregraph.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.networkPolicy.clientPeers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 50051}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "caregraph.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.networkPolicy.metricsPeers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 9100}
+{{- end }}

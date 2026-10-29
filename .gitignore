@@ -1,6 +1,7 @@
 /target
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is committed: this is a service, and its images, cargo audit and cargo deny
+# must all see exactly the versions that were tested.
 
 # Local RocksDB instances and benchmark output
 /data/db/

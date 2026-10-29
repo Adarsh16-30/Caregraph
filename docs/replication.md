@@ -80,6 +80,21 @@ a Service in front of replicas stops sending it traffic.
 A new follower starts from a copy of the leader's database, then catches up from the
 log.
 
+**Over the network (the normal way).** `caregraph-admin bootstrap --leader-addr ...
+--dest <db path>` calls the leader's `FetchCheckpoint` stream: the leader makes a
+hard-linked checkpoint in a scratch directory on its own volume
+(`CAREGRAPH_BOOTSTRAP_DIR`, default `<db path>.bootstrap`) and streams a header
+(sequence number, epoch, file list), every file's bytes in order, and a footer. The
+client writes into `<dest>.partial`, checks each file against the header and the footer
+against what arrived, syncs, and renames it to `<dest>` only then; a transfer that fails
+leaves nothing at `<dest>`, and a directory that already holds data is refused. One
+transfer runs at a time (others get `RESOURCE_EXHAUSTED` and retry). Only a leader serves
+it, to the `replicator` role. The files are streamed as they are on disk (still
+encrypted under the leader's data key). In Kubernetes an init container runs this
+(`docs/kubernetes.md`).
+
+**By hand.**
+
 1. On the leader: `caregraph-admin remote checkpoint <name>` (a consistent,
    hard-linked copy under `<backup dir>/checkpoints/<name>`).
 2. Copy that directory to the new node's volume as its database.

@@ -1,0 +1,29 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# A node drain may take down one writer at a time: never the leader and its standby
+# together.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "caregraph.fullname" . }}-writer
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "caregraph.selectorLabels" (dict "root" . "component" "writer") | nindent 6 }}
+{{- if .Values.reader.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "caregraph.fullname" . }}-reader
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "caregraph.selectorLabels" (dict "root" . "component" "reader") | nindent 6 }}
+{{- end }}
+{{- end }}

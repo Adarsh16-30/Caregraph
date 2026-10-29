@@ -54,9 +54,16 @@ sent a `request_id` will find it absent when they retry and will re-apply it.
 
 ## Afterwards
 
-1. **Move the write traffic.** In Kubernetes the `caregraph-write` Service selects
-   `role=leader`: relabel the new leader's pod `role=leader` and the old one
-   `role=follower` (or remove it), so no client keeps writing to a fenced node.
+1. **Move the write traffic.** In Kubernetes this happens by itself: the
+   role-label sidecar in each writer pod publishes its server's role as the label
+   `caregraph.io/role`, and the `-write` Service selects `leader`. Within about ten
+   seconds the new leader carries the label, the old one does not, and clients that
+   reconnect through the Service reach the new leader. Check it:
+   `kubectl get pods -L caregraph.io/role` and
+   `kubectl get endpoints RELEASE-write`. Clients with a long-lived connection to the old
+   leader get `FAILED_PRECONDITION` (it refuses writes) and must reconnect; connections
+   through the Service are re-resolved on reconnect.
+   Outside Kubernetes, point your load balancer at the new leader.
 2. **Verify** on the new leader: `caregraph-admin remote status` shows `role leader`,
    the epoch increased by one, and `remote verify-audit` reports an intact chain.
    Send one write and check `replication_sync_degraded` (it will be 1 until a standby

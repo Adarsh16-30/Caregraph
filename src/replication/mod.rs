@@ -2,6 +2,7 @@
 //!
 //! See `docs/replication.md` for the model; the modules are:
 //!
+//! * [`bootstrap`] — building a replica from the leader's checkpoint over the network;
 //! * [`batch_decode`] — reads the operations inside a serialized write batch;
 //! * [`epoch`] — the leadership epoch history and the fencing rules, as pure
 //!   functions;
@@ -14,6 +15,7 @@
 pub const MAX_BATCH_MESSAGE_BYTES: usize = 64 << 20;
 
 pub mod batch_decode;
+pub mod bootstrap;
 pub mod epoch;
 pub mod follower;
 pub mod leader;

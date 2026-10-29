@@ -143,7 +143,8 @@ impl<'a> AtomicCommitter<'a> {
         // graph as it stood the instant before it.
         let resolver = AffectedSubgraphResolver::new(self.store, fanout_cap, max_expanded_nodes);
         let resolve_started = std::time::Instant::now();
-        let mut subgraph = resolver.resolve(mutation)?;
+        let mut subgraph =
+            tracing::info_span!("resolve").in_scope(|| resolver.resolve(mutation))?;
         ctx.timings.resolve = resolve_started.elapsed();
         // The nodes whose adjacency this computation read: the exact read set the
         // ordered-commit sequencer checks for conflicting concurrent commits.
@@ -296,7 +297,7 @@ impl<'a> AtomicCommitter<'a> {
         // staged into it or none of them — the storage engine's own
         // guarantee for one batch, and the entirety of what Rule 5 requires.
         let write_started = std::time::Instant::now();
-        self.store.write(batch)?;
+        tracing::info_span!("write").in_scope(|| self.store.write(batch))?;
         ctx.timings.write = write_started.elapsed();
 
         Ok(ctx)

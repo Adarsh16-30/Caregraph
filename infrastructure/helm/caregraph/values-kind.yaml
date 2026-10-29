@@ -1,0 +1,35 @@
+# Values for the kind smoke test (scripts/k8s_smoke.sh): plaintext development mode, a
+# database seeded from the node's disk, small volumes, no monitoring operator. This is
+# the Kubernetes mechanics under test (init, role label, services, replication,
+# bootstrap, failover), not the production security posture; that is covered by the
+# security test suite and values-production.yaml.
+
+environment: development
+
+image:
+  registry: local
+  writer: {repository: caregraph-writer, tag: smoke}
+  reader: {repository: caregraph-reader, tag: smoke}
+  pullPolicy: Never
+
+auth:
+  apiKey: kind-smoke-key
+
+config:
+  tsPolicy: legacy
+  syncWrites: false
+
+writer:
+  bootstrapLeader: true
+  memoryMB: 1500
+  persistence: {size: 2Gi}
+  backupPersistence: {size: 1Gi}
+  seed:
+    hostPath: /seed/db
+
+reader:
+  replicas: 1
+  persistence: {size: 2Gi}
+
+networkPolicy:
+  enabled: false

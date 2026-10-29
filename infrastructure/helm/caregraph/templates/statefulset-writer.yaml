@@ -1,0 +1,246 @@
+{{- include "caregraph.validate" . -}}
+{{- $full := include "caregraph.fullname" . -}}
+{{- $selector := dict "root" . "component" "writer" -}}
+# The two writers: one leader and its synchronous standby. Roles are not tied to the
+# ordinal: the server persists its role, and the label sidecar publishes it, so a
+# promoted standby keeps the leader label across restarts.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $full }}-writer
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: writer
+spec:
+  serviceName: {{ include "caregraph.headless" . }}
+  replicas: {{ .Values.writer.replicas }}
+  # Parallel, not OrderedReady: a deposed leader never becomes ready, and an ordered
+  # StatefulSet would then refuse to recreate the pod behind it.
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      {{- include "caregraph.selectorLabels" $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "caregraph.commonLabels" . | nindent 8 }}
+        {{- include "caregraph.selectorLabels" $selector | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/rbac: {{ include (print $.Template.BasePath "/configmap-rbac.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $full }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.writer.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "caregraph.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.writer.spreadAcrossNodes .Values.writer.affinity }}
+      affinity:
+        {{- if .Values.writer.affinity }}
+        {{- toYaml .Values.writer.affinity | nindent 8 }}
+        {{- else }}
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "caregraph.selectorLabels" $selector | nindent 20 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.writer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.writer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.writer.seed.hostPath }}
+        # Testing and one-off migrations: put a prepared database into the first
+        # leader's empty volume.
+        - name: seed
+          image: {{ include "caregraph.writerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              if [ "${POD_NAME##*-}" = "0" ] && [ -z "$(ls -A /var/lib/caregraph/db 2>/dev/null)" ] && [ -d /seed/db ]; then
+                echo "seeding the first leader from /seed/db"
+                mkdir -p /var/lib/caregraph/db
+                cp -a /seed/db/. /var/lib/caregraph/db/
+              fi
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/caregraph}
+            - {name: seed, mountPath: /seed, readOnly: true}
+        {{- end }}
+        # Decides how this pod starts: keep its data, build it from the leader's
+        # checkpoint, or (only in a new cluster, only the first pod) start as the
+        # first leader. Anything else waits, because guessing creates a second leader.
+        - name: init-role
+          image: {{ include "caregraph.writerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              ORD="${POD_NAME##*-}"
+              PEERS=""
+              {{- range $i := until (int .Values.writer.replicas) }}
+              [ "$ORD" = "{{ $i }}" ] || PEERS="$PEERS --peer {{ $full }}-writer-{{ $i }}.{{ include "caregraph.headless" $ }}:9100"
+              {{- end }}
+              BOOT="{{ if .Values.writer.bootstrapLeader }}--bootstrap-leader{{ end }}"
+              exec caregraph-admin init-pod --dest /var/lib/caregraph/db --first-leader-pod {{ $full }}-writer-0 $BOOT $PEERS --role-env-out /run/caregraph/role.env
+          env:
+            {{- include "caregraph.commonEnv" . | nindent 12 }}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/caregraph}
+            - {name: run, mountPath: /run/caregraph}
+            - {name: tmp, mountPath: /tmp}
+            {{- include "caregraph.secretMounts" . | nindent 12 }}
+      containers:
+        - name: caregraph
+          image: {{ include "caregraph.writerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              . /run/caregraph/role.env
+              export CAREGRAPH_ROLE
+              exec /usr/local/bin/caregraph
+          ports:
+            - {name: grpc, containerPort: 50051}
+            - {name: metrics, containerPort: 9100}
+          env:
+            {{- include "caregraph.commonEnv" . | nindent 12 }}
+            - name: CAREGRAPH_BACKUP_DIR
+              value: /var/lib/caregraph-backup
+            - name: CAREGRAPH_MEMORY_MB
+              value: {{ .Values.writer.memoryMB | quote }}
+            - name: CAREGRAPH_WORKERS
+              value: {{ .Values.writer.workers | quote }}
+            - name: CAREGRAPH_TORCH_THREADS
+              value: {{ .Values.writer.torchThreads | quote }}
+            - name: CAREGRAPH_REPLICATION_MIN_ACKS
+              value: {{ .Values.writer.minAcks | quote }}
+            {{- if not .Values.writer.models.graphsage }}
+            - name: CAREGRAPH_GRAPHSAGE_MODEL
+              value: none
+            {{- end }}
+            {{- if not .Values.writer.models.gat }}
+            - name: CAREGRAPH_GAT_MODEL
+              value: none
+            {{- end }}
+          {{- include "caregraph.probes" . | nindent 10 }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "5"]
+          resources:
+            {{- toYaml .Values.writer.resources | nindent 12 }}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/caregraph}
+            - {name: backup, mountPath: /var/lib/caregraph-backup}
+            - {name: run, mountPath: /run/caregraph, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- include "caregraph.secretMounts" . | nindent 12 }}
+        # Publishes this server's role as the pod label the write Service selects on.
+        - name: role-label
+          image: {{ include "caregraph.writerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["caregraph-admin", "kube-label-role", "--status-addr", "127.0.0.1:9100"]
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+        {{- if and .Values.backup.enabled .Values.backup.uploader.enabled }}
+        # Ships backups and audit anchors to storage this pod cannot rewrite.
+        - name: uploader
+          image: {{ required "backup.uploader.image is required when the uploader is enabled" .Values.backup.uploader.image }}
+          {{- with .Values.backup.uploader.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.uploader.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.uploader.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.uploader.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "caregraph.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - {name: backup, mountPath: /backup, readOnly: true}
+            - {name: data, mountPath: /audit, subPath: audit, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 512Mi}
+        - name: run
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        {{- if .Values.writer.seed.hostPath }}
+        - name: seed
+          hostPath: {path: {{ .Values.writer.seed.hostPath | quote }}, type: Directory}
+        {{- end }}
+        {{- include "caregraph.secretVolumes" . | nindent 8 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.writer.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.writer.persistence.size }}
+    - metadata:
+        name: backup
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.writer.backupPersistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.writer.backupPersistence.size }}

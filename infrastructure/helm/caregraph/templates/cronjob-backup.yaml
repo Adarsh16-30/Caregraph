@@ -1,0 +1,82 @@
+{{- if .Values.backup.enabled }}
+{{- $full := include "caregraph.fullname" . }}
+# Asks the standby to take an encrypted, incremental backup (CreateBackup on the admin
+# service). The standby writes it to its own backup volume; the uploader sidecar ships
+# that to storage the pod cannot rewrite. Nothing here touches the leader.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $full }}-backup
+  labels:
+    {{- include "caregraph.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: {{ .Values.backup.keepJobs }}
+  failedJobsHistoryLimit: {{ .Values.backup.keepJobs }}
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "caregraph.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $full }}
+          automountServiceAccountToken: false
+          securityContext:
+            {{- include "caregraph.podSecurityContext" . | nindent 12 }}
+          {{- with .Values.image.pullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: backup
+              image: {{ include "caregraph.readerImage" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["caregraph-admin", "remote", "create-backup"]
+              env:
+                - name: CAREGRAPH_ADMIN_ADDR
+                  value: {{ printf "%s://%s:50051" (include "caregraph.scheme" .) (include "caregraph.standbyService" .) | quote }}
+                {{- if .Values.tls.enabled }}
+                - name: CAREGRAPH_ADMIN_CA
+                  value: /etc/caregraph/admin-tls/ca.crt
+                - name: CAREGRAPH_ADMIN_CERT
+                  value: /etc/caregraph/admin-tls/tls.crt
+                - name: CAREGRAPH_ADMIN_KEY
+                  value: /etc/caregraph/admin-tls/tls.key
+                {{- end }}
+                {{- if .Values.tokens.adminTokenSecret }}
+                - name: CAREGRAPH_ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.tokens.adminTokenSecret }}
+                      key: token
+                {{- else if and (not (include "caregraph.isProduction" .)) (not .Values.tls.enabled) }}
+                - name: CAREGRAPH_ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "caregraph.devAuthSecret" . }}
+                      key: {{ .Values.auth.existingSecretKey }}
+                {{- end }}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 200m, memory: 128Mi}
+              securityContext:
+                {{- include "caregraph.containerSecurityContext" . | nindent 16 }}
+              {{- if .Values.tls.enabled }}
+              volumeMounts:
+                - {name: admin-tls, mountPath: /etc/caregraph/admin-tls, readOnly: true}
+              {{- end }}
+          {{- if .Values.tls.enabled }}
+          volumes:
+            - name: admin-tls
+              secret:
+                secretName: {{ required "tls.adminSecretName is required for backups when TLS is on" .Values.tls.adminSecretName }}
+                defaultMode: 0440
+          {{- end }}
+{{- end }}

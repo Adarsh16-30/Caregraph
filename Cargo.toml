@@ -73,7 +73,7 @@ rocksdb = { version = "0.23", features = ["multi-threaded-cf", "lz4"] }
 librocksdb-sys = { version = "0.17.1", default-features = false, features = ["static"] }
 
 # --- Async runtime (PRD 2.2) -------------------------------------------------
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "fs", "io-util", "net", "time"] }
 
 # --- Serialization -----------------------------------------------------------
 serde = { version = "1", features = ["derive"] }
@@ -85,6 +85,13 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# OpenTelemetry tracing (P9). The 0.27 line uses tonic 0.12, the same gRPC stack as the
+# server, so deny.toml's duplicate check stays clean. Optional: `--no-default-features`
+# builds a binary with no exporter at all.
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry_sdk = { version = "0.27", optional = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", optional = true, default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.28", optional = true }
 
 # --- Observability (PRD 2.8) -------------------------------------------------
 prometheus = "0.14"
@@ -112,6 +119,8 @@ toml = "0.8"
 hdrhistogram = "7.5"
 crossbeam-channel = "0.5"
 tonic-health = "0.12"
+# Layer/Service traits for the request-metrics layer; same 0.4 line tonic 0.12 uses.
+tower = { version = "0.4", default-features = false, features = ["util"] }
 
 # --- Security (P6) -----------------------------------------------------------
 # TLS terminated by our own acceptor so certificates can be reloaded without a
@@ -129,6 +138,11 @@ aes = { version = "0.8", features = ["zeroize"] }
 # AES-256-GCM for wrapping the data key under a key-encryption key.
 aes-gcm = "0.10"
 sha2 = "0.10"
+
+[features]
+default = ["otel"]
+# OTLP trace export. Off, the server still logs and exports Prometheus metrics.
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
 
 [build-dependencies]
 tonic-build = "0.12"
@@ -153,6 +167,8 @@ proptest = "1"
 # mTLS integration test (Phase 7) — no committed cert files, no dependency on
 # an external `openssl` CLI being on PATH in every dev/CI environment.
 rcgen = "0.13"
+# The OTLP wire types, to run a stand-in collector in the tracing export test.
+opentelemetry-proto = { version = "0.27", default-features = false, features = ["gen-tonic", "trace"] }
 
 # Cargo only auto-discovers test crates at the top level of tests/. The PRD's
 # Section 10 layout puts them in subdirectories, so each suite is declared here.
@@ -174,6 +190,11 @@ path = "tests/embedding/main.rs"
 # Spawns and kills the caregraph-fault-injection-worker binary in a loop
 # (Rule 5); needs the worker built first and a real trained model on disk,
 # same preconditions as `embedding` above — not run by the default sweep.
+# One test, one process: it installs the global tracing subscriber.
+[[test]]
+name = "tracing_export"
+path = "tests/tracing_export/main.rs"
+
 [[test]]
 name = "memory_budget"
 path = "tests/memory_budget/main.rs"

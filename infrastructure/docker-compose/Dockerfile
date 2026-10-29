@@ -14,10 +14,17 @@
 # Dependencies are built in their own layer so iterating on src/ does not rebuild RocksDB.
 # Cargo resolves EVERY declared [[bin]] path before building any of them, so the
 # dependency layer stubs every path listed in Cargo.toml. The stub list is generated from
-# Cargo.toml itself, so adding a binary can never silently break this layer again.
+# Cargo.toml itself, so adding a binary can never silently break this layer again (and a
+# Windows checkout with CRLF line endings is handled: carriage returns are stripped).
 
 # ---- builder ---------------------------------------------------------------
 FROM rust:1-bookworm AS builder
+
+# Parallel compile jobs. The default (all CPUs) can exhaust a small build machine: a full
+# release build of RocksDB and the Rust dependencies at 16 jobs crashed a Docker Desktop VM on
+# a 16 GB laptop. Raise it on a big builder: docker build --build-arg CARGO_BUILD_JOBS=16 ...
+ARG CARGO_BUILD_JOBS=4
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev cmake llvm-dev pkg-config libssl-dev protobuf-compiler \
@@ -25,21 +32,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-COPY Cargo.toml rust-toolchain.toml build.rs ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml build.rs ./
 COPY proto ./proto
 COPY native ./native
 RUN mkdir -p src \
     && echo '' > src/lib.rs \
-    && grep -E '^path = "' Cargo.toml | sed -E 's/^path = "(.*)"/\1/' | sort -u | while read -r p; do \
+    && tr -d '\015' < Cargo.toml | grep -E '^path = "' | sed -E 's/^path = "(.*)"/\1/' | sort -u | while read -r p; do \
          mkdir -p "$(dirname "$p")"; echo 'fn main() {}' > "$p"; \
        done \
-    && cargo build --release --bin caregraph \
+    && cargo build --locked --release --bin caregraph --bin caregraph-admin \
     && rm -rf src
 
 COPY src ./src
 COPY tests ./tests
 RUN touch src/main.rs src/lib.rs \
-    && cargo build --release --bin caregraph
+    && cargo build --locked --release --bin caregraph --bin caregraph-admin
 
 # ---- shared runtime base ---------------------------------------------------
 FROM debian:bookworm-slim AS runtime-base

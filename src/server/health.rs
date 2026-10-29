@@ -34,6 +34,8 @@ type DbProbe = Arc<dyn Fn() -> bool + Send + Sync>;
 /// `Some(reason)` when this node's replication state means it must not take
 /// traffic (a follower that is behind, disconnected or diverged; a fenced node).
 type ReplicaProbe = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+/// This node's replication role by name (`leader`, `follower`, ...).
+type RoleProbe = Arc<dyn Fn() -> &'static str + Send + Sync>;
 
 pub struct Health {
     started: AtomicBool,
@@ -41,6 +43,7 @@ pub struct Health {
     models: ModelProbe,
     db: DbProbe,
     replica: ReplicaProbe,
+    role: std::sync::OnceLock<RoleProbe>,
 }
 
 /// A readiness verdict with the reasons it is negative.
@@ -62,7 +65,18 @@ impl Health {
             models,
             db,
             replica,
+            role: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Wires in the source of the node's replication role, served at `/role`.
+    pub fn set_role_probe(&self, probe: RoleProbe) {
+        let _ = self.role.set(probe);
+    }
+
+    /// The node's replication role; `standalone` when none was wired in.
+    pub fn role(&self) -> &'static str {
+        self.role.get().map_or("standalone", |p| p())
     }
 
     pub fn mark_started(&self) {

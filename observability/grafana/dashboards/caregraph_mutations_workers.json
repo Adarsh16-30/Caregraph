@@ -1,0 +1,470 @@
+{
+  "id": null,
+  "uid": "caregraph-mutations",
+  "title": "CareGraph - writes and embedding workers",
+  "description": "The write path (admission, forward pass, ordered commit) and the Python embedding workers behind it. Every query is a series the server exports; see scripts/check_alert_rules.py.",
+  "tags": [
+    "caregraph",
+    "writes",
+    "workers"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Writes per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "sum by (pod) (rate(mutations_total[1m]))",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Write latency p50 / p95 / p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, pod) (rate(mutation_latency_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{pod}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, pod) (rate(mutation_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{pod}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, pod) (rate(mutation_latency_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{pod}}",
+          "refId": "C"
+        }
+      ],
+      "description": "End to end, including the forward pass, the ordered commit and (in sync mode) the standby confirmation."
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Embedding update latency p95 by path",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, computation_path) (rate(embedding_update_latency_seconds_bucket[5m])))",
+          "legendFormat": "{{computation_path}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Commit wait p50 / p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, pod) (rate(commit_wait_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{pod}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, pod) (rate(commit_wait_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{pod}}",
+          "refId": "B"
+        }
+      ],
+      "description": "Time a computed write waited for earlier timestamps to commit."
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Writes recomputed after a conflict",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "rate(mutation_conflict_retries_total[5m]) / clamp_min(rate(mutations_total[5m]), 1e-9)",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Full-recompute fallback share",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "rate(incremental_fallback_total[5m]) / clamp_min(rate(mutations_total[5m]), 1e-9)",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Must stay under 5% (Rule 7)."
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Healthy workers",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "worker_healthy",
+          "legendFormat": "healthy {{pod}} {{model}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "workers_configured",
+          "legendFormat": "configured {{pod}} {{model}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Circuit breaker open",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "breaker_open",
+          "legendFormat": "{{pod}} {{model}}",
+          "refId": "A"
+        }
+      ],
+      "description": "1 means writes to that model fail fast until a worker proves healthy."
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Worker restarts, timeouts and deaths (15 min)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "increase(worker_restarts_total[15m])",
+          "legendFormat": "restarts {{pod}} {{model}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "increase(worker_timeouts_total[15m])",
+          "legendFormat": "timeouts {{pod}} {{model}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "increase(worker_failures_total[15m])",
+          "legendFormat": "deaths {{pod}} {{model}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Requests per second by status",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "sum by (code) (rate(rpc_requests_total[1m]))",
+          "legendFormat": "{{code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Request latency p99 by method",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, rpc) (rate(rpc_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{rpc}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

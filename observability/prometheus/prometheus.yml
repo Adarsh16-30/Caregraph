@@ -12,6 +12,7 @@ global:
 
 rule_files:
   - /etc/prometheus/recording-rules.yaml
+  - /etc/prometheus/alert-rules.yaml
 
 scrape_configs:
   - job_name: caregraph

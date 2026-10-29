@@ -2,6 +2,7 @@
 //! role-based access control, hashed bearer tokens, tamper-evident audit and
 //! key management.
 
+pub mod anchor;
 pub mod audit;
 pub mod identity;
 pub mod keys;

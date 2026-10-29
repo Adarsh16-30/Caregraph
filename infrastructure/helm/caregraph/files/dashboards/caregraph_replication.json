@@ -1,0 +1,376 @@
+{
+  "id": null,
+  "uid": "caregraph-replication",
+  "title": "CareGraph - replication",
+  "description": "Leader/standby/reader state: lag, synchronous-replication cost, epoch. Runbooks: docs/runbooks/failover.md and replica-bootstrap.md.",
+  "tags": [
+    "caregraph",
+    "replication"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Replication lag (sequence numbers behind the leader)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "replication_lag_sequences",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "description": "The server stops reporting ready at CAREGRAPH_REPLICATION_READY_LAG (default 10,000)."
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Applied sequence",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "replication_applied_sequence",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Connected followers (leader)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "replication_connected_followers",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Leadership epoch",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "replication_epoch",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Synchronous replication degraded",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "replication_sync_degraded",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "description": "1 means the last write was acknowledged with no standby confirmation (RPO above zero)."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Follower needs bootstrap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "replication_needs_bootstrap",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Standby confirmation wait p50 / p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, pod) (rate(replication_ack_wait_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{pod}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, pod) (rate(replication_ack_wait_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{pod}}",
+          "refId": "B"
+        }
+      ],
+      "description": "The latency cost of synchronous replication, as measured on the leader."
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Degraded writes and ack timeouts per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "rate(replication_degraded_writes_total[5m])",
+          "legendFormat": "degraded {{pod}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "rate(replication_ack_timeouts_total[5m])",
+          "legendFormat": "ack timeout {{pod}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Batches applied per second (followers)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "caregraph-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "caregraph-prometheus"
+          },
+          "expr": "rate(replication_batches_applied_total[1m])",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

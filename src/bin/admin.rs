@@ -120,6 +120,39 @@ struct RemoteArgs {
     token: Option<String>,
 }
 
+/// How a new replica reaches the leader: the same settings the server's follower
+/// uses (`CAREGRAPH_LEADER_ADDR`, `CAREGRAPH_REPLICATION_*`).
+#[derive(Args, Clone)]
+struct LeaderArgs {
+    /// The leader's address, e.g. https://caregraph-write:50051
+    #[arg(long, env = "CAREGRAPH_LEADER_ADDR")]
+    leader_addr: String,
+    #[arg(long, env = "CAREGRAPH_REPLICATION_CA")]
+    ca: Option<PathBuf>,
+    /// Client certificate; its identity needs the `replicator` role.
+    #[arg(long, env = "CAREGRAPH_REPLICATION_CERT")]
+    cert: Option<PathBuf>,
+    #[arg(long, env = "CAREGRAPH_REPLICATION_KEY")]
+    key: Option<PathBuf>,
+    #[arg(long, env = "CAREGRAPH_REPLICATION_SERVER_NAME")]
+    server_name: Option<String>,
+    #[arg(long, env = "CAREGRAPH_REPLICATION_TOKEN", hide_env_values = true)]
+    token: Option<String>,
+}
+
+impl LeaderArgs {
+    fn options(&self) -> caregraph::replication::follower::FollowerOptions {
+        caregraph::replication::follower::FollowerOptions {
+            leader_addr: self.leader_addr.clone(),
+            ca: self.ca.clone(),
+            cert: self.cert.clone(),
+            key: self.key.clone(),
+            server_name: self.server_name.clone(),
+            token: self.token.clone(),
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Backups of a stopped database's backup directory.
@@ -175,6 +208,66 @@ enum Command {
     /// Commands against a running server's admin service.
     #[command(subcommand)]
     Remote(RemoteCmd),
+    /// Build a replica's database from the leader's checkpoint, over the network.
+    ///
+    /// Refuses a directory that already holds data. Nothing appears at --dest unless
+    /// the whole checkpoint arrived and verified.
+    Bootstrap {
+        #[command(flatten)]
+        leader: LeaderArgs,
+        #[arg(long)]
+        dest: PathBuf,
+        /// Name the leader records this replica under.
+        #[arg(long, env = "POD_NAME", default_value = "replica")]
+        follower_id: String,
+        /// Keep retrying for this long while the leader is not reachable or ready.
+        #[arg(long, default_value_t = 600)]
+        wait_secs: u64,
+    },
+    /// Init container: decide how this pod starts, building its database if needed.
+    ///
+    /// With data on the volume, nothing is fetched. With an empty volume it joins the
+    /// leader if one answers; the designated first pod of a new cluster
+    /// (--bootstrap-leader) becomes the first leader; anything else waits, because
+    /// guessing wrong creates a second leader. Writes CAREGRAPH_ROLE to --role-env-out
+    /// for the server container to source.
+    InitPod {
+        #[command(flatten)]
+        leader: LeaderArgs,
+        #[arg(long)]
+        dest: PathBuf,
+        #[arg(long, env = "POD_NAME")]
+        pod: String,
+        /// The pod that starts as leader in a brand-new cluster.
+        #[arg(long)]
+        first_leader_pod: Option<String>,
+        /// Set only when creating a new cluster; see the failover runbook.
+        #[arg(long)]
+        bootstrap_leader: bool,
+        /// `host:port` of each other writer's metrics port, which serves /role.
+        #[arg(long = "peer")]
+        peers: Vec<String>,
+        #[arg(long, default_value_t = 600)]
+        wait_secs: u64,
+        /// File to write `CAREGRAPH_ROLE=<role>` into.
+        #[arg(long)]
+        role_env_out: PathBuf,
+    },
+    /// Sidecar: keep this pod's `caregraph.io/role` label equal to its server's role.
+    ///
+    /// Runs until stopped. The write Service selects `role=leader`, so this is what
+    /// moves write traffic after a promotion. Needs `patch` on the pod's own object.
+    KubeLabelRole {
+        #[arg(long, env = "POD_NAMESPACE")]
+        namespace: String,
+        #[arg(long, env = "POD_NAME")]
+        pod: String,
+        /// The server's metrics address, which serves `/role`.
+        #[arg(long, default_value = "127.0.0.1:9100")]
+        status_addr: String,
+        #[arg(long, default_value_t = 5)]
+        interval_secs: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -368,6 +461,77 @@ fn main() -> Result<()> {
                 .build()?;
             rt.block_on(remote(cmd, cli.json))
         }
+        Command::Bootstrap {
+            leader,
+            dest,
+            follower_id,
+            wait_secs,
+        } => {
+            tracing_subscriber::fmt().with_target(false).init();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let done = rt.block_on(caregraph::replication::bootstrap::fetch_with_retry(
+                &leader.options(),
+                &follower_id,
+                &dest,
+                std::time::Duration::from_secs(wait_secs),
+            ))?;
+            emit(
+                cli.json,
+                json!({"sequence": done.sequence, "epoch": done.epoch, "files": done.files, "bytes": done.bytes}),
+                || {
+                    format!(
+                        "built {} from the leader's checkpoint at sequence {} (epoch {}): {} files, {} bytes",
+                        dest.display(), done.sequence, done.epoch, done.files, done.bytes
+                    )
+                },
+            );
+            Ok(())
+        }
+        Command::InitPod {
+            leader,
+            dest,
+            pod,
+            first_leader_pod,
+            bootstrap_leader,
+            peers,
+            wait_secs,
+            role_env_out,
+        } => {
+            tracing_subscriber::fmt().with_target(false).init();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(init_pod(InitPod {
+                leader,
+                dest,
+                pod,
+                first_leader_pod,
+                bootstrap_leader,
+                peers,
+                wait_secs,
+                role_env_out,
+            }))
+        }
+        Command::KubeLabelRole {
+            namespace,
+            pod,
+            status_addr,
+            interval_secs,
+        } => {
+            tracing_subscriber::fmt().with_target(false).init();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(caregraph::kube_label::run(
+                caregraph::kube_label::ApiAccess::in_cluster()?,
+                namespace,
+                pod,
+                status_addr,
+                std::time::Duration::from_secs(interval_secs.max(1)),
+            ))
+        }
         other => offline(other, cli.json),
     }
 }
@@ -512,7 +676,10 @@ fn offline(command: Command, json: bool) -> Result<()> {
             );
             Ok(())
         }
-        Command::Remote(_) => unreachable!("handled in main"),
+        Command::Remote(_)
+        | Command::KubeLabelRole { .. }
+        | Command::Bootstrap { .. }
+        | Command::InitPod { .. } => unreachable!("handled in main"),
     }
 }
 
@@ -917,5 +1084,85 @@ async fn remote(cmd: RemoteCmd, json: bool) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+struct InitPod {
+    leader: LeaderArgs,
+    dest: PathBuf,
+    pod: String,
+    first_leader_pod: Option<String>,
+    bootstrap_leader: bool,
+    peers: Vec<String>,
+    wait_secs: u64,
+    role_env_out: PathBuf,
+}
+
+async fn init_pod(args: InitPod) -> Result<()> {
+    use caregraph::replication::bootstrap::{
+        decide_start, fetch_with_retry, PeerRole, StartDecision,
+    };
+    let volume_has_data = std::fs::read_dir(&args.dest)
+        .map(|mut d| d.next().is_some())
+        .unwrap_or(false);
+    let designated = args.first_leader_pod.as_deref() == Some(args.pod.as_str());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(args.wait_secs);
+
+    let decision = loop {
+        let mut peers = Vec::new();
+        for addr in &args.peers {
+            let answer = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                caregraph::kube_label::http_get(addr, "/role"),
+            )
+            .await;
+            peers.push(match answer {
+                Ok(Ok(role)) if role == "leader" => PeerRole::Leader,
+                Ok(Ok(_)) => PeerRole::Other,
+                _ => PeerRole::Unreachable,
+            });
+        }
+        match decide_start(volume_has_data, &peers, designated, args.bootstrap_leader) {
+            StartDecision::Wait(why) => {
+                if std::time::Instant::now() >= deadline {
+                    bail!("not starting {}: {why}", args.pod);
+                }
+                tracing::warn!(pod = %args.pod, "waiting: {why}");
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
+            other => break other,
+        }
+    };
+    tracing::info!(pod = %args.pod, ?decision, "start decision");
+
+    let role = match decision {
+        StartDecision::JoinLeader => {
+            let done = fetch_with_retry(
+                &args.leader.options(),
+                &args.pod,
+                &args.dest,
+                std::time::Duration::from_secs(args.wait_secs),
+            )
+            .await?;
+            tracing::info!(
+                sequence = done.sequence,
+                bytes = done.bytes,
+                "built the database from the leader's checkpoint"
+            );
+            "follower"
+        }
+        StartDecision::FirstLeader => "leader",
+        // The persisted role file decides after a restart or a failover; this only
+        // matters for a volume that was seeded by hand.
+        StartDecision::KeepData if designated && args.bootstrap_leader => "leader",
+        StartDecision::KeepData => "follower",
+        StartDecision::Wait(_) => unreachable!("waited above"),
+    };
+    if let Some(dir) = args.role_env_out.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&args.role_env_out, format!("CAREGRAPH_ROLE={role}\n"))
+        .with_context(|| format!("writing {}", args.role_env_out.display()))?;
+    println!("role {role}");
     Ok(())
 }

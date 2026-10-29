@@ -3,6 +3,7 @@
 
 pub mod health;
 pub mod limits;
+pub mod observe;
 pub mod ratelimit;
 pub mod shutdown;
 

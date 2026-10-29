@@ -1,0 +1,62 @@
+# Production overrides. Install with:
+#
+#   helm install caregraph infrastructure/helm/caregraph \
+#     -f infrastructure/helm/caregraph/values-production.yaml \
+#     -f my-values.yaml --set writer.bootstrapLeader=true      # first install only
+#
+# then, once the cluster is up:
+#
+#   helm upgrade caregraph ... --set writer.bootstrapLeader=false
+#
+# Why that flag exists: a pod with an empty volume must not start as a leader unless
+# you are creating a new cluster, or a rebuilt pod could become a second leader.
+# docs/kubernetes.md explains the rule.
+#
+# The chart refuses to render unless mutual TLS, an encryption key and an RBAC policy
+# are supplied (templates/_helpers.tpl, caregraph.validate).
+
+environment: production
+
+writer:
+  bootstrapLeader: false
+
+tls:
+  enabled: true
+  secretName: caregraph-tls
+  adminSecretName: caregraph-admin-tls
+
+encryption:
+  secretName: caregraph-keys
+
+tokens:
+  secretName: caregraph-tokens
+  replicationTokenSecret: caregraph-replication-token
+  adminTokenSecret: caregraph-admin-token
+
+# The identities your certificates carry. The serving certificate is also the replicas'
+# client certificate, so its identity needs the replicator role.
+rbac:
+  principals:
+    "spiffe://caregraph/caregraph": [replicator]
+    "spiffe://caregraph/backup": [admin]
+    # "spiffe://caregraph/ingest": [writer]
+    # "spiffe://caregraph/analyst": [reader]
+
+config:
+  syncWrites: true
+  tsPolicy: strict
+
+reader:
+  autoscaling:
+    enabled: true
+
+metrics:
+  podMonitor:
+    enabled: true
+  prometheusRule:
+    enabled: true
+  grafanaDashboards:
+    enabled: true
+
+backup:
+  enabled: true
