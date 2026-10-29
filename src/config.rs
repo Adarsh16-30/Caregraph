@@ -55,6 +55,8 @@ pub struct Config {
     pub explain_enabled: bool,
     pub rbac_policy: Option<PathBuf>,
     pub log_json: bool,
+    pub server: crate::server::ServerLimits,
+    pub input: crate::server::InputLimits,
 }
 
 /// Source of raw string settings, keyed by the env var name
@@ -183,6 +185,7 @@ impl Config {
             }
         };
 
+        let explain_enabled = boolean("CAREGRAPH_EXPLAIN_ENABLED", !prod)?;
         let cfg = Config {
             environment,
             db_path: src
@@ -210,9 +213,11 @@ impl Config {
                 .unwrap_or_else(|| "python".to_string()),
             ts_policy,
             sync_writes: boolean("CAREGRAPH_SYNC_WRITES", prod)?,
-            explain_enabled: boolean("CAREGRAPH_EXPLAIN_ENABLED", !prod)?,
+            explain_enabled,
             rbac_policy: src.get("CAREGRAPH_RBAC_POLICY").map(PathBuf::from),
             log_json: boolean("CAREGRAPH_LOG_JSON", prod)?,
+            server: crate::server::ServerLimits::load(src)?,
+            input: crate::server::InputLimits::load(src, explain_enabled)?,
         };
         cfg.validate()?;
         Ok(cfg)
@@ -284,7 +289,13 @@ impl Config {
              sync_writes      = {}\n\
              explain_enabled  = {}\n\
              rbac_policy      = {}\n\
-             log_json         = {}\n",
+             log_json         = {}\n\
+             request_timeout  = {}s\n\
+             max_request_bytes= {}\n\
+             drain_deadline   = {}s\n\
+             prestop_delay    = {}s\n\
+             rate_limit       = {} rps (burst {})\n\
+             max_properties   = {} bytes, depth {}\n",
             self.environment,
             self.db_path,
             self.grpc_addr,
@@ -303,6 +314,14 @@ impl Config {
             self.explain_enabled,
             path(&self.rbac_policy),
             self.log_json,
+            self.server.request_timeout.as_secs(),
+            self.server.max_decoding_bytes,
+            self.server.drain_deadline.as_secs(),
+            self.server.prestop_delay.as_secs(),
+            self.server.rate_limit_rps,
+            self.server.rate_limit_burst,
+            self.input.max_properties_bytes,
+            self.input.max_properties_depth,
         )
     }
 

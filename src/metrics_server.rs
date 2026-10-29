@@ -7,11 +7,15 @@
 //! it over HTTP — every dashboard panel and recording rule referencing these
 //! series had zero real data behind it until now.
 
+use std::sync::Arc;
+
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use prometheus::{Encoder, Registry, TextEncoder};
+
+use crate::server::Health;
 
 async fn metrics_handler(State(registry): State<Registry>) -> impl IntoResponse {
     let encoder = TextEncoder::new();
@@ -35,14 +39,92 @@ async fn metrics_handler(State(registry): State<Registry>) -> impl IntoResponse 
         .into_response()
 }
 
-/// Serves `GET /metrics` on `addr` until the process exits. Spawn as its own
-/// tokio task alongside the gRPC server — it is a separate listener on a
-/// separate port (Prometheus's own convention, not gRPC's), not a route on
-/// the gRPC server.
-pub async fn serve(addr: std::net::SocketAddr, registry: Registry) -> std::io::Result<()> {
-    let app = Router::new()
+async fn healthz(State(state): State<Probes>) -> impl IntoResponse {
+    if state.health.live() {
+        (
+            axum::http::StatusCode::OK,
+            "ok
+",
+        )
+            .into_response()
+    } else {
+        (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "database is not answering reads
+",
+        )
+            .into_response()
+    }
+}
+
+async fn readyz(State(state): State<Probes>) -> impl IntoResponse {
+    let r = state.health.readiness();
+    if r.ready {
+        (
+            axum::http::StatusCode::OK,
+            "ready
+"
+            .to_string(),
+        )
+            .into_response()
+    } else {
+        (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "not ready: {}
+",
+                r.reasons.join("; ")
+            ),
+        )
+            .into_response()
+    }
+}
+
+async fn startupz(State(state): State<Probes>) -> impl IntoResponse {
+    if state.health.is_started() {
+        (
+            axum::http::StatusCode::OK,
+            "started
+",
+        )
+            .into_response()
+    } else {
+        (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "starting
+",
+        )
+            .into_response()
+    }
+}
+
+#[derive(Clone)]
+struct Probes {
+    health: Arc<Health>,
+}
+
+/// The HTTP surface: `/metrics` plus the three probes.
+pub fn router(registry: Registry, health: Arc<Health>) -> Router {
+    let probes = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .route("/startupz", get(startupz))
+        .with_state(Probes { health });
+    Router::new()
         .route("/metrics", get(metrics_handler))
-        .with_state(registry);
+        .with_state(registry)
+        .merge(probes)
+}
+
+/// Serves `/metrics` and the probes on `addr` until the process exits. Spawn
+/// as its own tokio task alongside the gRPC server — it is a separate listener
+/// on a separate port (Prometheus's own convention, not gRPC's), not a route on
+/// the gRPC server.
+pub async fn serve(
+    addr: std::net::SocketAddr,
+    registry: Registry,
+    health: Arc<Health>,
+) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await
+    axum::serve(listener, router(registry, health)).await
 }

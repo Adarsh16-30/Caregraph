@@ -54,7 +54,6 @@ pub mod proto {
     tonic::include_proto!("caregraph.v1");
 }
 
-use serde_json::Value as JsonValue;
 use tonic::{Request, Response, Status};
 
 use crate::api::metrics::ApiMetrics;
@@ -66,6 +65,7 @@ use crate::embedding::sequencer::Sequencer;
 use crate::embedding::state::GraphMutation;
 use crate::error::CareGraphError;
 use crate::graph::{Direction, SnapshotReader, TraversalLimits, TraversalRequest, Traverser};
+use crate::server::{InputLimits, ModelStatus, RateLimiter, RpcClass};
 use crate::storage::RocksKv;
 use crate::temporal::record::EdgeValue;
 use crate::types::{EdgeType, ModelKind, NodeId, Timestamp};
@@ -77,6 +77,40 @@ use proto::{
     SimilarityDeltaMatch, SimilarityDeltaRequest, SimilarityDeltaResponse, SnapshotRequest,
     SnapshotResponse, TraverseRequest, TraverseResponse, TruncationMsg, VisitedNodeMsg,
 };
+
+/// The authenticated caller, attached to every request by [`AuthInterceptor`]
+/// and used to key rate limits (and, with mTLS identities, authorization).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Principal(pub std::sync::Arc<str>);
+
+/// Everything beyond the stores and models that shapes how requests are
+/// admitted: timestamp policy, input bounds, rate limiting.
+pub struct ServiceOptions {
+    pub ts_policy: crate::config::TsPolicy,
+    pub input: InputLimits,
+    pub rate_limiter: Option<RateLimiter>,
+}
+
+impl Default for ServiceOptions {
+    fn default() -> Self {
+        ServiceOptions {
+            ts_policy: crate::config::TsPolicy::Legacy,
+            input: InputLimits::default(),
+            rate_limiter: None,
+        }
+    }
+}
+
+fn rate_limited(wait: std::time::Duration) -> Status {
+    let mut status = Status::resource_exhausted(format!(
+        "rate limit exceeded; retry in {} ms",
+        wait.as_millis().max(1)
+    ));
+    if let Ok(v) = wait.as_millis().max(1).to_string().parse() {
+        status.metadata_mut().insert("retry-after-ms", v);
+    }
+    status
+}
 
 fn internal(err: CareGraphError) -> Status {
     match err {
@@ -112,13 +146,6 @@ fn env_permits(name: &str, default: usize) -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(default)
-}
-
-fn parse_properties(raw: &str) -> Result<JsonValue, Status> {
-    if raw.is_empty() {
-        return Ok(JsonValue::Object(Default::default()));
-    }
-    serde_json::from_str(raw).map_err(|e| Status::invalid_argument(format!("properties_json: {e}")))
 }
 
 fn proto_edge_type(raw: i32) -> Result<EdgeType, Status> {
@@ -210,6 +237,12 @@ struct Inner {
     write_permits: std::sync::Arc<tokio::sync::Semaphore>,
     /// Orders commits by timestamp and detects conflicting concurrent ones.
     sequencer: Sequencer,
+    input: InputLimits,
+    rate_limiter: Option<RateLimiter>,
+    /// Attribution costs tens of seconds per request; one at a time.
+    explain_permits: std::sync::Arc<tokio::sync::Semaphore>,
+    read_capacity: usize,
+    write_capacity: usize,
 }
 
 /// The tonic service implementation. Cheap to clone — tonic clones the
@@ -231,12 +264,12 @@ impl CareGraphApi {
         gat_model_id: Option<&str>,
         registry: &prometheus::Registry,
     ) -> crate::error::Result<Self> {
-        Self::new_with_policy(
+        Self::with_options(
             store,
             graphsage_model_id,
             gat_model_id,
             registry,
-            crate::config::TsPolicy::Legacy,
+            ServiceOptions::default(),
         )
     }
 
@@ -251,7 +284,30 @@ impl CareGraphApi {
         registry: &prometheus::Registry,
         ts_policy: crate::config::TsPolicy,
     ) -> crate::error::Result<Self> {
-        let sequencer = Sequencer::open(&store, ts_policy)?;
+        Self::with_options(
+            store,
+            graphsage_model_id,
+            gat_model_id,
+            registry,
+            ServiceOptions {
+                ts_policy,
+                ..ServiceOptions::default()
+            },
+        )
+    }
+
+    /// The full constructor: [`Self::new`] and [`Self::new_with_policy`] are
+    /// shorthands for it.
+    pub fn with_options(
+        store: RocksKv,
+        graphsage_model_id: Option<&str>,
+        gat_model_id: Option<&str>,
+        registry: &prometheus::Registry,
+        options: ServiceOptions,
+    ) -> crate::error::Result<Self> {
+        let sequencer = Sequencer::open(&store, options.ts_policy)?;
+        let read_capacity = env_permits("CAREGRAPH_MAX_CONCURRENT_READS", 512);
+        let write_capacity = env_permits("CAREGRAPH_MAX_CONCURRENT_WRITES", 64);
         let graphsage_model = graphsage_model_id.map(EmbeddingModel::spawn).transpose()?;
         let gat_model = gat_model_id.map(EmbeddingModel::spawn).transpose()?;
         let metrics = EmbeddingMetrics::new(registry)
@@ -268,17 +324,82 @@ impl CareGraphApi {
                 api_metrics,
                 limits: TraversalLimits::default(),
                 caps: std::sync::Mutex::new(CapController::new()),
-                read_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(env_permits(
-                    "CAREGRAPH_MAX_CONCURRENT_READS",
-                    512,
-                ))),
-                write_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(env_permits(
-                    "CAREGRAPH_MAX_CONCURRENT_WRITES",
-                    64,
-                ))),
+                read_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(read_capacity)),
+                write_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(write_capacity)),
                 sequencer,
+                input: options.input,
+                rate_limiter: options.rate_limiter,
+                explain_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+                read_capacity,
+                write_capacity,
             }),
         })
+    }
+
+    /// Charges one request against the caller's rate-limit budget.
+    fn admit<T>(&self, request: &Request<T>, class: RpcClass) -> Result<(), Status> {
+        let Some(limiter) = &self.inner.rate_limiter else {
+            return Ok(());
+        };
+        let principal = request
+            .extensions()
+            .get::<Principal>()
+            .map(|p| p.0.as_ref())
+            .unwrap_or("anonymous");
+        limiter.check(principal, class).map_err(rate_limited)
+    }
+
+    /// Each deployed model's worker-pool state, for readiness and metrics.
+    pub fn model_statuses(&self) -> Vec<ModelStatus> {
+        let mut out = Vec::new();
+        for (name, model) in [
+            ("graphsage", &self.inner.graphsage_model),
+            ("gat", &self.inner.gat_model),
+        ] {
+            if let Some(m) = model {
+                out.push(ModelStatus {
+                    name: name.to_string(),
+                    stats: m.stats(),
+                });
+            }
+        }
+        out
+    }
+
+    /// Whether the database answers a read. Used by the liveness probe.
+    pub fn store_responds(&self) -> bool {
+        use crate::storage::KvStore;
+        self.inner
+            .store
+            .get(crate::storage::CF_META, b"hwm")
+            .is_ok()
+    }
+
+    /// Waits until no read or write is executing on the blocking pool, up to
+    /// `deadline`. Returns whether it went idle. Requests whose client already
+    /// went away keep running on the blocking pool after the transport drains,
+    /// so shutdown must wait for them before closing the database.
+    pub async fn quiesce(&self, deadline: std::time::Duration) -> bool {
+        let wait = async {
+            let reads = self
+                .inner
+                .read_permits
+                .acquire_many(self.inner.read_capacity as u32)
+                .await;
+            let writes = self
+                .inner
+                .write_permits
+                .acquire_many(self.inner.write_capacity as u32)
+                .await;
+            drop((reads, writes));
+        };
+        tokio::time::timeout(deadline, wait).await.is_ok()
+    }
+
+    /// Forces the write-ahead log to stable storage.
+    pub fn flush(&self) -> crate::error::Result<()> {
+        use crate::storage::KvStore;
+        self.inner.store.flush_wal()
     }
 
     /// Runs `f` on the blocking pool under a permit from `permits`. A refused
@@ -337,11 +458,36 @@ impl CareGraphApi {
                 "ModelKind::GCN has no trained model in this deployment; use GRAPHSAGE or GAT",
             ));
         }
+        // Attribution is two to three orders of magnitude slower than a plain
+        // mutation, so it is off unless configured on and runs one at a time.
+        if explain && !self.inner.input.explain_enabled {
+            return Err(Status::permission_denied(
+                "explain is disabled on this server (CAREGRAPH_EXPLAIN_ENABLED=false)",
+            ));
+        }
+
         // Fail fast, before taking a permit, when the model is not deployed.
         Self::model_in(&self.inner, model_kind)?;
 
+        let explain_permit = if explain {
+            Some(
+                self.inner
+                    .explain_permits
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|_| {
+                        Status::resource_exhausted(
+                            "another explain request is running; retry with backoff",
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
         let permits = self.inner.write_permits.clone();
         self.blocking(&permits, move |inner| {
+            let _explain_permit = explain_permit;
             let model = Self::model_in(inner, model_kind)?;
             let request_id = (!request_id.is_empty()).then_some(request_id.as_str());
             let outcome = run_mutation_pipeline(
@@ -380,10 +526,14 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<AddEdgeRequest>,
     ) -> Result<Response<MutationResponse>, Status> {
+        self.admit(&request, RpcClass::Write)?;
         let req = request.into_inner();
         let edge_type = proto_edge_type(req.edge_type)?;
         let model_kind = proto_model_kind(req.model)?;
-        let properties = parse_properties(&req.properties_json)?;
+        self.inner
+            .input
+            .check_timestamp(req.timestamp_us, Timestamp::now().as_u64())?;
+        let properties = self.inner.input.parse_properties(&req.properties_json)?;
 
         let mutation = GraphMutation::AddEdge {
             src: NodeId(req.src),
@@ -407,8 +557,12 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<RemoveEdgeRequest>,
     ) -> Result<Response<MutationResponse>, Status> {
+        self.admit(&request, RpcClass::Write)?;
         let req = request.into_inner();
         let edge_type = proto_edge_type(req.edge_type)?;
+        self.inner
+            .input
+            .check_timestamp(req.timestamp_us, Timestamp::now().as_u64())?;
         let model_kind = proto_model_kind(req.model)?;
 
         let mutation = GraphMutation::RemoveEdge {
@@ -422,7 +576,7 @@ impl CareGraphService for CareGraphApi {
         let response = self
             .run_mutation(
                 mutation,
-                EdgeValue::new(JsonValue::Null),
+                EdgeValue::new(serde_json::Value::Null),
                 model_kind,
                 req.explain,
                 req.request_id,
@@ -435,6 +589,7 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<TraverseRequest>,
     ) -> Result<Response<TraverseResponse>, Status> {
+        self.admit(&request, RpcClass::Read)?;
         let req = request.into_inner();
 
         let direction = match req.direction() {
@@ -505,6 +660,7 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<SnapshotRequest>,
     ) -> Result<Response<SnapshotResponse>, Status> {
+        self.admit(&request, RpcClass::Read)?;
         let req = request.into_inner();
         let mut edge_types = Vec::new();
         for raw in &req.edge_types {
@@ -560,6 +716,7 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<SimilarCarePathwaysRequest>,
     ) -> Result<Response<SimilarCarePathwaysResponse>, Status> {
+        self.admit(&request, RpcClass::Read)?;
         let req = request.into_inner();
         let top_k = clamp_top_k(req.top_k)?;
 
@@ -595,6 +752,7 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<SimilarityDeltaRequest>,
     ) -> Result<Response<SimilarityDeltaResponse>, Status> {
+        self.admit(&request, RpcClass::Read)?;
         let req = request.into_inner();
         let top_k = clamp_top_k(req.top_k)?;
 
@@ -668,10 +826,23 @@ impl tonic::service::Interceptor for AuthInterceptor {
             .strip_prefix("Bearer ")
             .ok_or_else(|| Status::unauthenticated("authorization must be \"Bearer <token>\""))?;
 
-        if token == self.expected_token.as_ref() {
+        if constant_time_eq(token.as_bytes(), self.expected_token.as_bytes()) {
+            let mut request = request;
+            request
+                .extensions_mut()
+                .insert(Principal(std::sync::Arc::from("api-key")));
             Ok(request)
         } else {
             Err(Status::unauthenticated("invalid bearer token"))
         }
     }
+}
+
+/// Equality that does not stop at the first differing byte, so response time
+/// does not reveal how much of a guessed token was right. Length is not hidden.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }

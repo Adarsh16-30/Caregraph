@@ -23,6 +23,24 @@ elaborate system invented beyond it. A missing or mismatched token returns
 The server refuses to start at all if `CAREGRAPH_API_KEY` is unset —
 there is no way to run this API with authentication silently disabled.
 
+## Input limits and rate limiting
+
+Checked before any storage or model work; violations are `INVALID_ARGUMENT`
+unless noted.
+
+| Input | Limit |
+|---|---|
+| `properties_json` | at most 64 KiB, at most 32 levels deep, must be a JSON object (empty means `{}`) |
+| `timestamp_us` (mutations) | `0` means server-assigned; otherwise at most 5 minutes ahead of the server clock |
+| `top_k` (similarity RPCs) | `0` means 10; above 1000 is refused |
+| request message | at most 1 MiB (transport refuses larger), responses at most 16 MiB |
+| `explain = true` | `PERMISSION_DENIED` when the server has `explain` disabled; one at a time (`RESOURCE_EXHAUSTED` otherwise) |
+
+When rate limiting is enabled (`CAREGRAPH_RATE_LIMIT_RPS`), each caller has
+separate read and write token buckets. An exhausted bucket returns
+`RESOURCE_EXHAUSTED` with a `retry-after-ms` metadata entry giving the wait
+until a token is available.
+
 ## Result limits
 
 `max_hops`, `max_result_nodes`, and `max_result_edges` (`TraversalLimits`,
@@ -75,7 +93,8 @@ first is still running is refused with `ABORTED`.
 **Failure codes.** `UNAVAILABLE`: the embedding workers are restarting or their
 circuit breaker is open (retry with backoff; nothing was written).
 `DEADLINE_EXCEEDED`: a forward pass exceeded its deadline and its worker was
-restarted. `RESOURCE_EXHAUSTED`: the server's concurrency limit is reached.
+restarted. `RESOURCE_EXHAUSTED`: the server's concurrency limit or the caller's rate limit
+is reached.
 
 `explain = true` additionally computes and commits an integrated-gradients
 edge attribution for this mutation's two endpoints (Phase 9, Feature 1),

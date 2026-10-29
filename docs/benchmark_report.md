@@ -1033,3 +1033,40 @@ Similarity: `top_k` is capped at 1,000 and selection keeps only the best k
 rather than sorting every candidate; the bounded selection is checked against a
 full sort in a unit test. A latency number for `SimilarCarePathways` over the
 full graph is not part of this section.
+
+### 10.4 Read overload with limits in place (P5)
+
+Same read mix (85% snapshot, 10% traverse, 5% similar), same 50,000-patient
+sample and same machine as the section 10 baseline; server with the read
+bulkhead (512), per-connection concurrency limit (256) and message caps.
+`prod5_reads_sweep.json`, `prod5_reads_overload.json`, `prod5_reads_fine_*.json`.
+
+| offered req/s | P1 baseline ok/s, p50 / p99 | now ok/s, p50 / p99 |
+|---|---|---|
+| 100 | 100, 0.6 / 11 ms | 100, 1.2 / 14 ms |
+| 3,000 | 3,000, 0.5 / 10 ms | 3,000, 0.2 / 8 ms |
+| 6,000 | 6,000, 0.5 / 13 ms | 6,000, 0.4 / 12-13 ms (4 reruns); one first run read p99 395 ms |
+| 8,000 | not run | 8,000, 0.7-1.0 / 20-23 ms (4 runs) |
+| 12,000 | 8,272, 2,228 / 4,252 ms | 9,686, 2,187 / 2,863 ms, 106 refused |
+| 20,000 | **1,392**, 482 / 1,475 ms, 276,873 errors | **9,406**, 2,061 / 3,273 ms, 782 refused |
+
+What this shows, and what it does not:
+
+- **Goodput no longer collapses.** At twice the sustainable rate the baseline
+  fell to 1,392 ok/s with 276,873 errors; the server now holds about 9,400-9,700
+  ok/s, which is its capacity on this machine.
+- **Admitted-request latency is not bounded in this setup.** At 12,000 and
+  20,000 req/s the median is still about 2 s. The load generator and the server
+  share one 10-core laptop, and at those rates the generator itself falls behind
+  its schedule (142,914 and 252,005 late slots), so most of that latency is
+  schedule backlog on a saturated CPU, not time inside the server. The refusal
+  counts (106 and 782) show the server's own bulkhead rarely engaged. A bounded
+  p99 under overload can only be demonstrated with the generator on a separate
+  machine; that is part of the section 10 comparison run.
+- **One outlier first run at 6,000 req/s** (p95 160 ms, p99 395 ms, 6,353 late
+  slots) was not reproduced in four reruns with default limits and with the
+  connection limits effectively disabled (p95 6.6-7.2 ms each time). It followed
+  a cold start and a fresh build on the same machine; it is reported here rather
+  than dropped.
+- The mutation path's overload behaviour is unchanged from section 10.2: the
+  write bulkhead refuses in about 0.4 ms.

@@ -7,10 +7,13 @@
 //! validated [`caregraph::config::Config`].
 
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use caregraph::api::{AuthInterceptor, CareGraphApi};
+use caregraph::api::{AuthInterceptor, CareGraphApi, ServiceOptions};
 use caregraph::config::{Config, Layered, ProcessEnv};
+use caregraph::server::shutdown::{run_until_shutdown, wait_for_signal};
+use caregraph::server::{Health, PoolCollector, RateLimiter};
 use caregraph::storage::{cf, decode_hex_key, RocksKv};
 use caregraph::Timestamp;
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
@@ -156,12 +159,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let registry = prometheus::Registry::new();
-    let api = CareGraphApi::new_with_policy(
+    let api = CareGraphApi::with_options(
         store,
         graphsage_deployed.then_some(cfg.graphsage_model.as_str()),
         gat_deployed.then_some(cfg.gat_model.as_str()),
         &registry,
-        cfg.ts_policy,
+        ServiceOptions {
+            ts_policy: cfg.ts_policy,
+            input: cfg.input.clone(),
+            rate_limiter: RateLimiter::new(cfg.server.rate_limit_rps, cfg.server.rate_limit_burst),
+        },
     )
     .context("building the gRPC service")?;
 
@@ -177,32 +184,100 @@ async fn main() -> anyhow::Result<()> {
         "caregraph gRPC service starting"
     );
 
+    let health = Health::new(
+        {
+            let api = api.clone();
+            Arc::new(move || api.model_statuses())
+        },
+        {
+            let api = api.clone();
+            Arc::new(move || api.store_responds())
+        },
+    );
+    PoolCollector::register(health.clone(), &registry).context("registering pool metrics")?;
+
     let metrics_addr = cfg.metrics_addr;
-    let metrics_registry = registry.clone();
-    tokio::spawn(async move {
-        if let Err(e) = caregraph::metrics_server::serve(metrics_addr, metrics_registry).await {
-            tracing::error!(%metrics_addr, error = %e, "metrics server exited");
-        }
-    });
-    tracing::info!(%metrics_addr, "serving GET /metrics");
+    let metrics_task = {
+        let (registry, health) = (registry.clone(), health.clone());
+        tokio::spawn(async move {
+            if let Err(e) = caregraph::metrics_server::serve(metrics_addr, registry, health).await {
+                tracing::error!(%metrics_addr, error = %e, "metrics server exited");
+            }
+        })
+    };
+    tracing::info!(%metrics_addr, "serving /metrics, /healthz, /readyz, /startupz");
 
-    let interceptor = AuthInterceptor::new(api_key);
-    let service =
-        caregraph::api::proto::care_graph_service_server::CareGraphServiceServer::with_interceptor(
-            api,
-            interceptor,
-        );
+    let limits = cfg.server.clone();
+    let service = tonic::service::interceptor::InterceptedService::new(
+        caregraph::api::proto::care_graph_service_server::CareGraphServiceServer::new(api.clone())
+            .max_decoding_message_size(limits.max_decoding_bytes)
+            .max_encoding_message_size(limits.max_encoding_bytes),
+        AuthInterceptor::new(api_key),
+    );
 
-    let mut server_builder = Server::builder();
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter
+        .set_service_status(
+            "caregraph.v1.CareGraphService",
+            tonic_health::ServingStatus::Serving,
+        )
+        .await;
+    {
+        // Mirror readiness into the gRPC health service so gRPC-aware load
+        // balancers see the same verdict the HTTP probe gives.
+        let (health, mut reporter) = (health.clone(), health_reporter.clone());
+        tokio::spawn(async move {
+            loop {
+                let status = if health.readiness().ready {
+                    tonic_health::ServingStatus::Serving
+                } else {
+                    tonic_health::ServingStatus::NotServing
+                };
+                reporter
+                    .set_service_status("caregraph.v1.CareGraphService", status)
+                    .await;
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    }
+
+    let mut server_builder = Server::builder()
+        .timeout(limits.request_timeout)
+        .concurrency_limit_per_connection(limits.concurrency_limit_per_connection)
+        .max_concurrent_streams(Some(limits.max_concurrent_streams))
+        .http2_keepalive_interval(Some(limits.http2_keepalive_interval))
+        .http2_keepalive_timeout(Some(limits.http2_keepalive_timeout))
+        .tcp_nodelay(true);
     if let Some(tls) = tls_config(&cfg)? {
         server_builder = server_builder.tls_config(tls).context("configuring mTLS")?;
     }
 
-    server_builder
-        .add_service(service)
-        .serve(addr)
-        .await
-        .context("gRPC server exited")?;
+    health.mark_started();
+    let outcome = run_until_shutdown(
+        move |stop| {
+            server_builder
+                .add_service(health_service)
+                .add_service(service)
+                .serve_with_shutdown(addr, stop)
+        },
+        wait_for_signal(),
+        &health,
+        &limits,
+    )
+    .await?;
+    tracing::info!(?outcome, "gRPC server stopped");
 
+    // Requests whose clients went away keep running on the blocking pool;
+    // wait for them, then force the WAL to disk before the store closes.
+    if !api.quiesce(limits.drain_deadline).await {
+        tracing::warn!("in-flight database work did not finish before the drain deadline");
+    }
+    if let Err(e) = api.flush() {
+        tracing::error!(error = %e, "flushing the WAL at shutdown failed");
+    }
+    metrics_task.abort();
+    drop(health);
+    drop(api);
+    tracing::info!("shutdown complete");
     Ok(())
 }

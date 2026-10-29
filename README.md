@@ -163,6 +163,22 @@ more than one worker is safe), `CAREGRAPH_MAX_CONCURRENT_READS`/`_WRITES`
 unavailable a mutation is rejected with a retryable `UNAVAILABLE` rather than
 committed with stale embeddings).
 
+**Limits, probes and shutdown.** Requests are bounded before they reach
+storage: `properties_json` at most 64 KiB and 32 levels deep
+(`CAREGRAPH_MAX_PROPERTIES_BYTES`/`_DEPTH`), client timestamps at most five
+minutes ahead of the server clock (`CAREGRAPH_MAX_FUTURE_SKEW_SECS`),
+`SimilarCarePathways` at most 1000 results, request messages at most 1 MiB
+(`CAREGRAPH_MAX_REQUEST_BYTES`), and a whole-request deadline
+(`CAREGRAPH_REQUEST_TIMEOUT_SECS`). `explain` is on in development and off in
+production unless `CAREGRAPH_EXPLAIN_ENABLED=true`, and runs one at a time.
+`CAREGRAPH_RATE_LIMIT_RPS` and `_BURST` enable a per-caller token bucket (reads
+and writes budgeted separately; refusals carry a `retry-after-ms` trailer). The
+metrics port also serves `/healthz` (process and database), `/readyz` (models
+healthy, breaker closed, not draining) and `/startupz`. On SIGTERM the server
+reports not-ready, waits `CAREGRAPH_PRESTOP_DELAY_SECS`, finishes in-flight
+requests for at most `CAREGRAPH_DRAIN_DEADLINE_SECS`, waits for database work
+to finish, flushes the WAL and exits.
+
 **Container images.** `docker build --target runtime-reader` (no Python) or
 `--target runtime-writer` (Python + CPU torch + deployed models, the default)
 from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it

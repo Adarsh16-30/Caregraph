@@ -98,6 +98,11 @@ pub trait KvStore: Send + Sync {
         self.scan_from(cf, prefix, seek_key, visit)
     }
 
+    /// Forces the write-ahead log to stable storage.
+    fn flush_wal(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// The store's node-type cache, if it keeps one (see
     /// [`NodeTypeCache`](crate::storage::node_types::NodeTypeCache)).
     fn node_type_cache(&self) -> Option<&crate::storage::node_types::NodeTypeCache> {
@@ -256,6 +261,11 @@ impl RocksKv {
 }
 
 impl KvStore for RocksKv {
+    fn flush_wal(&self) -> Result<()> {
+        self.db.flush_wal(true)?;
+        Ok(())
+    }
+
     fn node_type_cache(&self) -> Option<&crate::storage::node_types::NodeTypeCache> {
         Some(&self.node_types)
     }

@@ -1,0 +1,265 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793251032,
+    "git_commit": "3ff90fe551131fc24aaeb4acbcc2cc9b4f7379c7",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --addr http://127.0.0.1:50071 --api-key p5-load-test-key --trace benchmarks/traces/diabetes130_full.jsonl --rates 100,500,1500,3000,6000 --duration-secs 15 --warmup-secs 3 --mix snapshot=85,traverse=10,similar=5,add_edge=0 --out-dir C:/Users/adars/AppData/Local/Temp/p5res/reads",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": null
+  },
+  "addr": "http://127.0.0.1:50071",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "add_edge": 0,
+    "similar": 5,
+    "snapshot": 85,
+    "traverse": 10
+  },
+  "arrivals": "constant",
+  "server_timestamps": false,
+  "duration_secs": 15,
+  "warmup_secs": 3,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 100.0,
+      "achieved_ok_rps": 100.0,
+      "sent": 1500,
+      "ok": 1500,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 1500,
+          "p50_ms": 1.207,
+          "p95_ms": 8.007,
+          "p99_ms": 14.423,
+          "p999_ms": 24.191,
+          "max_ms": 24.671,
+          "mean_ms": 1.9911459999999985
+        },
+        "similar": {
+          "count": 67,
+          "p50_ms": 0.469,
+          "p95_ms": 0.563,
+          "p99_ms": 1.294,
+          "p999_ms": 1.294,
+          "max_ms": 1.294,
+          "mean_ms": 0.47207462686567175
+        },
+        "snapshot": {
+          "count": 1300,
+          "p50_ms": 1.166,
+          "p95_ms": 2.369,
+          "p99_ms": 3.355,
+          "p999_ms": 7.555,
+          "max_ms": 7.767,
+          "mean_ms": 1.2798161538461525
+        },
+        "traverse": {
+          "count": 133,
+          "p50_ms": 8.479,
+          "p95_ms": 18.015,
+          "p99_ms": 24.191,
+          "p999_ms": 24.671,
+          "max_ms": 24.671,
+          "mean_ms": 9.709240601503762
+        }
+      }
+    },
+    {
+      "offered_rps": 500.0,
+      "achieved_ok_rps": 500.0,
+      "sent": 7500,
+      "ok": 7500,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 7,
+      "per_op": {
+        "all": {
+          "count": 7500,
+          "p50_ms": 0.449,
+          "p95_ms": 4.463,
+          "p99_ms": 8.423,
+          "p999_ms": 15.983,
+          "max_ms": 21.727,
+          "mean_ms": 0.973694933333333
+        },
+        "similar": {
+          "count": 393,
+          "p50_ms": 0.298,
+          "p95_ms": 0.505,
+          "p99_ms": 0.657,
+          "p999_ms": 19.007,
+          "max_ms": 19.007,
+          "mean_ms": 0.3833460559796438
+        },
+        "snapshot": {
+          "count": 6370,
+          "p50_ms": 0.432,
+          "p95_ms": 0.992,
+          "p99_ms": 1.65,
+          "p999_ms": 5.227,
+          "max_ms": 17.007,
+          "mean_ms": 0.5273770800627937
+        },
+        "traverse": {
+          "count": 737,
+          "p50_ms": 4.447,
+          "p95_ms": 10.439,
+          "p99_ms": 15.687,
+          "p999_ms": 21.727,
+          "max_ms": 21.727,
+          "mean_ms": 5.146085481682495
+        }
+      }
+    },
+    {
+      "offered_rps": 1500.0,
+      "achieved_ok_rps": 1500.0,
+      "sent": 22500,
+      "ok": 22500,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 22500,
+          "p50_ms": 0.277,
+          "p95_ms": 3.907,
+          "p99_ms": 6.575,
+          "p999_ms": 11.335,
+          "max_ms": 23.279,
+          "mean_ms": 0.706988622222222
+        },
+        "similar": {
+          "count": 1165,
+          "p50_ms": 0.194,
+          "p95_ms": 0.327,
+          "p99_ms": 0.66,
+          "p999_ms": 1.81,
+          "max_ms": 2.019,
+          "mean_ms": 0.21651416309012864
+        },
+        "snapshot": {
+          "count": 19056,
+          "p50_ms": 0.272,
+          "p95_ms": 0.476,
+          "p99_ms": 0.756,
+          "p999_ms": 1.638,
+          "max_ms": 4.299,
+          "mean_ms": 0.3027004617968094
+        },
+        "traverse": {
+          "count": 2279,
+          "p50_ms": 3.883,
+          "p95_ms": 8.207,
+          "p99_ms": 11.335,
+          "p999_ms": 17.727,
+          "max_ms": 23.279,
+          "mean_ms": 4.338194383501533
+        }
+      }
+    },
+    {
+      "offered_rps": 3000.0,
+      "achieved_ok_rps": 3000.0,
+      "sent": 45000,
+      "ok": 45000,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 45000,
+          "p50_ms": 0.238,
+          "p95_ms": 4.103,
+          "p99_ms": 7.595,
+          "p999_ms": 14.023,
+          "max_ms": 25.599,
+          "mean_ms": 0.718757177777777
+        },
+        "similar": {
+          "count": 2271,
+          "p50_ms": 0.156,
+          "p95_ms": 0.381,
+          "p99_ms": 0.83,
+          "p999_ms": 1.842,
+          "max_ms": 3.079,
+          "mean_ms": 0.19230999559665354
+        },
+        "snapshot": {
+          "count": 38255,
+          "p50_ms": 0.233,
+          "p95_ms": 0.525,
+          "p99_ms": 1.005,
+          "p999_ms": 2.391,
+          "max_ms": 5.295,
+          "mean_ms": 0.28007259181806315
+        },
+        "traverse": {
+          "count": 4474,
+          "p50_ms": 4.107,
+          "p95_ms": 9.231,
+          "p99_ms": 14.223,
+          "p999_ms": 24.463,
+          "max_ms": 25.599,
+          "mean_ms": 4.7369602145730925
+        }
+      }
+    },
+    {
+      "offered_rps": 6000.0,
+      "achieved_ok_rps": 6000.0,
+      "sent": 90000,
+      "ok": 90000,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 6353,
+      "per_op": {
+        "all": {
+          "count": 90000,
+          "p50_ms": 0.487,
+          "p95_ms": 159.999,
+          "p99_ms": 395.263,
+          "p999_ms": 607.231,
+          "max_ms": 1212.415,
+          "mean_ms": 20.32885975555554
+        },
+        "similar": {
+          "count": 4492,
+          "p50_ms": 0.307,
+          "p95_ms": 146.559,
+          "p99_ms": 356.095,
+          "p999_ms": 514.815,
+          "max_ms": 619.519,
+          "mean_ms": 17.755581923419403
+        },
+        "snapshot": {
+          "count": 76621,
+          "p50_ms": 0.467,
+          "p95_ms": 152.191,
+          "p99_ms": 377.855,
+          "p999_ms": 536.575,
+          "max_ms": 635.391,
+          "mean_ms": 18.55152362929226
+        },
+        "traverse": {
+          "count": 8887,
+          "p50_ms": 7.951,
+          "p95_ms": 258.175,
+          "p99_ms": 533.503,
+          "p999_ms": 771.583,
+          "max_ms": 1212.415,
+          "mean_ms": 36.953191403173165
+        }
+      }
+    }
+  ]
+}
