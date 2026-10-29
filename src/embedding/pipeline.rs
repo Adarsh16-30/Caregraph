@@ -36,6 +36,7 @@ use crate::embedding::model_bridge::EmbeddingModel;
 use crate::embedding::sequencer::{stage_hwm, Sequencer};
 use crate::embedding::state::{GraphMutation, MutationContext, ResolutionTruncation};
 use crate::error::Result;
+use crate::security::audit::{Fields as AuditFields, MutationAudit};
 use crate::storage::RocksKv;
 use crate::temporal::record::EdgeValue;
 use crate::types::{ModelKind, NodeId, Timestamp};
@@ -47,6 +48,14 @@ use crate::types::{ModelKind, NodeId, Timestamp};
 // retrying against the whole graph: affected nodes keep their pre-mutation
 // embedding, stale rather than wrong, `ctx.fallback` records that plainly, and
 // each stale node gets a durable repair marker (see `repair.rs`).
+
+/// Who is committing, for the mutation audit chain. When present, the audit
+/// record is staged into the same batch as the mutation itself.
+pub struct AuditContext<'a> {
+    pub chain: &'a MutationAudit,
+    pub principal: &'a str,
+    pub rpc: &'static str,
+}
 
 /// What one pass through the pipeline produced.
 pub struct PipelineOutcome {
@@ -130,6 +139,7 @@ pub fn run_mutation_pipeline(
     sequencer: &Sequencer,
     request_id: Option<&str>,
     explain: bool,
+    audit: Option<AuditContext<'_>>,
 ) -> Result<PipelineOutcome> {
     let admitted = admit_mutation(mutation, store, sequencer, request_id)?;
     execute_admitted(
@@ -142,6 +152,7 @@ pub fn run_mutation_pipeline(
         caps,
         sequencer,
         explain,
+        audit,
     )
 }
 
@@ -161,6 +172,7 @@ pub fn execute_admitted(
     caps: &Mutex<CapController>,
     sequencer: &Sequencer,
     explain: bool,
+    audit: Option<AuditContext<'_>>,
 ) -> Result<PipelineOutcome> {
     if let Some(replayed) = admitted.replay {
         return Ok(replayed);
@@ -204,6 +216,7 @@ pub fn execute_admitted(
 
     let ts = ticket.ts;
     let (a, b) = mutation.endpoints();
+    let (a_node, b_node) = (a, b);
     let policy = sequencer.policy();
     let expected_seq = sequencer.head();
     let outcome = StoredOutcome {
@@ -217,6 +230,9 @@ pub fn execute_admitted(
         expansion_capped: prepared.ctx.truncation.expansion_capped,
     };
 
+    let affected_count = prepared.ctx.affected.len() as u64;
+    let stale_embeddings = prepared.ctx.fallback;
+    let mut pending_audit = None;
     let ctx = committer.finish(prepared, edge_value, &mut |batch, store| {
         if policy != TsPolicy::Legacy {
             stage_hwm(batch, store, ts)?;
@@ -224,8 +240,33 @@ pub fn execute_admitted(
         if let Some(id) = request_id {
             idempotency::stage_outcome(batch, store, id, &outcome)?;
         }
+        if let Some(a) = &audit {
+            pending_audit = Some(a.chain.stage(
+                batch,
+                store,
+                AuditFields {
+                    ts_us: ts.as_u64(),
+                    principal: a.principal.to_string(),
+                    rpc: a.rpc.to_string(),
+                    request_id: request_id.unwrap_or_default().to_string(),
+                    src: a_node.as_u64(),
+                    dst: b_node.as_u64(),
+                    affected_count,
+                    outcome: if stale_embeddings {
+                        "committed_stale_embeddings".to_string()
+                    } else {
+                        "committed".to_string()
+                    },
+                    commit_seq: expected_seq,
+                },
+            )?);
+        }
         Ok(())
     })?;
+    // The batch is durable: the audit chain head may now move.
+    if let (Some(a), Some(p)) = (&audit, pending_audit) {
+        a.chain.advance(p);
+    }
     let commit_seq = sequencer.complete(ticket, (a, b));
 
     metrics

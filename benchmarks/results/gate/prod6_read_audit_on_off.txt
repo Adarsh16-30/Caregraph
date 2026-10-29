@@ -1,0 +1,31 @@
+    Finished `release` profile [optimized] target(s) in 1m 26s
+== audit_off
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 0.35ms  p95 3.99ms  p99 6.86ms  errors {}  dropped 0  late_slots 0
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 0.24ms  p95 4.09ms  p99 8.03ms  errors {}  dropped 0  late_slots 0
+-- offered 6000 req/s for 12s (+3s warm-up)
+   achieved 6000.0 ok/s  p50 0.42ms  p95 6.69ms  p99 11.69ms  errors {}  dropped 0  late_slots 0
+== audit_on
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 4.92ms  p95 118.46ms  p99 253.57ms  errors {}  dropped 0  late_slots 9
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 1.96ms  p95 25.26ms  p99 209.02ms  errors {}  dropped 0  late_slots 648
+-- offered 6000 req/s for 12s (+3s warm-up)
+   achieved 6000.0 ok/s  p50 2.35ms  p95 10.32ms  p99 16.69ms  errors {}  dropped 0  late_slots 979
+== audit_off
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 0.34ms  p95 4.03ms  p99 7.29ms  errors {}  dropped 0  late_slots 0
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 0.23ms  p95 4.07ms  p99 7.38ms  errors {}  dropped 0  late_slots 5
+-- offered 6000 req/s for 12s (+3s warm-up)
+   achieved 6000.0 ok/s  p50 0.41ms  p95 6.66ms  p99 12.02ms  errors {}  dropped 0  late_slots 2
+== audit_on
+-- offered 1000 req/s for 12s (+3s warm-up)
+   achieved 1000.0 ok/s  p50 1.23ms  p95 5.46ms  p99 9.20ms  errors {}  dropped 0  late_slots 8
+-- offered 3000 req/s for 12s (+3s warm-up)
+   achieved 3000.0 ok/s  p50 1.91ms  p95 9.02ms  p99 142.97ms  errors {}  dropped 0  late_slots 18
+-- offered 6000 req/s for 12s (+3s warm-up)
+   achieved 6000.0 ok/s  p50 2.32ms  p95 9.97ms  p99 16.18ms  errors {}  dropped 0  late_slots 22
+done
+exit=0

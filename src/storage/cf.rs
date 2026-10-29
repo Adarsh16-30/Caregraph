@@ -9,6 +9,7 @@
 //! | `CF_COMMIT_META`  | `[node_id \| timestamp_desc]`                     | dispatch decision + effective caps + attribution |
 //! | `CF_REPAIR`       | `[node_id \| timestamp_desc]`                     | stale-embedding marker (why, which model) |
 //! | `CF_META`         | byte-string key (`hwm`, `req:<id>`)               | commit high-water mark, idempotency records |
+//! | `CF_AUDIT`        | chain sequence number (u64 BE)                    | hash-chained audit record of a committed mutation |
 //!
 //! `CF_COMMIT_META` is a Phase 9 addition beyond PRD 3.3's four families. It
 //! carries the per-mutation provenance that makes an embedding *explainable*
@@ -39,12 +40,15 @@ pub const CF_REPAIR: &str = "cf_repair";
 /// high-water mark, request-id idempotency records. Plain byte-string keys, so
 /// no fixed-prefix extractor.
 pub const CF_META: &str = "cf_meta";
+/// Hash-chained audit records for committed mutations, keyed by chain sequence
+/// number (8 bytes, big endian). Written in the same batch as the mutation.
+pub const CF_AUDIT: &str = "cf_audit";
 
 /// Every column family CareGraph opens. Used both at open time and by the
 /// integration tests that assert all five exist. `create_missing_column_families`
 /// means an existing database on disk gains a newly-added family silently on
 /// its next open — nothing here needs a migration step.
-pub const ALL: [&str; 7] = [
+pub const ALL: [&str; 8] = [
     CF_EDGES,
     CF_REVERSE,
     CF_NODES,
@@ -52,6 +56,7 @@ pub const ALL: [&str; 7] = [
     CF_COMMIT_META,
     CF_REPAIR,
     CF_META,
+    CF_AUDIT,
 ];
 
 /// Options for a family whose keys carry a fixed-width prefix before the
@@ -93,7 +98,7 @@ pub fn descriptors() -> Vec<ColumnFamilyDescriptor> {
     let write_buffer = env_mb("CAREGRAPH_WRITE_BUFFER_MB", 64) << 20;
     ALL.iter()
         .map(|name| {
-            if *name == CF_META {
+            if *name == CF_META || *name == CF_AUDIT {
                 let mut opts = Options::default();
                 opts.set_compression_type(DBCompressionType::Lz4);
                 return ColumnFamilyDescriptor::new(*name, opts);

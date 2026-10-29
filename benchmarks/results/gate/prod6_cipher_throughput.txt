@@ -1,0 +1,42 @@
+=== NEW (RustCrypto aes)
+-- repetition 1
+     plain: ingest     374 ms (   161 MB/s)   100k point reads    242 ms
+ encrypted: ingest     386 ms (   156 MB/s)   100k point reads    233 ms
+-- repetition 2
+     plain: ingest     300 ms (   200 MB/s)   100k point reads    254 ms
+ encrypted: ingest     369 ms (   163 MB/s)   100k point reads    236 ms
+-- repetition 3
+     plain: ingest     344 ms (   174 MB/s)   100k point reads    230 ms
+ encrypted: ingest     399 ms (   150 MB/s)   100k point reads    235 ms
+=== OLD (hand-written aes)
+-- repetition 1
+     plain: ingest     376 ms (   160 MB/s)   100k point reads    240 ms
+ encrypted: ingest    1271 ms (    47 MB/s)   100k point reads    270 ms
+-- repetition 2
+     plain: ingest     295 ms (   203 MB/s)   100k point reads    269 ms
+ encrypted: ingest    1287 ms (    47 MB/s)   100k point reads    277 ms
+-- repetition 3
+     plain: ingest     271 ms (   221 MB/s)   100k point reads    231 ms
+ encrypted: ingest    1206 ms (    50 MB/s)   100k point reads    300 ms
+=== NEW again
+-- repetition 1
+     plain: ingest     357 ms (   168 MB/s)   100k point reads    232 ms
+ encrypted: ingest     387 ms (   155 MB/s)   100k point reads    257 ms
+-- repetition 2
+     plain: ingest     294 ms (   204 MB/s)   100k point reads    255 ms
+ encrypted: ingest     369 ms (   163 MB/s)   100k point reads    229 ms
+-- repetition 3
+     plain: ingest     326 ms (   184 MB/s)   100k point reads    231 ms
+ encrypted: ingest     336 ms (   179 MB/s)   100k point reads    243 ms
+=== OLD again
+-- repetition 1
+     plain: ingest     342 ms (   176 MB/s)   100k point reads    237 ms
+ encrypted: ingest    1265 ms (    47 MB/s)   100k point reads    334 ms
+-- repetition 2
+     plain: ingest     281 ms (   214 MB/s)   100k point reads    227 ms
+ encrypted: ingest    1215 ms (    49 MB/s)   100k point reads    291 ms
+-- repetition 3
+     plain: ingest     416 ms (   144 MB/s)   100k point reads    296 ms
+ encrypted: ingest    1344 ms (    45 MB/s)   100k point reads    317 ms
+done
+exit=0

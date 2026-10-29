@@ -43,9 +43,18 @@ pub struct Config {
     pub metrics_addr: SocketAddr,
     pub api_key: Option<String>,
     pub encryption_key_hex: Option<String>,
+    /// Key-encryption key file and wrapped data key: the alternative to
+    /// `encryption_key_hex` that allows rotating the KEK without re-encrypting.
+    pub kek_file: Option<PathBuf>,
+    pub wrapped_dek: Option<PathBuf>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_client_ca: Option<PathBuf>,
+    pub tls_crl: Option<PathBuf>,
+    pub tokens_file: Option<PathBuf>,
+    /// Directory of this pod's own audit database (reads, denials, admin).
+    pub audit_dir: Option<PathBuf>,
+    pub pod_name: String,
     pub graphsage_model: String,
     pub gat_model: String,
     pub ml_dir: PathBuf,
@@ -195,9 +204,18 @@ impl Config {
             metrics_addr: addr("CAREGRAPH_METRICS_ADDR", "0.0.0.0:9100")?,
             api_key: secret(src, "CAREGRAPH_API_KEY")?,
             encryption_key_hex: secret(src, "CAREGRAPH_ENCRYPTION_KEY")?,
+            kek_file: src.get("CAREGRAPH_KEK_FILE").map(PathBuf::from),
+            wrapped_dek: src.get("CAREGRAPH_WRAPPED_DEK").map(PathBuf::from),
             tls_cert: src.get("CAREGRAPH_TLS_CERT").map(PathBuf::from),
             tls_key: src.get("CAREGRAPH_TLS_KEY").map(PathBuf::from),
             tls_client_ca: src.get("CAREGRAPH_TLS_CLIENT_CA").map(PathBuf::from),
+            tls_crl: src.get("CAREGRAPH_TLS_CRL").map(PathBuf::from),
+            tokens_file: src.get("CAREGRAPH_TOKENS_FILE").map(PathBuf::from),
+            audit_dir: src.get("CAREGRAPH_AUDIT_DIR").map(PathBuf::from),
+            pod_name: src
+                .get("CAREGRAPH_POD_NAME")
+                .or_else(|| src.get("HOSTNAME"))
+                .unwrap_or_else(|| "caregraph".to_string()),
             graphsage_model: src
                 .get("CAREGRAPH_GRAPHSAGE_MODEL")
                 .unwrap_or_else(|| DEFAULT_GRAPHSAGE_MODEL.to_string()),
@@ -239,13 +257,21 @@ impl Config {
         if let Some(hex) = &self.encryption_key_hex {
             crate::storage::decode_hex_key(hex).map_err(anyhow::Error::msg)?;
         }
+        if self.kek_file.is_some() != self.wrapped_dek.is_some() {
+            bail!("CAREGRAPH_KEK_FILE and CAREGRAPH_WRAPPED_DEK must be set together");
+        }
+        if self.kek_file.is_some() && self.encryption_key_hex.is_some() {
+            bail!("set either CAREGRAPH_ENCRYPTION_KEY or the KEK/wrapped-key pair, not both");
+        }
         if self.environment == Environment::Production {
             let mut problems = Vec::new();
             if tls_set != 3 {
                 problems.push("mTLS is required (set the TLS cert, key and client CA)");
             }
-            if self.encryption_key_hex.is_none() {
-                problems.push("encryption at rest is required (CAREGRAPH_ENCRYPTION_KEY[_FILE])");
+            if self.encryption_key_hex.is_none() && self.kek_file.is_none() {
+                problems.push(
+                    "encryption at rest is required (CAREGRAPH_ENCRYPTION_KEY[_FILE], or                      CAREGRAPH_KEK_FILE with CAREGRAPH_WRAPPED_DEK)",
+                );
             }
             if !self.sync_writes {
                 problems.push("CAREGRAPH_SYNC_WRITES must be true");
@@ -255,6 +281,9 @@ impl Config {
             }
             if self.rbac_policy.is_none() {
                 problems.push("CAREGRAPH_RBAC_POLICY is required");
+            }
+            if self.audit_dir.is_none() {
+                problems.push("CAREGRAPH_AUDIT_DIR is required (read auditing is fail-closed)");
             }
             if !problems.is_empty() {
                 bail!("refusing to start in production: {}", problems.join("; "));
@@ -278,9 +307,15 @@ impl Config {
              metrics_addr     = {}\n\
              api_key          = {}\n\
              encryption_key   = {}\n\
+             kek_file         = {}\n\
+             wrapped_dek      = {}\n\
              tls_cert         = {}\n\
              tls_key          = {}\n\
              tls_client_ca    = {}\n\
+             tls_crl          = {}\n\
+             tokens_file      = {}\n\
+             audit_dir        = {}\n\
+             pod_name         = {}\n\
              graphsage_model  = {}\n\
              gat_model        = {}\n\
              ml_dir           = {}\n\
@@ -302,9 +337,15 @@ impl Config {
             self.metrics_addr,
             red(&self.api_key),
             red(&self.encryption_key_hex),
+            path(&self.kek_file),
+            path(&self.wrapped_dek),
             path(&self.tls_cert),
             path(&self.tls_key),
             path(&self.tls_client_ca),
+            path(&self.tls_crl),
+            path(&self.tokens_file),
+            path(&self.audit_dir),
+            self.pod_name,
             self.graphsage_model,
             self.gat_model,
             self.ml_dir.display(),
@@ -350,7 +391,8 @@ mod tests {
             ("CAREGRAPH_TLS_KEY", "/k"),
             ("CAREGRAPH_TLS_CLIENT_CA", "/ca"),
             ("CAREGRAPH_ENCRYPTION_KEY", KEY),
-            ("CAREGRAPH_RBAC_POLICY", "/rbac.yaml"),
+            ("CAREGRAPH_RBAC_POLICY", "/rbac.toml"),
+            ("CAREGRAPH_AUDIT_DIR", "/audit"),
         ])
     }
 
@@ -377,6 +419,7 @@ mod tests {
             ("CAREGRAPH_TLS_CERT", "TLS"),
             ("CAREGRAPH_ENCRYPTION_KEY", "encryption"),
             ("CAREGRAPH_RBAC_POLICY", "RBAC"),
+            ("CAREGRAPH_AUDIT_DIR", "AUDIT_DIR"),
         ] {
             let mut m = prod_ok();
             m.remove(remove);

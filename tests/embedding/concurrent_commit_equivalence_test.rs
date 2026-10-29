@@ -227,6 +227,7 @@ fn apply(
                     &caps,
                     &sequencer,
                     false,
+                    None,
                 )
                 .expect("a well-formed mutation must commit");
                 assert!(!out.ctx.fallback, "unexpected fallback on a small fixture");

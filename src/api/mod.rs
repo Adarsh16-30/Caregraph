@@ -61,10 +61,13 @@ use crate::embedding::caps::CapController;
 use crate::embedding::metrics::EmbeddingMetrics;
 use crate::embedding::model_bridge::EmbeddingModel;
 use crate::embedding::pipeline::run_mutation_pipeline;
+use crate::embedding::pipeline::AuditContext;
 use crate::embedding::sequencer::Sequencer;
 use crate::embedding::state::GraphMutation;
 use crate::error::CareGraphError;
 use crate::graph::{Direction, SnapshotReader, TraversalLimits, TraversalRequest, Traverser};
+use crate::security::audit::{AuditLog, AuditUnavailable, Fields as AuditFields, MutationAudit};
+use crate::security::{PeerInfo, Policy, PolicyHandle, Rpc, TokenHandle};
 use crate::server::{InputLimits, ModelStatus, RateLimiter, RpcClass};
 use crate::storage::RocksKv;
 use crate::temporal::record::EdgeValue;
@@ -89,6 +92,12 @@ pub struct ServiceOptions {
     pub ts_policy: crate::config::TsPolicy,
     pub input: InputLimits,
     pub rate_limiter: Option<RateLimiter>,
+    /// Who may call what. `None` is the development policy: every
+    /// authenticated caller may call everything.
+    pub policy: Option<std::sync::Arc<PolicyHandle>>,
+    /// Per-pod audit log for reads and denials. `None` disables read auditing
+    /// (development); production requires it.
+    pub audit_log: Option<std::sync::Arc<AuditLog>>,
 }
 
 impl Default for ServiceOptions {
@@ -97,6 +106,8 @@ impl Default for ServiceOptions {
             ts_policy: crate::config::TsPolicy::Legacy,
             input: InputLimits::default(),
             rate_limiter: None,
+            policy: None,
+            audit_log: None,
         }
     }
 }
@@ -112,6 +123,16 @@ fn rate_limited(wait: std::time::Duration) -> Status {
     status
 }
 
+/// A short, unique-enough identifier tying a client-visible error to its log
+/// line. Not a secret and not security-relevant.
+fn error_reference() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let t = Timestamp::now().as_u64();
+    format!("{:08x}", (t ^ n.rotate_left(32)) as u32)
+}
+
 fn internal(err: CareGraphError) -> Status {
     match err {
         // Retryable: workers restarting, breaker open, queue full.
@@ -119,7 +140,13 @@ fn internal(err: CareGraphError) -> Status {
         CareGraphError::Timeout(m) => Status::deadline_exceeded(m),
         // Ordering-rule violations: retry with a fresh timestamp / later.
         CareGraphError::Aborted(m) => Status::aborted(m),
-        other => Status::internal(other.to_string()),
+        // The detail goes to the server log under a reference the client can
+        // quote; the client sees nothing about storage keys, paths or models.
+        other => {
+            let reference = error_reference();
+            tracing::error!(%reference, error = %other, "internal error");
+            Status::internal(format!("internal error (reference {reference})"))
+        }
     }
 }
 
@@ -239,6 +266,9 @@ struct Inner {
     sequencer: Sequencer,
     input: InputLimits,
     rate_limiter: Option<RateLimiter>,
+    policy: std::sync::Arc<PolicyHandle>,
+    mutation_audit: std::sync::Arc<MutationAudit>,
+    audit_log: Option<std::sync::Arc<AuditLog>>,
     /// Attribution costs tens of seconds per request; one at a time.
     explain_permits: std::sync::Arc<tokio::sync::Semaphore>,
     read_capacity: usize,
@@ -306,6 +336,7 @@ impl CareGraphApi {
         options: ServiceOptions,
     ) -> crate::error::Result<Self> {
         let sequencer = Sequencer::open(&store, options.ts_policy)?;
+        let mutation_audit = MutationAudit::open(&store)?;
         let read_capacity = env_permits("CAREGRAPH_MAX_CONCURRENT_READS", 512);
         let write_capacity = env_permits("CAREGRAPH_MAX_CONCURRENT_WRITES", 64);
         let graphsage_model = graphsage_model_id.map(EmbeddingModel::spawn).transpose()?;
@@ -329,6 +360,11 @@ impl CareGraphApi {
                 sequencer,
                 input: options.input,
                 rate_limiter: options.rate_limiter,
+                policy: options
+                    .policy
+                    .unwrap_or_else(|| PolicyHandle::fixed(Policy::allow_all())),
+                mutation_audit,
+                audit_log: options.audit_log,
                 explain_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
                 read_capacity,
                 write_capacity,
@@ -336,17 +372,64 @@ impl CareGraphApi {
         })
     }
 
-    /// Charges one request against the caller's rate-limit budget.
-    fn admit<T>(&self, request: &Request<T>, class: RpcClass) -> Result<(), Status> {
-        let Some(limiter) = &self.inner.rate_limiter else {
-            return Ok(());
-        };
-        let principal = request
+    /// The caller's name, as set by the authentication layer.
+    fn principal<T>(request: &Request<T>) -> &str {
+        request
             .extensions()
             .get::<Principal>()
             .map(|p| p.0.as_ref())
-            .unwrap_or("anonymous");
+            .unwrap_or("anonymous")
+    }
+
+    /// Admission for every RPC: the caller's role must permit it, then the
+    /// request is charged against the caller's rate-limit budget. A denial says
+    /// nothing about which roles exist or what the caller would need.
+    fn admit<T>(&self, request: &Request<T>, rpc: Rpc, class: RpcClass) -> Result<(), Status> {
+        let principal = Self::principal(request);
+        if !self.inner.policy.allows(principal, rpc) {
+            tracing::warn!(rpc = rpc.name(), "request denied by access policy");
+            if let Some(log) = &self.inner.audit_log {
+                log.record_nowait(AuditFields {
+                    principal: principal.to_string(),
+                    rpc: rpc.name().to_string(),
+                    outcome: "denied".to_string(),
+                    ..AuditFields::default()
+                });
+            }
+            return Err(Status::permission_denied("not permitted"));
+        }
+        let Some(limiter) = &self.inner.rate_limiter else {
+            return Ok(());
+        };
         limiter.check(principal, class).map_err(rate_limited)
+    }
+
+    /// Records that `principal` is reading `subject`, durably, before the read
+    /// happens. Fail-closed: if the audit log cannot take the event the read is
+    /// refused, never served unaudited.
+    async fn audit_read(&self, principal: &str, rpc: Rpc, subject: u64) -> Result<(), Status> {
+        let Some(log) = &self.inner.audit_log else {
+            return Ok(());
+        };
+        log.record_durable(AuditFields {
+            principal: principal.to_string(),
+            rpc: rpc.name().to_string(),
+            src: subject,
+            outcome: "requested".to_string(),
+            ..AuditFields::default()
+        })
+        .await
+        .map_err(|e| {
+            match &e {
+                AuditUnavailable::QueueFull => {
+                    tracing::warn!("audit queue full; refusing read")
+                }
+                AuditUnavailable::Failed(m) => {
+                    tracing::error!(error = %m, "audit write failed; refusing read")
+                }
+            }
+            Status::unavailable("audit log unavailable; the request was not served")
+        })
     }
 
     /// Each deployed model's worker-pool state, for readiness and metrics.
@@ -422,7 +505,11 @@ impl CareGraphApi {
             f(&inner)
         })
         .await
-        .map_err(|e| Status::internal(format!("request task failed: {e}")))?
+        .map_err(|e| {
+            let reference = error_reference();
+            tracing::error!(%reference, error = %e, "request task failed");
+            Status::internal(format!("internal error (reference {reference})"))
+        })?
     }
 
     fn model_in(inner: &Inner, kind: ModelKind) -> Result<&EmbeddingModel, Status> {
@@ -440,6 +527,7 @@ impl CareGraphApi {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_mutation(
         &self,
         mutation: GraphMutation,
@@ -447,6 +535,8 @@ impl CareGraphApi {
         model_kind: ModelKind,
         explain: bool,
         request_id: String,
+        principal: String,
+        rpc: Rpc,
     ) -> Result<MutationResponse, Status> {
         // GCN has no trained, deployed model anywhere in this codebase (only
         // GraphSAGE and GAT were ever trained — see ml/train_graphsage.py,
@@ -501,6 +591,11 @@ impl CareGraphApi {
                 &inner.sequencer,
                 request_id,
                 explain,
+                Some(AuditContext {
+                    chain: &inner.mutation_audit,
+                    principal: &principal,
+                    rpc: rpc.name(),
+                }),
             )
             .map_err(internal)?;
             let ctx = &outcome.ctx;
@@ -526,7 +621,8 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<AddEdgeRequest>,
     ) -> Result<Response<MutationResponse>, Status> {
-        self.admit(&request, RpcClass::Write)?;
+        self.admit(&request, Rpc::AddEdge, RpcClass::Write)?;
+        let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
         let edge_type = proto_edge_type(req.edge_type)?;
         let model_kind = proto_model_kind(req.model)?;
@@ -548,6 +644,8 @@ impl CareGraphService for CareGraphApi {
                 model_kind,
                 req.explain,
                 req.request_id,
+                principal,
+                Rpc::AddEdge,
             )
             .await?;
         Ok(Response::new(response))
@@ -557,7 +655,8 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<RemoveEdgeRequest>,
     ) -> Result<Response<MutationResponse>, Status> {
-        self.admit(&request, RpcClass::Write)?;
+        self.admit(&request, Rpc::RemoveEdge, RpcClass::Write)?;
+        let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
         let edge_type = proto_edge_type(req.edge_type)?;
         self.inner
@@ -580,6 +679,8 @@ impl CareGraphService for CareGraphApi {
                 model_kind,
                 req.explain,
                 req.request_id,
+                principal,
+                Rpc::RemoveEdge,
             )
             .await?;
         Ok(Response::new(response))
@@ -589,8 +690,11 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<TraverseRequest>,
     ) -> Result<Response<TraverseResponse>, Status> {
-        self.admit(&request, RpcClass::Read)?;
+        self.admit(&request, Rpc::Traverse, RpcClass::Read)?;
+        let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.audit_read(&principal, Rpc::Traverse, req.start)
+            .await?;
 
         let direction = match req.direction() {
             proto::Direction::Outgoing => Direction::Outgoing,
@@ -660,8 +764,11 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<SnapshotRequest>,
     ) -> Result<Response<SnapshotResponse>, Status> {
-        self.admit(&request, RpcClass::Read)?;
+        self.admit(&request, Rpc::Snapshot, RpcClass::Read)?;
+        let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.audit_read(&principal, Rpc::Snapshot, req.subject)
+            .await?;
         let mut edge_types = Vec::new();
         for raw in &req.edge_types {
             edge_types.push(proto_edge_type(*raw)?);
@@ -716,8 +823,11 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<SimilarCarePathwaysRequest>,
     ) -> Result<Response<SimilarCarePathwaysResponse>, Status> {
-        self.admit(&request, RpcClass::Read)?;
+        self.admit(&request, Rpc::SimilarCarePathways, RpcClass::Read)?;
+        let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.audit_read(&principal, Rpc::SimilarCarePathways, req.node_id)
+            .await?;
         let top_k = clamp_top_k(req.top_k)?;
 
         let (node, as_of) = (NodeId(req.node_id), Timestamp(req.as_of_us));
@@ -752,8 +862,11 @@ impl CareGraphService for CareGraphApi {
         &self,
         request: Request<SimilarityDeltaRequest>,
     ) -> Result<Response<SimilarityDeltaResponse>, Status> {
-        self.admit(&request, RpcClass::Read)?;
+        self.admit(&request, Rpc::SimilarityDelta, RpcClass::Read)?;
+        let principal = Self::principal(&request).to_string();
         let req = request.into_inner();
+        self.audit_read(&principal, Rpc::SimilarityDelta, req.node_id)
+            .await?;
         let top_k = clamp_top_k(req.top_k)?;
 
         let (node, from, to, min_abs) = (
@@ -835,6 +948,59 @@ impl tonic::service::Interceptor for AuthInterceptor {
         } else {
             Err(Status::unauthenticated("invalid bearer token"))
         }
+    }
+}
+
+/// Authentication for production: the caller's identity comes from the client
+/// certificate the TLS layer already verified, optionally backed by a hashed
+/// bearer token that must belong to the *same* principal. A token alone never
+/// authenticates, and a certificate with no usable name is refused.
+#[derive(Clone)]
+pub struct MutualTlsInterceptor {
+    tokens: Option<std::sync::Arc<TokenHandle>>,
+}
+
+impl MutualTlsInterceptor {
+    pub fn new(tokens: Option<std::sync::Arc<TokenHandle>>) -> Self {
+        MutualTlsInterceptor { tokens }
+    }
+}
+
+impl tonic::service::Interceptor for MutualTlsInterceptor {
+    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
+        let principal = request
+            .extensions()
+            .get::<PeerInfo>()
+            .and_then(|p| p.principal.clone())
+            .ok_or_else(|| {
+                Status::unauthenticated("a client certificate with an identity is required")
+            })?;
+
+        if let Some(tokens) = &self.tokens {
+            let presented = request
+                .metadata()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .ok_or_else(|| Status::unauthenticated("a bearer token is required"))?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let verified = tokens
+                .verify(presented, now)
+                .ok_or_else(|| Status::unauthenticated("invalid or expired token"))?;
+            if verified.principal != principal {
+                // Same message as any other bad token: do not confirm that the
+                // token itself was real.
+                return Err(Status::unauthenticated("invalid or expired token"));
+            }
+        }
+
+        request
+            .extensions_mut()
+            .insert(Principal(std::sync::Arc::from(principal.as_str())));
+        Ok(request)
     }
 }
 

@@ -179,6 +179,15 @@ reports not-ready, waits `CAREGRAPH_PRESTOP_DELAY_SECS`, finishes in-flight
 requests for at most `CAREGRAPH_DRAIN_DEADLINE_SECS`, waits for database work
 to finish, flushes the WAL and exits.
 
+**Security.** Production mode requires mutual TLS 1.3 (certificates reload without a
+restart), a role policy (`CAREGRAPH_RBAC_POLICY`: who is a reader, writer, admin or
+replicator, keyed by the client certificate's name), an encryption key, and an audit
+directory. Optional hashed bearer tokens add a second factor tied to the same
+identity. Every committed mutation writes a hash-chained audit record in the same
+atomic batch; every read is recorded durably before it is served and is refused if it
+cannot be. Encryption at rest can use a wrapped data key so the key-encryption key
+rotates without re-encrypting the database. See [docs/security.md](docs/security.md).
+
 **Container images.** `docker build --target runtime-reader` (no Python) or
 `--target runtime-writer` (Python + CPU torch + deployed models, the default)
 from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it

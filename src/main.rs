@@ -10,44 +10,42 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
-use caregraph::api::{AuthInterceptor, CareGraphApi, ServiceOptions};
+use caregraph::api::{AuthInterceptor, CareGraphApi, MutualTlsInterceptor, ServiceOptions};
 use caregraph::config::{Config, Layered, ProcessEnv};
+use caregraph::security::audit::AuditLog;
+use caregraph::security::{tls, PolicyHandle, TlsPaths, TlsState, TokenHandle};
 use caregraph::server::shutdown::{run_until_shutdown, wait_for_signal};
 use caregraph::server::{Health, PoolCollector, RateLimiter};
 use caregraph::storage::{cf, decode_hex_key, RocksKv};
 use caregraph::Timestamp;
-use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
+use tonic::transport::Server;
 
 fn deployed(cfg: &Config, model_id: &str) -> bool {
     cfg.model_dir(model_id).join("model.pt").exists()
 }
 
-/// Builds mTLS config when all three PEM paths are configured (`Config`
+/// Loads mutual-TLS state when all three PEM paths are configured (`Config`
 /// already refused partial configuration). Plaintext gRPC is only reachable in
 /// development; production validation rejects it before we get here.
-fn tls_config(cfg: &Config) -> anyhow::Result<Option<ServerTlsConfig>> {
-    let (Some(cert_path), Some(key_path), Some(ca_path)) =
+fn tls_state(cfg: &Config) -> anyhow::Result<Option<Arc<TlsState>>> {
+    let (Some(cert), Some(key), Some(client_ca)) =
         (&cfg.tls_cert, &cfg.tls_key, &cfg.tls_client_ca)
     else {
         tracing::warn!(
-            "mTLS is not configured — the gRPC listener is plaintext. Set CAREGRAPH_TLS_CERT, \
-             CAREGRAPH_TLS_KEY and CAREGRAPH_TLS_CLIENT_CA (PEM paths) to enable it; production \
-             mode requires it."
+            "mTLS is not configured: the gRPC listener is plaintext and callers authenticate \
+             with the shared CAREGRAPH_API_KEY. Set CAREGRAPH_TLS_CERT, CAREGRAPH_TLS_KEY and \
+             CAREGRAPH_TLS_CLIENT_CA (PEM paths) to enable it; production mode requires it."
         );
         return Ok(None);
     };
-    let cert = std::fs::read(cert_path)
-        .with_context(|| format!("reading TLS cert at {}", cert_path.display()))?;
-    let key = std::fs::read(key_path)
-        .with_context(|| format!("reading TLS key at {}", key_path.display()))?;
-    let ca = std::fs::read(ca_path)
-        .with_context(|| format!("reading client CA at {}", ca_path.display()))?;
-    tracing::info!("mTLS enabled: client certificates will be required and verified");
-    Ok(Some(
-        ServerTlsConfig::new()
-            .identity(Identity::from_pem(cert, key))
-            .client_ca_root(Certificate::from_pem(ca)),
-    ))
+    let state = TlsState::load(TlsPaths {
+        cert: cert.clone(),
+        key: key.clone(),
+        client_ca: client_ca.clone(),
+        crl: cfg.tls_crl.clone(),
+    })?;
+    tracing::info!("mTLS enabled: client certificates are required and verified (TLS 1.3)");
+    Ok(Some(state))
 }
 
 /// Parses `--config <path>` (or `CAREGRAPH_CONFIG`) and `--print-config`.
@@ -114,18 +112,36 @@ async fn main() -> anyhow::Result<()> {
     // Rule 8: real encryption at rest. Production refuses to start without a
     // key (Config::validate); in development an unset key warns and runs
     // unencrypted, while a malformed key is always a hard error.
-    let store = match &cfg.encryption_key_hex {
-        Some(hex) => {
-            let key = decode_hex_key(hex).map_err(anyhow::Error::msg)?;
+    // The key is either given directly or unwrapped from a stored, wrapped data
+    // key with a key-encryption key; either way it is held only for the open.
+    let dek: Option<caregraph::security::keys::SecretKey> = match (&cfg.kek_file, &cfg.wrapped_dek)
+    {
+        (Some(kek), Some(wrapped)) => {
+            let provider = caregraph::security::keys::FileKekProvider::new(kek);
+            Some(
+                caregraph::security::keys::load_dek(&provider, wrapped)
+                    .context("unwrapping the data-encryption key")?,
+            )
+        }
+        _ => cfg
+            .encryption_key_hex
+            .as_deref()
+            .map(|hex| decode_hex_key(hex).map(zeroize::Zeroizing::new))
+            .transpose()
+            .map_err(anyhow::Error::msg)?,
+    };
+    let store = match &dek {
+        Some(key) => {
             tracing::info!("encryption at rest enabled (AES-256-CTR, Rule 8)");
-            RocksKv::open_encrypted(&path, &key)
+            RocksKv::open_encrypted(&path, key.as_ref())
                 .with_context(|| format!("opening encrypted RocksDB at {path}"))?
         }
         None => {
             tracing::warn!(
-                "CAREGRAPH_ENCRYPTION_KEY is not set — database at {path} is unencrypted. \
-                 Set it to a real AES-256 key to enable Rule 8's encryption at rest:\n\n    \
-                 export CAREGRAPH_ENCRYPTION_KEY=\"$(openssl rand -hex 32)\"\n"
+                "no encryption key is configured — database at {path} is unencrypted.                  Set CAREGRAPH_ENCRYPTION_KEY to a real AES-256 key to enable Rule 8's                  encryption at rest:
+
+                     export CAREGRAPH_ENCRYPTION_KEY=\"$(openssl rand -hex 32)\"
+"
             );
             RocksKv::open(&path).with_context(|| format!("opening RocksDB at {path}"))?
         }
@@ -138,14 +154,41 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Rule 2's own honesty standard applied to auth: a server that "has auth"
-    // but defaults it to open when unconfigured is a fake auth endpoint.
-    let Some(api_key) = cfg.api_key.clone() else {
+    // but defaults it to open when unconfigured is a fake auth endpoint. With
+    // mTLS the client certificate is the credential; without it the shared key
+    // is, and it must be set.
+    let tls = tls_state(&cfg)?;
+    let api_key = cfg.api_key.clone();
+    if tls.is_none() && api_key.is_none() {
         bail!(
-            "CAREGRAPH_API_KEY is not set. The gRPC API layer requires an explicit bearer \
-             token before it will serve any RPC — an unset key is refused rather than \
+            "CAREGRAPH_API_KEY is not set. Without mTLS the gRPC API layer requires an explicit \
+             bearer token before it will serve any RPC; an unset key is refused rather than \
              defaulted to \"auth disabled\". Set it to a real secret:\n\n    \
              export CAREGRAPH_API_KEY=\"$(openssl rand -hex 32)\"\n"
         );
+    }
+
+    let policy = match &cfg.rbac_policy {
+        Some(path) => {
+            let handle = PolicyHandle::from_file(path)?;
+            tokio::spawn(handle.clone().watch(std::time::Duration::from_secs(5)));
+            tracing::info!(path = %path.display(), "RBAC policy loaded (watching for changes)");
+            Some(handle)
+        }
+        None => {
+            tracing::warn!(
+                "no RBAC policy configured: every authenticated caller may call every RPC"
+            );
+            None
+        }
+    };
+    let tokens = match &cfg.tokens_file {
+        Some(path) => {
+            let handle = TokenHandle::from_file(path)?;
+            tokio::spawn(handle.clone().watch(std::time::Duration::from_secs(5)));
+            Some(handle)
+        }
+        None => None,
     };
 
     let graphsage_deployed = deployed(&cfg, &cfg.graphsage_model);
@@ -159,6 +202,35 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let registry = prometheus::Registry::new();
+    let audit_log = match &cfg.audit_dir {
+        Some(dir) => {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("creating audit directory {}", dir.display()))?;
+            let audit_store = match &dek {
+                Some(key) => RocksKv::open_encrypted(dir, key.as_ref()),
+                None => RocksKv::open(dir),
+            }
+            .with_context(|| format!("opening audit database at {}", dir.display()))?;
+            let log = AuditLog::start(audit_store, &cfg.pod_name, 4096)
+                .context("starting the audit log")?;
+            // Periodic anchor: ship these lines to write-once storage so the
+            // chain head cannot be quietly rewound.
+            let anchor = log.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    let (seq, head) = anchor.head();
+                    tracing::info!(target: "audit", pod = anchor.pod(), seq, head = %head, "audit_anchor");
+                }
+            });
+            tracing::info!(dir = %dir.display(), "read auditing enabled (fail-closed)");
+            Some(log)
+        }
+        None => {
+            tracing::warn!("CAREGRAPH_AUDIT_DIR is not set: reads and denials are NOT audited");
+            None
+        }
+    };
     let api = CareGraphApi::with_options(
         store,
         graphsage_deployed.then_some(cfg.graphsage_model.as_str()),
@@ -168,6 +240,8 @@ async fn main() -> anyhow::Result<()> {
             ts_policy: cfg.ts_policy,
             input: cfg.input.clone(),
             rate_limiter: RateLimiter::new(cfg.server.rate_limit_rps, cfg.server.rate_limit_burst),
+            policy,
+            audit_log,
         },
     )
     .context("building the gRPC service")?;
@@ -208,12 +282,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(%metrics_addr, "serving /metrics, /healthz, /readyz, /startupz");
 
     let limits = cfg.server.clone();
-    let service = tonic::service::interceptor::InterceptedService::new(
+    let service_server = || {
         caregraph::api::proto::care_graph_service_server::CareGraphServiceServer::new(api.clone())
             .max_decoding_message_size(limits.max_decoding_bytes)
-            .max_encoding_message_size(limits.max_encoding_bytes),
-        AuthInterceptor::new(api_key),
-    );
+            .max_encoding_message_size(limits.max_encoding_bytes)
+    };
 
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
@@ -248,23 +321,54 @@ async fn main() -> anyhow::Result<()> {
         .http2_keepalive_interval(Some(limits.http2_keepalive_interval))
         .http2_keepalive_timeout(Some(limits.http2_keepalive_timeout))
         .tcp_nodelay(true);
-    if let Some(tls) = tls_config(&cfg)? {
-        server_builder = server_builder.tls_config(tls).context("configuring mTLS")?;
-    }
 
     health.mark_started();
-    let outcome = run_until_shutdown(
-        move |stop| {
-            server_builder
-                .add_service(health_service)
-                .add_service(service)
-                .serve_with_shutdown(addr, stop)
-        },
-        wait_for_signal(),
-        &health,
-        &limits,
-    )
-    .await?;
+    let outcome = match (tls, api_key) {
+        (Some(tls), _) => {
+            tls.register_metrics(&registry)
+                .context("registering TLS metrics")?;
+            tokio::spawn(tls.clone().watch(std::time::Duration::from_secs(10)));
+            let listener = tokio::net::TcpListener::bind(addr)
+                .await
+                .with_context(|| format!("binding {addr}"))?;
+            let incoming = tls::incoming(listener, tls, std::time::Duration::from_secs(10));
+            let service = tonic::service::interceptor::InterceptedService::new(
+                service_server(),
+                MutualTlsInterceptor::new(tokens),
+            );
+            run_until_shutdown(
+                move |stop| {
+                    server_builder
+                        .add_service(health_service)
+                        .add_service(service)
+                        .serve_with_incoming_shutdown(incoming, stop)
+                },
+                wait_for_signal(),
+                &health,
+                &limits,
+            )
+            .await?
+        }
+        (None, Some(key)) => {
+            let service = tonic::service::interceptor::InterceptedService::new(
+                service_server(),
+                AuthInterceptor::new(key),
+            );
+            run_until_shutdown(
+                move |stop| {
+                    server_builder
+                        .add_service(health_service)
+                        .add_service(service)
+                        .serve_with_shutdown(addr, stop)
+                },
+                wait_for_signal(),
+                &health,
+                &limits,
+            )
+            .await?
+        }
+        (None, None) => unreachable!("checked above: plaintext requires CAREGRAPH_API_KEY"),
+    };
     tracing::info!(?outcome, "gRPC server stopped");
 
     // Requests whose clients went away keep running on the blocking pool;

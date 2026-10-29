@@ -24,11 +24,11 @@ fn all_column_families_are_open() {
     // not drift: Phase 9's `CF_COMMIT_META` (per-mutation dispatch / cap /
     // attribution provenance), and production hardening's `CF_REPAIR` (durable
     // stale-embedding markers) and `CF_META` (commit high-water mark and
-    // idempotency records).
+    // idempotency records) and `CF_AUDIT` (the hash-chained mutation audit log).
     assert_eq!(
         cf::ALL.len(),
-        7,
-        "PRD 3.3's four families plus CF_COMMIT_META, CF_REPAIR and CF_META"
+        8,
+        "PRD 3.3's four families plus CF_COMMIT_META, CF_REPAIR, CF_META and CF_AUDIT"
     );
 }
 

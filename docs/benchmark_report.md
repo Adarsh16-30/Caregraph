@@ -1070,3 +1070,46 @@ What this shows, and what it does not:
   than dropped.
 - The mutation path's overload behaviour is unchanged from section 10.2: the
   write bulkhead refuses in about 0.4 ms.
+
+### 10.5 Cost of the security work (P6)
+
+**Encryption at rest, old cipher against new.** The hand-written AES was replaced
+by the RustCrypto `aes` crate. Same machine, same code, same workload (300,000
+puts of 200-byte values in 1,000-entry batches, flush, then 100,000 random point
+reads), alternating the two builds twice with three repetitions each
+(`prod6_cipher_throughput.txt`; the test is `encrypted_storage_throughput` in
+`tests/integration/encryption_at_rest.rs`).
+
+| | plain | old cipher | new cipher |
+|---|---|---|---|
+| ingest + flush, 300k puts | 271-416 ms | 1,206-1,344 ms (45-50 MB/s) | **336-399 ms (150-179 MB/s)** |
+| 100k point reads | 227-296 ms | 270-334 ms | 229-257 ms |
+
+Encrypted ingest is about 3.4x faster than before and now within roughly 15% of
+unencrypted; encrypted reads are indistinguishable from plain ones (block cache
+hits do not decrypt).
+
+**Read auditing on against off.** Every read is written durably to the per-pod
+audit log before it is served (group-committed, fsynced). Read mix as in section
+10.4, two runs per setting, 12 s per rate (`prod6_read_audit_on_off.txt`):
+
+| offered req/s | audit off p50 / p95 / p99 | audit on p50 / p95 / p99 |
+|---|---|---|
+| 1,000 | 0.34-0.35 / 4.0 / 6.9-7.3 ms | 1.2-4.9 / 5.5-118 / 9-254 ms |
+| 3,000 | 0.23-0.24 / 4.1 / 7.4-8.0 ms | 1.9-2.0 / 9-25 / 143-209 ms |
+| 6,000 | 0.41-0.42 / 6.7 / 11.7-12.0 ms | 2.3-2.4 / 10 / 16-17 ms |
+
+Auditing costs about 1.5-2 ms at the median (the group commit) and a few ms at
+p95 once warm. Two caveats: the first audited run after each server start was much
+worse at low rates (p95 118 ms at 1,000 req/s, against 5.5 ms on the second), and
+p99 at 3,000 req/s was 143-209 ms in both audited runs against about 8 ms
+unaudited. That looks like occasional slow fsyncs on this laptop's SSD rather than
+steady-state cost, but it was not isolated further, and a production target would
+need fsync latency measured on its own storage. No read was refused for a full
+queue in these runs. Throughput was unaffected up to 6,000 req/s.
+
+**Fault injection with the audit chain.** 40 SIGKILLs per model with the mutation
+audit record and chain head staged in the same batch: GraphSAGE 15 kills, GAT 32
+kills, 0 non-atomic states, and in every case a committed mutation had exactly one
+valid audit record and an uncommitted one had none
+(`prod6_fault_injection_audit.log`). This is 40 per model, not the full 100.

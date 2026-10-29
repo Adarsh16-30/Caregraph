@@ -19,9 +19,10 @@ use caregraph::config::TsPolicy;
 use caregraph::embedding::caps::CapController;
 use caregraph::embedding::metrics::EmbeddingMetrics;
 use caregraph::embedding::model_bridge::EmbeddingModel;
-use caregraph::embedding::pipeline::run_mutation_pipeline;
+use caregraph::embedding::pipeline::{run_mutation_pipeline, AuditContext};
 use caregraph::embedding::sequencer::Sequencer;
 use caregraph::embedding::state::GraphMutation;
+use caregraph::security::audit::MutationAudit;
 use caregraph::storage::RocksKv;
 use caregraph::temporal::record::EdgeValue;
 use caregraph::types::{EdgeType, ModelKind, NodeId, Timestamp};
@@ -137,6 +138,7 @@ fn main() -> Result<()> {
     let registry = prometheus::Registry::new();
     let metrics = EmbeddingMetrics::new(&registry).context("building metrics")?;
     let sequencer = Sequencer::open(&store, TsPolicy::Strict).context("opening sequencer")?;
+    let audit = MutationAudit::open(&store).context("opening the audit chain")?;
     run_mutation_pipeline(
         mutation,
         &EdgeValue::new(serde_json::json!({})),
@@ -148,6 +150,11 @@ fn main() -> Result<()> {
         &sequencer,
         None,
         false, // this suite tests atomicity of the commit, not attribution
+        Some(AuditContext {
+            chain: &audit,
+            principal: "fault-injection",
+            rpc: "AddEdge",
+        }),
     )?;
 
     emit("DONE");

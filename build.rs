@@ -25,7 +25,6 @@ fn build_encryption_shim() {
     let rocksdb_include = librocksdb_sys_include_dir();
 
     println!("cargo:rerun-if-changed=native/rocksdb_encryption/shim.cc");
-    println!("cargo:rerun-if-changed=native/rocksdb_encryption/aes256.h");
 
     cc::Build::new()
         .cpp(true)

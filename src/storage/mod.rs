@@ -6,7 +6,8 @@ pub mod kv;
 pub mod node_types;
 
 pub use cf::{
-    ALL, CF_COMMIT_META, CF_EDGES, CF_EMBEDDINGS, CF_META, CF_NODES, CF_REPAIR, CF_REVERSE,
+    ALL, CF_AUDIT, CF_COMMIT_META, CF_EDGES, CF_EMBEDDINGS, CF_META, CF_NODES, CF_REPAIR,
+    CF_REVERSE,
 };
 pub use encryption::{decode_hex_key, open_encrypted_env, ENCRYPTION_KEY_ENV, KEY_LEN};
 pub use kv::{Db, Entry, KvStore, RocksKv};

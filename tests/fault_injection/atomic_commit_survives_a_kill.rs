@@ -60,7 +60,15 @@ use rocksdb::WriteBatch;
 use serde_json::json;
 use tempfile::TempDir;
 
-const ITERATIONS: u32 = 100;
+/// Kills per model. 100 is the gate; `CAREGRAPH_FAULT_ITERATIONS` shortens it
+/// for a quick check during development (the result line prints the real count).
+fn iterations() -> u32 {
+    std::env::var("CAREGRAPH_FAULT_ITERATIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(100)
+}
 const SRC: NodeId = NodeId(1);
 const DST: NodeId = NodeId(2);
 const EDGE_TYPE: EdgeType = EdgeType::DiagnosedWith;
@@ -321,16 +329,28 @@ fn run_one_iteration(
         .expect("read hwm")
         .map(|b| u64::from_be_bytes(b.try_into().expect("8-byte hwm")));
 
+    // The mutation audit record and chain head ride in the same batch too: a
+    // committed mutation has exactly one record and a chain that verifies, an
+    // uncommitted one has none.
+    let audit_records = caregraph::security::audit::read_chain(&store)
+        .expect("read audit chain")
+        .len();
+    let audit_chain_ok = caregraph::security::audit::verify_store(&store)
+        .expect("verify audit chain")
+        .is_ok();
+
     let outcome = match (
         edge_present,
         src_embedding.is_some(),
         dst_embedding.is_some(),
         hwm,
+        audit_records,
+        audit_chain_ok,
     ) {
-        (false, false, false, None) => Outcome::FullyUncommitted,
-        (true, true, true, Some(h)) if h == ts => Outcome::FullyCommitted,
-        (edge, src, dst, hwm) => panic!(
-            "iteration {iteration}: non-atomic state — edge_present={edge}              src_embedding_present={src} dst_embedding_present={dst} hwm={hwm:?}              (expected {ts} or none) (killed={killed}, saw_done={saw_done})"
+        (false, false, false, None, 0, true) => Outcome::FullyUncommitted,
+        (true, true, true, Some(h), 1, true) if h == ts => Outcome::FullyCommitted,
+        (edge, src, dst, hwm, audit, chain_ok) => panic!(
+            "iteration {iteration}: non-atomic state — edge_present={edge}              src_embedding_present={src} dst_embedding_present={dst} hwm={hwm:?}              audit_records={audit} audit_chain_ok={chain_ok}              (expected {ts} or none) (killed={killed}, saw_done={saw_done})"
         ),
     };
 
@@ -348,7 +368,8 @@ fn run_suite(model_id: &str, model_kind: &str, seed: u64) {
     let mut uncommitted = 0u32;
     let mut killed_count = 0u32;
 
-    for i in 0..ITERATIONS {
+    let total = iterations();
+    for i in 0..total {
         let (outcome, killed) = run_one_iteration(i, &mut rng, model_id, model_kind);
         match outcome {
             Outcome::FullyCommitted => committed += 1,
@@ -360,7 +381,7 @@ fn run_suite(model_id: &str, model_kind: &str, seed: u64) {
     }
 
     eprintln!(
-        "model={model_id} ({model_kind}): {ITERATIONS} iterations: {killed_count} killed, \
+        "model={model_id} ({model_kind}): {total} iterations: {killed_count} killed, \
          {committed} fully committed, {uncommitted} fully uncommitted, 0 non-atomic \
          (a violation would have panicked above)"
     );

@@ -93,6 +93,7 @@ fn a_retry_with_the_same_request_id_replays_and_writes_nothing() {
             &sequencer,
             id,
             false,
+            None,
         )
         .unwrap()
     };

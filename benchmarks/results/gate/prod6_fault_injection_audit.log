@@ -1,0 +1,21 @@
+# P6 fault-injection run: 40 SIGKILLs per model, with the audit-chain invariant
+# (a committed mutation has exactly one audit record and a valid chain; an uncommitted one has none).
+# Tree: P5 commit 1575ca0 plus uncommitted P6 changes; release build; idle machine; 331 s wall.
+# Result: GraphSAGE 15 killed / 0 non-atomic; GAT 32 killed / 0 non-atomic.
+
+   Compiling inout v0.1.4
+   Compiling caregraph v0.1.0 (C:\Users\adars\Downloads\CareGraph\caregraph)
+   Compiling cipher v0.4.4
+   Compiling aes v0.8.4
+    Finished `release` profile [optimized] target(s) in 1m 48s
+     Running tests\fault_injection\main.rs (C:/Users/adars/cg_target_fault\release\deps\fault_injection-ae6b2cc158d4f539.exe)
+
+running 2 tests
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime ... model=diabetes130_graphsage (graphsage): 40 iterations: 15 killed, 25 fully committed, 15 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+ok
+test atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime_gat ... model=diabetes130_gat (gat): 40 iterations: 32 killed, 8 fully committed, 32 fully uncommitted, 0 non-atomic (a violation would have panicked above)
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 330.98s
+
+exit=0
