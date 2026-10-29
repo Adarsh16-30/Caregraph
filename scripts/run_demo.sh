@@ -135,7 +135,7 @@ mkdir -p "$(dirname "$DEMO_DB")"
 # Start the server. Encryption/mTLS are deliberately left off for this demo
 # — both are real, opt-in Phase 7 features exercised by their own
 # integration tests (tests/integration/encryption_at_rest.rs,
-# tests/integration/mtls_test.rs), not by this walkthrough, whose job is
+# tests/integration/security_test.rs), not by this walkthrough, whose job is
 # the four gRPC capability groups, not the transport/at-rest security
 # layered underneath them.
 # ---------------------------------------------------------------------------

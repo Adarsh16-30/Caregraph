@@ -9,6 +9,3 @@
 neo4j>=5.0,<6
 terminusdb-client>=10.2,<11
 
-# Used by data/idpip_ukpds_loader.py to read the real UKPDS tables from IDPIP's
-# TimescaleDB instance.
-psycopg[binary]>=3.1

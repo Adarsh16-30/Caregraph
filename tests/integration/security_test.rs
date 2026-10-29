@@ -363,6 +363,38 @@ async fn a_client_without_a_certificate_never_reaches_the_service() {
     assert!(c.snapshot(Request::new(snapshot())).await.is_err());
 }
 
+#[tokio::test]
+async fn a_certificate_from_an_untrusted_ca_is_refused_even_when_it_names_a_real_principal() {
+    let f = start(POLICY, None).await;
+    // Signed by a CA the server was never given, but carrying the identity of a
+    // principal the policy allows. The name must not matter: trust comes from the
+    // signature.
+    let rogue_ca = make_ca();
+    let identity = workload(&rogue_ca, "ingest");
+
+    let mut cfg = ClientTlsConfig::new()
+        .domain_name("localhost")
+        .ca_certificate(Certificate::from_pem(f.ca.cert_pem.clone()))
+        .identity(Identity::from_pem(identity.0, identity.1));
+    cfg = cfg.assume_http2(true);
+    let connected = Channel::from_shared(format!("https://{}", f.addr))
+        .unwrap()
+        .tls_config(cfg)
+        .unwrap()
+        .connect_timeout(Duration::from_secs(5))
+        .connect()
+        .await;
+    // TLS 1.3 may let the handshake finish on the client side before the server
+    // rejects the certificate; either way no RPC may succeed.
+    if let Ok(channel) = connected {
+        let mut c = CareGraphServiceClient::new(channel);
+        assert!(
+            c.snapshot(Request::new(snapshot())).await.is_err(),
+            "mTLS violation: a certificate from an untrusted CA completed a real RPC"
+        );
+    }
+}
+
 /// The serial number of the certificate the server presents, read with a raw
 /// TLS client so the test sees exactly what a new connection is given.
 async fn presented_server_serial(f: &Fixture) -> Vec<u8> {

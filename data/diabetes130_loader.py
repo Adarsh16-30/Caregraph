@@ -3,9 +3,8 @@
 
 Reads the real, de-identified inpatient records published by the UCI Machine
 Learning Repository and emits the same timestamped JSONL mutation trace format
-that `caregraph-load` applies to RocksDB — byte-compatible with the trace from
-`idpip_ukpds_loader.py`, so the Rule 4 comparison against Neo4j and TerminusDB
-replays identical input into all three systems.
+that `caregraph-load` applies to RocksDB, so the Rule 4 comparison against Neo4j
+and TerminusDB replays identical input into all three systems.
 
 Dataset (Rule 6 — named, cited public dataset):
     Strack B, DeShazo JP, Gennings C, et al. "Impact of HbA1c Measurement on

@@ -10,7 +10,6 @@ mod audit_test;
 mod backup_restore_test;
 mod encryption_at_rest;
 mod limits_test;
-mod mtls_test;
 mod repair_marker_test;
 mod replication_test;
 mod security_test;

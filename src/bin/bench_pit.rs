@@ -15,7 +15,7 @@
 //!
 //! Usage:
 //!     caregraph-bench-pit --db data/db/caregraph \
-//!         --trace benchmarks/traces/ukpds_smoke_100.jsonl \
+//!         --trace benchmarks/traces/diabetes130_smoke_100.jsonl \
 //!         --queries 10000
 
 use std::collections::BTreeSet;

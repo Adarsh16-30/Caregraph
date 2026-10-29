@@ -102,13 +102,15 @@ graph LR
 ### One-command setup
 
 ```bash
-docker compose -f infrastructure/docker-compose/dev-stack.yml up --build
+docker compose -f infrastructure/docker-compose/dev-stack.yml up --build   # CareGraph only
 ```
 
-This starts CareGraph alongside the two baseline systems that Rule 4 requires
-benchmarks to run against — Neo4j Community + GDS, and TerminusDB — plus
-Prometheus and Grafana. It configures everything for you; no environment
-variables to set by hand.
+This starts CareGraph alone, which is all a development session needs and keeps the
+stack small. Add `--profile observability` for Prometheus and Grafana, and
+`--profile baselines` for the two systems that Rule 4 requires benchmarks to run
+against, Neo4j Community + GDS and TerminusDB; each service has a memory ceiling you
+can set in `.env` (see [docs/memory.md](docs/memory.md)). No environment variables
+are required.
 
 To work outside Docker you need Rust, and a C++ toolchain for RocksDB. See
 [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md) for platform-specific setup.
@@ -196,6 +198,17 @@ a database and a backup directory refuses the wrong key), re-encrypting under a 
 data key, rotating the key-encryption key, generating tokens, and listing nodes with
 stale embeddings. See [docs/runbooks/](docs/runbooks/).
 
+**Memory.** `CAREGRAPH_MEMORY_MB` is one budget for the whole server, the Rust process and
+its Python embedding workers together: the workers are reserved first (about 330 MB
+resident each, one per deployed model), and the rest is divided between a RocksDB cache
+shared by every database in the process (memtables included, with a hard limit), the
+node-type cache and the replication tail. A budget the workers cannot fit in is refused at
+startup with what to change; `caregraph --print-config` shows the plan; `/metrics` exports
+the plan and what the process tree actually holds. Not loading a model you do not serve
+saves the most. Build and test memory is bounded too: linking, not compiling, was what
+used it, and a full rebuild of every test target now grows system memory by 0.8 GB
+instead of about 6 GB. Measurements and limits: [docs/memory.md](docs/memory.md).
+
 **Replication.** `CAREGRAPH_ROLE=leader` plus `follower` nodes give read replicas and a
 standby by shipping the write-ahead log: a follower applies the leader's batches in order
 and is byte-for-byte the leader's database as of a sequence number, or stops and says it
@@ -236,24 +249,9 @@ cargo run --release --bin caregraph-load -- \
 rather than read verbatim from the source file (encounter dates, provider
 identity) — read it before citing a number from this data (Rule 6).
 
-If IDPIP's TimescaleDB source becomes reachable, `data/idpip_ukpds_loader.py`
-implements the loader the PRD actually names, producing a byte-identical
-trace format so the same `caregraph-load` command and the same three-way
-Neo4j/TerminusDB comparison apply unchanged:
-
-```bash
-export IDPIP_DATABASE_URL='postgresql://user@host:5432/idpip'
-python data/idpip_ukpds_loader.py --limit-patients 100 \
-    --out benchmarks/traces/ukpds_smoke_100.jsonl
-
-cargo run --release --bin caregraph-load -- \
-    --trace benchmarks/traces/ukpds_smoke_100.jsonl \
-    --db data/db/caregraph
-```
-
-**Neither loader has a synthetic mode.** Both exit non-zero if they cannot
-reach their real source (Rule 6). A benchmark measured on invented data is
-not a measurement.
+**The loader has no synthetic mode.** It exits non-zero if it cannot read the
+real source file (Rule 6). A benchmark measured on invented data is not a
+measurement.
 
 ### Live demo
 
@@ -446,7 +444,7 @@ this project and always reports `RETIRED`; rules 1-9 remain fully enforced.
 ```
 src/            Rust core — storage, temporal, graph, embedding, api
 proto/          gRPC schema
-data/           UKPDS loader and clinical graph schema
+data/           Diabetes 130 loader and clinical graph schema
 ml/             GNN training and incremental-update reference
 benchmarks/     Baseline harness and mutation traces
 observability/  Prometheus rules, Grafana provisioning

@@ -21,7 +21,6 @@ Cargo.lock
 
 # Real clinical data must never be committed (Rule 6 / PRD 2.7)
 /data/raw/
-/data/idpip_export/
 *.csv
 *.parquet
 !/benchmarks/traces/*.jsonl

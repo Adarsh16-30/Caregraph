@@ -1,20 +1,24 @@
 # CareGraph Clinical Graph Schema
 
-The evaluation graph is derived from the IDPIP UKPDS pipeline (PRD 2.6, 6.1):
-5,102 type-2 diabetes patients with 20-year follow-up. This document defines how
-those records map onto CareGraph's four column families.
+The graph schema (PRD 2.6, 6.1) was written for the IDPIP UKPDS pipeline: 5,102
+type-2 diabetes patients with 20-year follow-up. That source is not reachable
+from this repository, so the graph actually built and benchmarked here comes from
+the public Diabetes 130-US Hospitals dataset through `data/diabetes130_loader.py`,
+using the **node types and ID namespaces below**. Which properties that loader
+populates, derives or leaves absent is stated in its own module documentation; the
+"Source table" column below is the PRD's UKPDS naming and does not describe the
+Diabetes 130 columns.
 
-Nothing in this schema is invented. Every node type and property listed below
-corresponds to a field that exists in the UKPDS-derived tables; where a field is
-absent from the source, the property is simply absent from the node rather than
-being filled with a placeholder (Rule 6).
+Nothing in this schema is invented. Where a field is absent from the source, the
+property is simply absent from the node rather than being filled with a
+placeholder (Rule 6).
 
 ## Node types
 
 Node IDs are assigned by the loader from a stable, deterministic namespace so
 that reloading the same source produces the same graph.
 
-| Type | ID range | Source table | Key properties |
+| Type | ID range | PRD source table (UKPDS) | Key properties |
 |------|----------|--------------|----------------|
 | `Patient` | `1 .. 99_999` | `ukpds.patients` | `sex`, `birth_year`, `enrollment_date`, `treatment_arm` |
 | `Condition` | `100_000 .. 199_999` | `ukpds.conditions` (ICD-coded) | `icd10_code`, `label`, `category` |

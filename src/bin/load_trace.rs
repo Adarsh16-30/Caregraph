@@ -1,6 +1,6 @@
 //! `caregraph-load` — apply a JSONL mutation trace to a real RocksDB instance.
 //!
-//! Consumes the trace emitted by `data/idpip_ukpds_loader.py` and writes it into
+//! Consumes the trace emitted by `data/diabetes130_loader.py` and writes it into
 //! the versioned column families. This is the Phase 1 ingestion path; from Phase
 //! 6 the same records arrive over gRPC instead.
 //!
@@ -11,7 +11,7 @@
 //! with placeholder embedding vectors would violate Rule 3.
 //!
 //! Usage:
-//!     caregraph-load --trace benchmarks/traces/ukpds_smoke_100.jsonl \
+//!     caregraph-load --trace benchmarks/traces/diabetes130_smoke_100.jsonl \
 //!                    --db data/db/caregraph
 //!
 //! `--out-dir <DIR>` additionally times the read-plus-batch-write loop below

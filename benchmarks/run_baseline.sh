@@ -16,7 +16,7 @@
 #
 # Usage:
 #   export CAREGRAPH_HARDWARE="Ryzen 7 5800X, 32GB DDR4-3600, Samsung 980 Pro NVMe"
-#   benchmarks/run_baseline.sh --trace benchmarks/traces/ukpds_full.jsonl
+#   benchmarks/run_baseline.sh --trace benchmarks/traces/diabetes130_full.jsonl
 #
 # Options:
 #   --trace FILE     mutation trace defining the graph (required)
@@ -76,9 +76,8 @@ step "Preconditions"
 [[ -n "$TRACE" ]] || die "--trace is required"
 [[ -f "$TRACE" ]] || die "trace not found: $TRACE
 
-The trace is produced from the real IDPIP UKPDS tables:
-    export IDPIP_DATABASE_URL=...
-    python data/idpip_ukpds_loader.py --out $TRACE
+The trace is produced from the real Diabetes 130-US Hospitals data:
+    python data/diabetes130_loader.py --csv data/raw/diabetic_data.csv --out $TRACE
 
 Rule 6 permits no synthetic substitute in an evaluation path."
 

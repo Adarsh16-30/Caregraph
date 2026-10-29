@@ -11,7 +11,7 @@
 //!
 //! Usage:
 //!     caregraph-bench-traversal --db data/db/caregraph \
-//!         --trace benchmarks/traces/ukpds_full.jsonl \
+//!         --trace benchmarks/traces/diabetes130_full.jsonl \
 //!         --hops 2 --queries 5000
 
 use std::collections::BTreeSet;
