@@ -73,3 +73,49 @@ fn a_mutation_with_no_stale_nodes_stages_nothing() {
         "a successful embedding leaves no repair marker"
     );
 }
+
+#[test]
+fn a_marker_is_pending_until_a_newer_embedding_supersedes_it() {
+    use caregraph::embedding::repair::pending_repairs;
+    use caregraph::temporal::keys::encode_embedding_key;
+
+    let dir = TempDir::new().unwrap();
+    let store = RocksKv::open(dir.path()).unwrap();
+
+    let mut ctx = MutationContext::new(mutation(1_000), ModelKind::GraphSAGE);
+    ctx.stale_nodes = vec![NodeId(1), NodeId(2), NodeId(3)];
+    let mut batch = WriteBatch::default();
+    stage_repairs(&mut batch, &store, &ctx, "m").unwrap();
+    store.write(batch).unwrap();
+
+    // Node 1 has an embedding older than the marker; node 2 has one newer (a
+    // later successful mutation refreshed it); node 3 has none at all.
+    store
+        .put(
+            cf::CF_EMBEDDINGS,
+            &encode_embedding_key(NodeId(1), Timestamp(500)),
+            b"v",
+        )
+        .unwrap();
+    store
+        .put(
+            cf::CF_EMBEDDINGS,
+            &encode_embedding_key(NodeId(2), Timestamp(500)),
+            b"v",
+        )
+        .unwrap();
+    store
+        .put(
+            cf::CF_EMBEDDINGS,
+            &encode_embedding_key(NodeId(2), Timestamp(2_000)),
+            b"v",
+        )
+        .unwrap();
+
+    let pending = pending_repairs(&store).unwrap();
+    let nodes: Vec<u64> = pending.iter().map(|p| p.node.as_u64()).collect();
+    assert_eq!(nodes, vec![1, 3], "node 2 was refreshed after its marker");
+    assert_eq!(pending[0].latest_embedding, Some(Timestamp(500)));
+    assert_eq!(pending[1].latest_embedding, None);
+    assert!(pending.iter().all(|p| p.marked_at == Timestamp(1_000)));
+}

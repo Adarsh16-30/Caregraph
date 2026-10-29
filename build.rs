@@ -9,6 +9,8 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::compile_protos("proto/caregraph.proto")?;
     println!("cargo:rerun-if-changed=proto/caregraph.proto");
+    tonic_build::compile_protos("proto/caregraph_admin.proto")?;
+    println!("cargo:rerun-if-changed=proto/caregraph_admin.proto");
 
     build_encryption_shim();
 

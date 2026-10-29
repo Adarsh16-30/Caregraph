@@ -188,6 +188,14 @@ atomic batch; every read is recorded durably before it is served and is refused 
 cannot be. Encryption at rest can use a wrapped data key so the key-encryption key
 rotates without re-encrypting the database. See [docs/security.md](docs/security.md).
 
+**Backup and operations.** With `CAREGRAPH_BACKUP_DIR` set, an admin service
+(role `admin`) takes incremental encrypted backups, hard-link checkpoints and verifies
+the audit chain on the running server. `caregraph-admin` is the command line for it
+and for the offline tasks: verifying and restoring backups (a restore never overwrites
+a database and a backup directory refuses the wrong key), re-encrypting under a new
+data key, rotating the key-encryption key, generating tokens, and listing nodes with
+stale embeddings. See [docs/runbooks/](docs/runbooks/).
+
 **Container images.** `docker build --target runtime-reader` (no Python) or
 `--target runtime-writer` (Python + CPU torch + deployed models, the default)
 from `infrastructure/docker-compose/Dockerfile`. One variable worth setting in `.env` even though it
@@ -435,7 +443,7 @@ observability/  Prometheus rules, Grafana provisioning
 infrastructure/ Docker Compose dev stack
 scripts/        check_rules.sh, run_demo.sh
 tests/          integration/, unit/, fault_injection/
-docs/           Design notes, benchmark reports, API reference
+docs/           Design notes, benchmark reports, API reference, runbooks
 ```
 
 ## License

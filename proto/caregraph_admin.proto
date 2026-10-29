@@ -1,0 +1,86 @@
+// CareGraph administrative service.
+//
+// Everything here needs the live database handle (a running server holds the
+// RocksDB lock, so an offline tool cannot open it), which is why these are RPCs
+// rather than only `caregraph-admin` subcommands. Callers need the `admin` role;
+// every call is written to the per-pod audit log before it runs.
+//
+// Offline operations (restore, backup verification, re-encryption, audit
+// verification of a stopped database) are `caregraph-admin` subcommands that
+// open the files directly.
+
+syntax = "proto3";
+
+package caregraph.admin.v1;
+
+service AdminService {
+  // Takes an incremental, encrypted backup of the database into the
+  // configured backup directory. One at a time: a second concurrent request is
+  // ABORTED rather than queued.
+  rpc CreateBackup(CreateBackupRequest) returns (BackupInfo);
+
+  rpc ListBackups(ListBackupsRequest) returns (ListBackupsResponse);
+
+  // Hard-links a consistent point-in-time copy of the database beside the
+  // backups. Fast and nearly free in space; used to bootstrap a replica.
+  rpc CreateCheckpoint(CreateCheckpointRequest) returns (CheckpointInfo);
+
+  // Verifies the mutation audit chain against what is stored now.
+  rpc VerifyAudit(VerifyAuditRequest) returns (AuditVerification);
+
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message CreateBackupRequest {}
+
+message BackupInfo {
+  uint32 backup_id = 1;
+  int64 created_unix = 2;
+  uint64 size_bytes = 3;
+  uint32 num_files = 4;
+  // RocksDB sequence number the backup captured: everything committed up to
+  // here is in it, nothing after.
+  uint64 sequence = 5;
+}
+
+message ListBackupsRequest {}
+
+message ListBackupsResponse {
+  repeated BackupInfo backups = 1;
+}
+
+message CreateCheckpointRequest {
+  // [A-Za-z0-9._-], 1..=64 characters. The server decides the directory.
+  string name = 1;
+}
+
+message CheckpointInfo {
+  string name = 1;
+  string path = 2;
+  uint64 sequence = 3;
+}
+
+message VerifyAuditRequest {}
+
+message AuditVerification {
+  bool intact = 1;
+  uint64 records = 2;
+  // Hex hash of the last record in the chain.
+  string head = 3;
+  // When not intact: the sequence of the first record that does not verify.
+  uint64 first_bad_seq = 4;
+  string detail = 5;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  uint64 latest_sequence = 1;
+  // Commit high-water mark (microseconds).
+  uint64 hwm_us = 2;
+  uint64 audit_records = 3;
+  string audit_head = 4;
+  uint32 backups = 5;
+  int64 last_backup_unix = 6;
+  bool backups_configured = 7;
+}

@@ -54,6 +54,8 @@ pub struct Config {
     pub tokens_file: Option<PathBuf>,
     /// Directory of this pod's own audit database (reads, denials, admin).
     pub audit_dir: Option<PathBuf>,
+    /// Where the admin service writes backups and checkpoints. Unset disables them.
+    pub backup_dir: Option<PathBuf>,
     pub pod_name: String,
     pub graphsage_model: String,
     pub gat_model: String,
@@ -212,6 +214,7 @@ impl Config {
             tls_crl: src.get("CAREGRAPH_TLS_CRL").map(PathBuf::from),
             tokens_file: src.get("CAREGRAPH_TOKENS_FILE").map(PathBuf::from),
             audit_dir: src.get("CAREGRAPH_AUDIT_DIR").map(PathBuf::from),
+            backup_dir: src.get("CAREGRAPH_BACKUP_DIR").map(PathBuf::from),
             pod_name: src
                 .get("CAREGRAPH_POD_NAME")
                 .or_else(|| src.get("HOSTNAME"))
@@ -315,6 +318,7 @@ impl Config {
              tls_crl          = {}\n\
              tokens_file      = {}\n\
              audit_dir        = {}\n\
+             backup_dir       = {}\n\
              pod_name         = {}\n\
              graphsage_model  = {}\n\
              gat_model        = {}\n\
@@ -345,6 +349,7 @@ impl Config {
             path(&self.tls_crl),
             path(&self.tokens_file),
             path(&self.audit_dir),
+            path(&self.backup_dir),
             self.pod_name,
             self.graphsage_model,
             self.gat_model,

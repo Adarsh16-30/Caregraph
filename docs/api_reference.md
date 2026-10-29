@@ -181,6 +181,23 @@ present at *both* timestamps whose `|delta|` falls below it; a one-sided
 candidate is never filtered by it. `top_k = 0` defaults to 10; values above 1000 are refused with
 `INVALID_ARGUMENT`.
 
+## Admin service
+
+`caregraph.admin.v1.AdminService` (`proto/caregraph_admin.proto`) is served on the
+same port and needs the `admin` role. Each call is written to the per-pod audit log
+before it runs, and is refused if it cannot be. `caregraph-admin remote ...` is the
+command-line client.
+
+| RPC | What it does |
+|---|---|
+| `CreateBackup` | Incremental, encrypted backup into `CAREGRAPH_BACKUP_DIR`. One at a time: a second concurrent request is `ABORTED`. `FAILED_PRECONDITION` when no backup directory is configured. |
+| `ListBackups` | Backup ids, sizes, creation times and the RocksDB sequence each one captured. |
+| `CreateCheckpoint(name)` | Hard-linked point-in-time copy under `<backup dir>/checkpoints/<name>`. The name must be 1-64 characters of `[A-Za-z0-9._-]` and not start with `.`; the server chooses the directory. `ALREADY_EXISTS` if the name is taken. |
+| `VerifyAudit` | Verifies the mutation audit chain against its recorded head. |
+| `Status` | Latest sequence, commit high-water mark, audit chain length and head, backup count and newest backup time. |
+
+Backup metrics: `backup_last_success_timestamp`, `backup_failures_total`.
+
 ## Enums
 
 `EdgeType` and `ModelKind` discriminants (see `proto/caregraph.proto`)

@@ -50,7 +50,7 @@ A valid certificate with no usable name is refused as unauthenticated.
 |---|---|
 | `reader` | `Traverse`, `Snapshot`, `SimilarCarePathways`, `SimilarityDelta` |
 | `writer` | the reads, plus `AddEdge`, `RemoveEdge` |
-| `admin` | administrative RPCs only |
+| `admin` | the admin service only (backup, checkpoint, audit verification, status) |
 | `replicator` | write-ahead-log streaming only |
 
 A principal not in the file has no access. A denial returns `PERMISSION_DENIED`
@@ -154,3 +154,26 @@ target is the deliberate exception and is treated as sensitive).
 - Anchoring the audit heads to object storage: the lines are emitted; the uploader
   is deployment work (see the Helm chart).
 - Authentication of the replication stream and promotion (added with replication).
+- Repairing stale embeddings: `caregraph-admin repair-status` lists the nodes
+  waiting for a fresh embedding; re-embedding them is not implemented.
+
+## Administration
+
+The admin service and `caregraph-admin` are described in `api_reference.md`. The
+points that matter for security:
+
+- Admin calls need the `admin` role, are audited durably *before* they run, and
+  fail closed.
+- Backups are encrypted under the database's data key and a directory refuses a
+  different key (or none), so an encrypted database cannot be backed up to
+  plaintext by mistake (`backup_restore_test::encrypted_backups_hide_the_data_and_need_the_same_key`).
+  The data key is not stored in the backup: keep the wrapped key and the
+  key-encryption key where the backup storage cannot reach them.
+- A restore never overwrites an existing database.
+- Checkpoint names are plain file names chosen by the caller and placed by the
+  server, so a caller cannot choose where it writes.
+- Key and token tooling (`kek new`, `kek rotate`, `reencrypt`, `token new`) writes
+  secrets with owner-only permissions on Unix and never into logs. See
+  `docs/runbooks/key-rotation.md`.
+- The per-pod audit database is not part of the backup: it records what this pod
+  served, and a restored database starts a new access history.

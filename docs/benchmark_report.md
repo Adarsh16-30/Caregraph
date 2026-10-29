@@ -1113,3 +1113,34 @@ audit record and chain head staged in the same batch: GraphSAGE 15 kills, GAT 32
 kills, 0 non-atomic states, and in every case a committed mutation had exactly one
 valid audit record and an uncommitted one had none
 (`prod6_fault_injection_audit.log`). This is 40 per model, not the full 100.
+
+### 10.6 Backup, restore and re-encryption (P7)
+
+A drill on a copy of the real diabetes130 database (174,298 nodes, 1,395,288 keys,
+39.8 MB plaintext), encrypted under a fresh data key, served by the release build,
+backed up through the admin service and restored offline
+(`benchmarks/results/gate/prod7_backup_restore.txt`, produced by
+`scripts/p7_backup_drill.sh`):
+
+| step | wall time |
+|---|---|
+| re-encrypt the plaintext database into an encrypted copy (1.4 M keys, verified equal) | 2.9 s |
+| first backup, online, 42 MB | 0.36 s |
+| second backup of an unchanged database | 0.08 s, and the backup directory grew by 0.1 MB, not 42 MB |
+| checkpoint (hard links) | 0.07 s |
+| verify the backup (restore to scratch, read every key, check the audit chain) | 0.77 s |
+| restore | 0.32 s |
+
+After the restore, per-column-family key counts and the audit chain matched the
+original. The byte-for-byte comparison is in `backup_restore_test`, which dumps
+every key and value of every column family at the backup point and again after
+the restore. The database here is small, and these are single runs on a laptop:
+the figures show the operations work and are cheap at this size, not how they
+scale. The "second backup" case is also the unchanged-database case; incremental
+growth under writes is covered by `backups_are_incremental_and_each_one_restores_its_own_point`
+(adding 10% more data grows the backup directory by less than the first backup's
+size) rather than measured on this dataset.
+
+The restore and verify paths read the backup through the same encrypted
+environment, so a wrong data key, a missing key, or a plaintext/encrypted mix-up is
+refused before anything is read (last section of the result file).

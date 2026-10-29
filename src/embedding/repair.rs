@@ -24,8 +24,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::embedding::state::MutationContext;
 use crate::error::{CareGraphError, Result};
-use crate::storage::{cf, RocksKv};
-use crate::temporal::keys::encode_repair_key;
+use crate::storage::{cf, KvStore, RocksKv};
+use crate::temporal::keys::{decode_node_key, encode_repair_key, node_prefix};
+use crate::types::{NodeId, Timestamp};
 
 pub const REPAIR_SCHEMA: u32 = 1;
 
@@ -70,6 +71,52 @@ pub fn stage_repairs(
         batch.put_cf(&repair_cf, encode_repair_key(*node, ts), &value);
     }
     Ok(())
+}
+
+/// A node whose newest embedding is older than its newest repair marker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingRepair {
+    pub node: NodeId,
+    /// The mutation timestamp of the newest marker.
+    pub marked_at: Timestamp,
+    /// Timestamp of the node's newest embedding, if it has one.
+    pub latest_embedding: Option<Timestamp>,
+}
+
+/// Every node still waiting for a fresh embedding, in node order. A marker is
+/// superseded, not deleted: a later successful embedding of the node clears it
+/// by being newer.
+pub fn pending_repairs(store: &RocksKv) -> Result<Vec<PendingRepair>> {
+    let mut newest_marker: std::collections::BTreeMap<u64, Timestamp> = Default::default();
+    store.scan_from_narrow_prefix(cf::CF_REPAIR, &[], &[], &mut |key, _| {
+        if let Some((node, ts)) = decode_node_key(key) {
+            let slot = newest_marker.entry(node.as_u64()).or_insert(ts);
+            if ts > *slot {
+                *slot = ts;
+            }
+        }
+        std::ops::ControlFlow::Continue(())
+    })?;
+
+    let mut pending = Vec::new();
+    for (node, marked_at) in newest_marker {
+        let node = NodeId(node);
+        let prefix = node_prefix(node);
+        let mut latest = None;
+        store.scan_from(cf::CF_EMBEDDINGS, &prefix, &prefix, &mut |key, _| {
+            latest = decode_node_key(key).map(|(_, ts)| ts);
+            // Keys sort newest first, so the first one is the newest.
+            std::ops::ControlFlow::Break(())
+        })?;
+        if latest.map_or(true, |e| e < marked_at) {
+            pending.push(PendingRepair {
+                node,
+                marked_at,
+                latest_embedding: latest,
+            });
+        }
+    }
+    Ok(pending)
 }
 
 #[cfg(test)]

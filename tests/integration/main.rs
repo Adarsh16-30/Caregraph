@@ -4,8 +4,10 @@
 //! is no in-memory substitute anywhere in this suite — that is the Phase 1
 //! success criterion and the Rule 1 boundary.
 
+mod admin_endpoint_test;
 mod api_endpoint_test;
 mod audit_test;
+mod backup_restore_test;
 mod encryption_at_rest;
 mod limits_test;
 mod mtls_test;

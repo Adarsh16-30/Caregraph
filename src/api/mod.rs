@@ -46,6 +46,7 @@
 // rather than repeated on every function for the same one reason.
 #![allow(clippy::result_large_err)]
 
+pub mod admin;
 pub mod diff;
 pub mod metrics;
 pub mod similarity;
@@ -98,6 +99,8 @@ pub struct ServiceOptions {
     /// Per-pod audit log for reads and denials. `None` disables read auditing
     /// (development); production requires it.
     pub audit_log: Option<std::sync::Arc<AuditLog>>,
+    /// Backup and checkpoint state for the admin service. `None` disables it.
+    pub admin: Option<std::sync::Arc<admin::AdminOps>>,
 }
 
 impl Default for ServiceOptions {
@@ -108,6 +111,7 @@ impl Default for ServiceOptions {
             rate_limiter: None,
             policy: None,
             audit_log: None,
+            admin: None,
         }
     }
 }
@@ -269,6 +273,7 @@ struct Inner {
     policy: std::sync::Arc<PolicyHandle>,
     mutation_audit: std::sync::Arc<MutationAudit>,
     audit_log: Option<std::sync::Arc<AuditLog>>,
+    admin: Option<std::sync::Arc<admin::AdminOps>>,
     /// Attribution costs tens of seconds per request; one at a time.
     explain_permits: std::sync::Arc<tokio::sync::Semaphore>,
     read_capacity: usize,
@@ -365,6 +370,7 @@ impl CareGraphApi {
                     .unwrap_or_else(|| PolicyHandle::fixed(Policy::allow_all())),
                 mutation_audit,
                 audit_log: options.audit_log,
+                admin: options.admin,
                 explain_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
                 read_capacity,
                 write_capacity,
@@ -408,10 +414,7 @@ impl CareGraphApi {
     /// happens. Fail-closed: if the audit log cannot take the event the read is
     /// refused, never served unaudited.
     async fn audit_read(&self, principal: &str, rpc: Rpc, subject: u64) -> Result<(), Status> {
-        let Some(log) = &self.inner.audit_log else {
-            return Ok(());
-        };
-        log.record_durable(AuditFields {
+        self.audit_durable(AuditFields {
             principal: principal.to_string(),
             rpc: rpc.name().to_string(),
             src: subject,
@@ -419,13 +422,21 @@ impl CareGraphApi {
             ..AuditFields::default()
         })
         .await
-        .map_err(|e| {
+    }
+
+    /// Writes `fields` to the per-pod audit log and waits until they are on
+    /// disk. With no audit log configured (development) this is a no-op.
+    async fn audit_durable(&self, fields: AuditFields) -> Result<(), Status> {
+        let Some(log) = &self.inner.audit_log else {
+            return Ok(());
+        };
+        log.record_durable(fields).await.map_err(|e| {
             match &e {
                 AuditUnavailable::QueueFull => {
-                    tracing::warn!("audit queue full; refusing read")
+                    tracing::warn!("audit queue full; refusing request")
                 }
                 AuditUnavailable::Failed(m) => {
-                    tracing::error!(error = %m, "audit write failed; refusing read")
+                    tracing::error!(error = %m, "audit write failed; refusing request")
                 }
             }
             Status::unavailable("audit log unavailable; the request was not served")

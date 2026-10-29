@@ -1,0 +1,76 @@
+== commit 637992d, 2026-10-29T08:46:58Z
+== source database: data/db/diabetes130 (39951723 bytes)
+
+== 1. encrypt a copy of the real database under a fresh data key
+wrote a new key-encryption key to C:/Users/adars/cg_p7/kek
+copied 1395288 keys and 0 audit records to C:/Users/adars/cg_p7/db; verified equal.
+new wrapped data key: C:/Users/adars/cg_p7/dek.json
+  [reencrypt: 2609 ms]
+  encrypted database: 42223624 bytes
+
+== 2. start the server with backups enabled
+  server healthy
+
+== 3. admin RPCs against the running server
+sequence 1395288  commit high-water mark 0
+audit: 0 records, head 0000000000000000000000000000000000000000000000000000000000000000
+backups: 0 (newest 0)
+backup 1 created at sequence 1395288
+  [backup-1: 338 ms]
+backup 2 created at sequence 1395288
+  [backup-2-nothing-changed: 107 ms]
+  backup directory after two backups: 42161248 bytes
+id 1    sequence 1395288          42050876 bytes  created 1793263622
+id 2    sequence 1395288          42050876 bytes  created 1793263622
+checkpoint c1 at sequence 1395288 in C:/Users/adars/cg_p7/backups\checkpoints\c1
+  [checkpoint: 130 ms]
+  checkpoint directory: 42087740 bytes (hard links, shares the database's files)
+audit chain intact: 0 records, head 0000000000000000000000000000000000000000000000000000000000000000
+  [verify-audit: 82 ms]
+  metrics:
+    backup_failures_total 0
+    backup_last_success_timestamp 1793263622
+
+== 4. offline: verify, restore, compare
+backup 2 verified: 1395288 keys read, audit chain intact (0 records)
+  [verify-backup-2: 766 ms]
+restored backup 2 to C:/Users/adars/cg_p7/restored
+  [restore: 351 ms]
+  restored database: 42087740 bytes
+  original:
+    cf_edges         610489
+    cf_reverse       610489
+    cf_nodes         174298
+    cf_embeddings    6
+    cf_commit_meta   6
+    cf_repair        0
+    cf_meta          0
+    cf_audit         0
+    all keys read; audit chain intact (0 records)
+  restored:
+    cf_edges         610489
+    cf_reverse       610489
+    cf_nodes         174298
+    cf_embeddings    6
+    cf_commit_meta   6
+    cf_repair        0
+    cf_meta          0
+    cf_audit         0
+    all keys read; audit chain intact (0 records)
+  per-column-family key counts and audit chain are identical
+
+== 5. the wrong key, and no key, are refused
+  with another key-encryption key:
+    Error: could not unwrap the data key (wrong key-encryption key, or the file was altered)
+  with a data key that is not the one the backups were made under:
+    Error: io: backup: this backup directory was created under a different data key
+    
+    Caused by:
+        backup: this backup directory was created under a different data key
+  with no key at all:
+    Error: no key given: pass --plaintext, --key-hex, or --kek-file with --wrapped-dek
+  declaring the directory plaintext:
+    Error: io: backup: this backup directory is encrypted; a data key is required
+    
+    Caused by:
+        backup: this backup directory is encrypted; a data key is required

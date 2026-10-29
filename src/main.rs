@@ -10,12 +10,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{bail, Context};
+use caregraph::api::admin::AdminOps;
 use caregraph::api::{AuthInterceptor, CareGraphApi, MutualTlsInterceptor, ServiceOptions};
 use caregraph::config::{Config, Layered, ProcessEnv};
 use caregraph::security::audit::AuditLog;
 use caregraph::security::{tls, PolicyHandle, TlsPaths, TlsState, TokenHandle};
 use caregraph::server::shutdown::{run_until_shutdown, wait_for_signal};
 use caregraph::server::{Health, PoolCollector, RateLimiter};
+use caregraph::storage::backup::BackupManager;
 use caregraph::storage::{cf, decode_hex_key, RocksKv};
 use caregraph::Timestamp;
 use tonic::transport::Server;
@@ -231,6 +233,20 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+    let admin = {
+        let manager = match &cfg.backup_dir {
+            Some(dir) => Some(
+                BackupManager::open(dir, dek.as_ref().map(|k| &k[..]))
+                    .with_context(|| format!("opening backup directory {}", dir.display()))?,
+            ),
+            None => {
+                tracing::warn!("CAREGRAPH_BACKUP_DIR is not set: backups cannot be taken");
+                None
+            }
+        };
+        let checkpoints = cfg.backup_dir.as_ref().map(|d| d.join("checkpoints"));
+        Some(AdminOps::new(manager, checkpoints, &registry).context("registering backup metrics")?)
+    };
     let api = CareGraphApi::with_options(
         store,
         graphsage_deployed.then_some(cfg.graphsage_model.as_str()),
@@ -242,6 +258,7 @@ async fn main() -> anyhow::Result<()> {
             rate_limiter: RateLimiter::new(cfg.server.rate_limit_rps, cfg.server.rate_limit_burst),
             policy,
             audit_log,
+            admin,
         },
     )
     .context("building the gRPC service")?;
@@ -284,6 +301,12 @@ async fn main() -> anyhow::Result<()> {
     let limits = cfg.server.clone();
     let service_server = || {
         caregraph::api::proto::care_graph_service_server::CareGraphServiceServer::new(api.clone())
+            .max_decoding_message_size(limits.max_decoding_bytes)
+            .max_encoding_message_size(limits.max_encoding_bytes)
+    };
+
+    let admin_server = || {
+        caregraph::api::admin::proto::admin_service_server::AdminServiceServer::new(api.clone())
             .max_decoding_message_size(limits.max_decoding_bytes)
             .max_encoding_message_size(limits.max_encoding_bytes)
     };
@@ -334,6 +357,10 @@ async fn main() -> anyhow::Result<()> {
             let incoming = tls::incoming(listener, tls, std::time::Duration::from_secs(10));
             let service = tonic::service::interceptor::InterceptedService::new(
                 service_server(),
+                MutualTlsInterceptor::new(tokens.clone()),
+            );
+            let admin_service = tonic::service::interceptor::InterceptedService::new(
+                admin_server(),
                 MutualTlsInterceptor::new(tokens),
             );
             run_until_shutdown(
@@ -341,6 +368,7 @@ async fn main() -> anyhow::Result<()> {
                     server_builder
                         .add_service(health_service)
                         .add_service(service)
+                        .add_service(admin_service)
                         .serve_with_incoming_shutdown(incoming, stop)
                 },
                 wait_for_signal(),
@@ -352,6 +380,10 @@ async fn main() -> anyhow::Result<()> {
         (None, Some(key)) => {
             let service = tonic::service::interceptor::InterceptedService::new(
                 service_server(),
+                AuthInterceptor::new(key.clone()),
+            );
+            let admin_service = tonic::service::interceptor::InterceptedService::new(
+                admin_server(),
                 AuthInterceptor::new(key),
             );
             run_until_shutdown(
@@ -359,6 +391,7 @@ async fn main() -> anyhow::Result<()> {
                     server_builder
                         .add_service(health_service)
                         .add_service(service)
+                        .add_service(admin_service)
                         .serve_with_shutdown(addr, stop)
                 },
                 wait_for_signal(),
