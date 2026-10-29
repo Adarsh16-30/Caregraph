@@ -142,7 +142,9 @@ impl<'a> AtomicCommitter<'a> {
         // staged this mutation into the database yet, so that is exactly the
         // graph as it stood the instant before it.
         let resolver = AffectedSubgraphResolver::new(self.store, fanout_cap, max_expanded_nodes);
+        let resolve_started = std::time::Instant::now();
         let mut subgraph = resolver.resolve(mutation)?;
+        ctx.timings.resolve = resolve_started.elapsed();
         // The nodes whose adjacency this computation read: the exact read set the
         // ordered-commit sequencer checks for conflicting concurrent commits.
         let fetched = subgraph.fetched.clone();
@@ -274,7 +276,7 @@ impl<'a> AtomicCommitter<'a> {
         stage_extra: &mut dyn FnMut(&mut WriteBatch, &RocksKv) -> Result<()>,
     ) -> Result<MutationContext> {
         let Prepared {
-            ctx,
+            mut ctx,
             meta,
             attribution_by_node,
             model_id,
@@ -293,7 +295,9 @@ impl<'a> AtomicCommitter<'a> {
         // issuing separate writes: this single call either lands every entry
         // staged into it or none of them — the storage engine's own
         // guarantee for one batch, and the entirety of what Rule 5 requires.
+        let write_started = std::time::Instant::now();
         self.store.write(batch)?;
+        ctx.timings.write = write_started.elapsed();
 
         Ok(ctx)
     }

@@ -320,6 +320,33 @@ async fn similar_care_pathways_varies_with_embedding_presence() {
 }
 
 #[tokio::test]
+async fn similarity_top_k_above_the_maximum_is_rejected_and_the_maximum_is_accepted() {
+    let (_dir, store) = seed_fixture();
+    let (mut client, _server) = spawn_test_server(store).await;
+    let now = Timestamp::now().as_u64();
+    let request = |top_k: u32| {
+        authed(SimilarCarePathwaysRequest {
+            node_id: PATIENT_A.as_u64(),
+            as_of_us: now,
+            top_k,
+        })
+    };
+
+    let too_big = client
+        .similar_care_pathways(request(caregraph::api::MAX_TOP_K + 1))
+        .await
+        .expect_err("top_k above the maximum must be refused");
+    assert_eq!(too_big.code(), tonic::Code::InvalidArgument);
+
+    let at_max = client
+        .similar_care_pathways(request(caregraph::api::MAX_TOP_K))
+        .await
+        .expect("top_k at the maximum is accepted")
+        .into_inner();
+    assert!(!at_max.query_node_has_no_embedding);
+}
+
+#[tokio::test]
 async fn similarity_delta_varies_with_the_requested_window() {
     let (_dir, store) = seed_fixture();
     let (mut client, _server) = spawn_test_server(store).await;

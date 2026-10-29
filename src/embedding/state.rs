@@ -101,6 +101,22 @@ pub struct ResolutionTruncation {
     pub expansion_capped: bool,
 }
 
+/// Wall-clock cost of each phase of one mutation, so a latency regression can
+/// be attributed to resolution, input construction, the model, or the write
+/// rather than guessed at.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PhaseTimings {
+    /// `AffectedSubgraphResolver::resolve`: adjacency reads for the affected set
+    /// and the receptive field.
+    pub resolve: std::time::Duration,
+    /// `build_model_input`: node-type lookups and the symmetric edge index.
+    pub build_input: std::time::Duration,
+    /// `EmbeddingModel::forward`: encode, worker round trip, decode.
+    pub forward: std::time::Duration,
+    /// The single batch write.
+    pub write: std::time::Duration,
+}
+
 /// One mutation's pass through the pipeline (PRD 4.2).
 pub struct MutationContext {
     pub mutation: GraphMutation,
@@ -124,6 +140,7 @@ pub struct MutationContext {
     /// receptive field trying to fix a cost its caps do not control. Zero
     /// until `AtomicCommitter::commit` sets it.
     pub embedding_duration: std::time::Duration,
+    pub timings: PhaseTimings,
 }
 
 impl MutationContext {
@@ -137,6 +154,7 @@ impl MutationContext {
             fallback: false,
             stale_nodes: Vec::new(),
             embedding_duration: std::time::Duration::ZERO,
+            timings: PhaseTimings::default(),
         }
     }
 }

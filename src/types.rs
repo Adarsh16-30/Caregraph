@@ -202,6 +202,10 @@ pub struct Embedding {
     pub computation_path: ComputationPath,
 }
 
+/// Leading byte of the binary `CF_EMBEDDINGS` value format (see
+/// [`Embedding::serialize`]).
+const EMBEDDING_FORMAT_V2: u8 = 0x01;
+
 impl Embedding {
     pub fn new(
         vector: Vec<f32>,
@@ -223,11 +227,133 @@ impl Embedding {
 
     /// Value encoding for `CF_EMBEDDINGS`. Called by `atomic_commit`
     /// (PRD Section 9.2).
+    ///
+    /// Binary format v2: `0x01 | model_kind u8 | computation_path u8 |
+    /// model_id_len u16 LE | model_id | dim u32 LE | dim × f32 LE`. A JSON
+    /// document always starts with `{`, so the leading tag byte tells the two
+    /// formats apart and [`deserialize`](Self::deserialize) reads both — a
+    /// database written before v2 needs no migration. Decoding v2 is a copy;
+    /// decoding the JSON form is a float parser, and the similarity scan
+    /// decodes every node's embedding.
     pub fn serialize(&self) -> Vec<u8> {
-        serde_json::to_vec(self).expect("Embedding is infallibly serializable")
+        let id = self.model_id.as_bytes();
+        let mut out = Vec::with_capacity(1 + 2 + 2 + id.len() + 4 + self.vector.len() * 4);
+        out.push(EMBEDDING_FORMAT_V2);
+        out.push(self.model_kind as u8);
+        out.push(self.computation_path as u8);
+        out.extend_from_slice(&(id.len() as u16).to_le_bytes());
+        out.extend_from_slice(id);
+        out.extend_from_slice(&(self.vector.len() as u32).to_le_bytes());
+        for v in &self.vector {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_slice(bytes)
+        use serde::de::Error as _;
+        if bytes.first() != Some(&EMBEDDING_FORMAT_V2) {
+            return serde_json::from_slice(bytes);
+        }
+        let bad = |what: &str| serde_json::Error::custom(format!("embedding v2: {what}"));
+        let body = &bytes[1..];
+        let [kind, path, l0, l1, rest @ ..] = body else {
+            return Err(bad("truncated header"));
+        };
+        let id_len = u16::from_le_bytes([*l0, *l1]) as usize;
+        if rest.len() < id_len + 4 {
+            return Err(bad("truncated model id"));
+        }
+        let (id, rest) = rest.split_at(id_len);
+        let model_id = std::str::from_utf8(id)
+            .map_err(|_| bad("model id is not utf-8"))?
+            .to_string();
+        let dim = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]) as usize;
+        let payload = &rest[4..];
+        if payload.len() != dim * 4 {
+            return Err(bad("vector length does not match dim"));
+        }
+        let vector = payload
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let model_kind = match kind {
+            1 => ModelKind::GraphSAGE,
+            2 => ModelKind::GCN,
+            3 => ModelKind::GAT,
+            _ => return Err(bad("unknown model kind")),
+        };
+        let computation_path = match path {
+            1 => ComputationPath::Associative,
+            2 => ComputationPath::GatConstrained,
+            3 => ComputationPath::Fallback,
+            4 => ComputationPath::NonAssociative,
+            _ => return Err(bad("unknown computation path")),
+        };
+        Ok(Embedding {
+            vector,
+            model_id,
+            model_kind,
+            computation_path,
+        })
+    }
+}
+
+#[cfg(test)]
+mod embedding_format_tests {
+    use super::*;
+
+    fn sample() -> Embedding {
+        Embedding::new(
+            vec![0.0, -1.5, 3.25e-7, f32::MAX, f32::MIN_POSITIVE, 1.0 / 3.0],
+            "diabetes130_graphsage",
+            ModelKind::GAT,
+            ComputationPath::GatConstrained,
+        )
+    }
+
+    #[test]
+    fn binary_v2_round_trips_bit_exactly() {
+        let e = sample();
+        let bytes = e.serialize();
+        assert_eq!(bytes[0], EMBEDDING_FORMAT_V2);
+        let back = Embedding::deserialize(&bytes).unwrap();
+        assert_eq!(back, e);
+        for (a, b) in back.vector.iter().zip(&e.vector) {
+            assert_eq!(a.to_bits(), b.to_bits());
+        }
+    }
+
+    #[test]
+    fn values_written_as_json_before_v2_still_decode() {
+        let e = sample();
+        let legacy = serde_json::to_vec(&e).unwrap();
+        assert_eq!(legacy[0], b'{');
+        assert_eq!(Embedding::deserialize(&legacy).unwrap(), e);
+    }
+
+    #[test]
+    fn truncated_or_inconsistent_v2_values_are_errors_not_panics() {
+        let bytes = sample().serialize();
+        for cut in 1..bytes.len() {
+            assert!(
+                Embedding::deserialize(&bytes[..cut]).is_err(),
+                "a v2 value cut to {cut} bytes must not decode"
+            );
+        }
+        let mut extra = bytes.clone();
+        extra.push(0);
+        assert!(Embedding::deserialize(&extra).is_err());
+    }
+
+    #[test]
+    fn v2_is_smaller_than_json() {
+        let e = Embedding::new(
+            (0..64).map(|i| i as f32 * 0.123_456_79).collect(),
+            "m",
+            ModelKind::GraphSAGE,
+            ComputationPath::Associative,
+        );
+        assert!(e.serialize().len() < serde_json::to_vec(&e).unwrap().len() / 2);
     }
 }

@@ -71,7 +71,15 @@ pub fn staged_incremental_update<S: KvStore + ?Sized>(
 
     ctx.truncation = subgraph.truncation;
 
-    match run_forward_pass(store, model, &subgraph, as_of, model_kind, computation_path) {
+    match run_forward_pass(
+        store,
+        model,
+        &subgraph,
+        as_of,
+        model_kind,
+        computation_path,
+        &mut ctx.timings,
+    ) {
         Ok(embeddings) => {
             ctx.affected = subgraph.affected;
             ctx.embeddings_after = embeddings;
@@ -109,9 +117,12 @@ fn run_forward_pass<S: KvStore + ?Sized>(
     as_of: Timestamp,
     model_kind: ModelKind,
     computation_path: ComputationPath,
+    timings: &mut crate::embedding::state::PhaseTimings,
 ) -> Result<Vec<(NodeId, Embedding)>> {
+    let t = std::time::Instant::now();
     let (features, edge_index, local) =
         build_model_input(store, &subgraph.nodes, &subgraph.edges, as_of)?;
+    timings.build_input = t.elapsed();
 
     let targets: Vec<usize> = subgraph
         .affected
@@ -119,7 +130,9 @@ fn run_forward_pass<S: KvStore + ?Sized>(
         .filter_map(|n| local.get(n).copied())
         .collect();
 
+    let t = std::time::Instant::now();
     let vectors = model.forward(&features, &edge_index, &targets)?;
+    timings.forward = t.elapsed();
 
     Ok(subgraph
         .affected

@@ -311,6 +311,45 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
+    /// The ids-only adjacency walk the resolver uses must return exactly the
+    /// neighbours the full walk returns, in both directions, for every
+    /// timestamp and every limit.
+    #[test]
+    fn neighbor_ids_match_the_full_adjacency_walk(mutations in mutation_strategy()) {
+        let (_dir, store) = open();
+        apply(&store, &mutations);
+        let index = TemporalIndex::new(&store);
+
+        for as_of in 0u64..=41 {
+            for limit in [1usize, 3, usize::MAX] {
+                let full: Vec<NodeId> = index
+                    .all_edges_as_of_limited(SRC, Timestamp(as_of), limit)
+                    .expect("full walk")
+                    .into_iter()
+                    .map(|e| e.dst)
+                    .collect();
+                let ids = index
+                    .all_neighbor_ids_as_of_limited(SRC, Timestamp(as_of), false, limit)
+                    .expect("ids walk");
+                prop_assert_eq!(ids, full, "outgoing as_of={} limit={}", as_of, limit);
+            }
+        }
+        for dst in mutations.iter().map(|m| NodeId(m.dst)).collect::<std::collections::BTreeSet<_>>() {
+            for as_of in [0u64, 10, 20, 41] {
+                let full: Vec<NodeId> = index
+                    .all_incoming_edges_as_of_limited(dst, Timestamp(as_of), usize::MAX)
+                    .expect("full incoming")
+                    .into_iter()
+                    .map(|e| e.src)
+                    .collect();
+                let ids = index
+                    .all_neighbor_ids_as_of_limited(dst, Timestamp(as_of), true, usize::MAX)
+                    .expect("ids incoming");
+                prop_assert_eq!(ids, full, "incoming dst={:?} as_of={}", dst, as_of);
+            }
+        }
+    }
+
     /// Phase 2 success criterion: `as_of(T)` matches a reference reconstruction
     /// at every timestamp across the timeline — well beyond the 20 required.
     #[test]

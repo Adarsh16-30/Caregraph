@@ -98,6 +98,12 @@ pub trait KvStore: Send + Sync {
         self.scan_from(cf, prefix, seek_key, visit)
     }
 
+    /// The store's node-type cache, if it keeps one (see
+    /// [`NodeTypeCache`](crate::storage::node_types::NodeTypeCache)).
+    fn node_type_cache(&self) -> Option<&crate::storage::node_types::NodeTypeCache> {
+        None
+    }
+
     /// Seek to the first entry at or after `seek_key`, stopping if the entry
     /// falls outside `prefix`.
     ///
@@ -132,6 +138,7 @@ pub trait KvStore: Send + Sync {
 pub struct RocksKv {
     db: Db,
     sync_writes: std::sync::atomic::AtomicBool,
+    node_types: crate::storage::node_types::NodeTypeCache,
 }
 
 impl RocksKv {
@@ -147,6 +154,7 @@ impl RocksKv {
         Ok(RocksKv {
             db,
             sync_writes: std::sync::atomic::AtomicBool::new(false),
+            node_types: Default::default(),
         })
     }
 
@@ -162,6 +170,7 @@ impl RocksKv {
         Ok(RocksKv {
             db,
             sync_writes: std::sync::atomic::AtomicBool::new(false),
+            node_types: Default::default(),
         })
     }
 
@@ -247,6 +256,10 @@ impl RocksKv {
 }
 
 impl KvStore for RocksKv {
+    fn node_type_cache(&self) -> Option<&crate::storage::node_types::NodeTypeCache> {
+        Some(&self.node_types)
+    }
+
     fn put(&self, cf: &'static str, key: &[u8], value: &[u8]) -> Result<()> {
         let handle = self.cf_handle(cf)?;
         self.db.put_cf(&handle, key, value)?;

@@ -967,3 +967,69 @@ What this shows:
   run queued without bound (3.4 s median at 100 req/s, zero errors).
 - Single run per cell, laptop with thermal variance (section 3), uncommitted
   tree (`git_dirty: true`).
+
+**Fault injection under the ordered-commit pipeline.** 100 SIGKILLs per model,
+each landing at a random point in a worker's life while it runs the real
+mutation pipeline (`benchmarks/results/gate/prod3_fault_injection.log`):
+GraphSAGE 48 kills, GAT 91 kills, every run either fully committed or fully
+uncommitted, **0 non-atomic states**, and the persisted high-water mark was
+atomic with the edge and embeddings in every case. The run shared the CPU with
+other builds and benchmarks (23,840 s wall).
+
+### 10.3 Resolve, input build and storage-read optimisations (P4)
+
+Changes measured here, all in the incremental path:
+
+1. Adjacency walks used by the resolver read neighbour ids only (they no longer
+   build edges or parse properties).
+2. The resolver expands each ring across up to four scoped threads and spends
+   the ring-two budget on nodes in sorted order.
+3. A per-store node-type cache removes the per-node `CF_NODES` seek in
+   `build_model_input`.
+4. Embeddings are stored in a binary format; the reader still accepts the old
+   JSON values. (Affects the similarity scan and the embedding write, not the
+   incremental latency measured below.)
+5. RocksDB: shared 256 MB block cache, bloom filters on the versioned column
+   families, cached index/filter blocks.
+
+Same 30 real mutations, same database copy procedure (fresh copy, OS cache
+warmed), alternating the P3 commit (`b213da8`) and this tree, GraphSAGE
+(`prod4_graphsage_ab_*.json`):
+
+| run | incremental median / p95 | full recompute median |
+|---|---|---|
+| P3 commit, run 1 | 241 / 976 ms | 3,552 ms |
+| this tree, run 2 | **108 / 408 ms** | 1,683 ms |
+| P3 commit, run 3 | 452 / 887 ms | 3,576 ms |
+| this tree, run 4 | **112 / 405 ms** | 1,711 ms |
+
+Incremental median falls 2.2-4.0x and p95 2.2-2.4x. Two things to read
+alongside that:
+
+- **Absolute numbers depend on the machine's state.** The same tree measured
+  51 ms median / 206 ms p95 in an earlier single run
+  (`prod4_graphsage_warm_single_run.json`; GAT 63 / 260 ms in
+  `prod4_gat_warm_single_run.json`) and the P3 commit's full recompute took 517
+  ms-3.5 s depending on when it ran. Only the interleaved pairs above are a
+  like-for-like comparison. The P2-era figures in section 10.1 (median 222 ms,
+  p95 331 ms) came from a different machine state and should not be compared
+  with these.
+- **The 100 ms p95 target is still missed** (best run 206 ms, interleaved runs
+  about 405 ms). The remaining time is ring-two adjacency reads: median phase
+  split in the best run was resolve 36 ms, input build 11 ms, forward pass 9 ms
+  (GraphSAGE) or 26 ms (GAT). Removing ring two by storing layer-1 hidden states
+  (the structural fix in the plan) is not implemented.
+
+The 5x-over-full-recompute gate now passes (15x median in the interleaved
+runs), partly because the full-recompute baseline itself also benefits from the
+cache and the faster reads.
+
+The block-cache size comparison (8 MB / 256 MB / 1024 MB) was inconclusive: the
+runs happened while a fault-injection suite loaded the machine and the 256 MB
+run produced no output, so no claim is made about cache sizing beyond keeping
+the 256 MB default.
+
+Similarity: `top_k` is capped at 1,000 and selection keeps only the best k
+rather than sorting every candidate; the bounded selection is checked against a
+full sort in a unit test. A latency number for `SimilarCarePathways` over the
+full graph is not part of this section.

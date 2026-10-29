@@ -22,7 +22,9 @@
 //! SST files during a point-in-time seek, which is what keeps Contribution 2's
 //! retrieval at O(log n) rather than degrading as version history accumulates.
 
-use rocksdb::{ColumnFamilyDescriptor, DBCompressionType, Options, SliceTransform};
+use rocksdb::{
+    BlockBasedOptions, Cache, ColumnFamilyDescriptor, DBCompressionType, Options, SliceTransform,
+};
 
 use crate::temporal::keys::{EDGE_PREFIX_LEN, NODE_PREFIX_LEN};
 
@@ -54,8 +56,20 @@ pub const ALL: [&str; 7] = [
 
 /// Options for a family whose keys carry a fixed-width prefix before the
 /// inverted timestamp.
-fn versioned_cf_options(prefix_len: usize) -> Options {
+fn versioned_cf_options(prefix_len: usize, cache: &Cache, write_buffer_bytes: usize) -> Options {
     let mut opts = Options::default();
+    opts.set_write_buffer_size(write_buffer_bytes);
+    // One block cache shared by every column family (RocksDB's default is a
+    // small per-process cache that this graph's working set exceeds), with
+    // index and filter blocks held in it so they are not re-read from disk, and
+    // a Bloom filter so point-in-time seeks skip SST files that cannot contain
+    // the key's prefix.
+    let mut table = BlockBasedOptions::default();
+    table.set_block_cache(cache);
+    table.set_cache_index_and_filter_blocks(true);
+    table.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    table.set_bloom_filter(10.0, false);
+    opts.set_block_based_table_factory(&table);
     opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(prefix_len));
     opts.set_compression_type(DBCompressionType::Lz4);
     // Version history is append-only and read by seek, so level compaction with
@@ -75,6 +89,8 @@ pub fn prefix_len(cf: &str) -> Option<usize> {
 
 /// Descriptors for all four families, in [`ALL`] order.
 pub fn descriptors() -> Vec<ColumnFamilyDescriptor> {
+    let cache = Cache::new_lru_cache(env_mb("CAREGRAPH_BLOCK_CACHE_MB", 256) << 20);
+    let write_buffer = env_mb("CAREGRAPH_WRITE_BUFFER_MB", 64) << 20;
     ALL.iter()
         .map(|name| {
             if *name == CF_META {
@@ -84,9 +100,20 @@ pub fn descriptors() -> Vec<ColumnFamilyDescriptor> {
             }
             let prefix =
                 prefix_len(name).expect("every versioned CF in ALL has a known prefix width");
-            ColumnFamilyDescriptor::new(*name, versioned_cf_options(prefix))
+            ColumnFamilyDescriptor::new(*name, versioned_cf_options(prefix, &cache, write_buffer))
         })
         .collect()
+}
+
+/// Megabytes from an environment variable, or `default`. Block cache and write
+/// buffer sizing are deployment-dependent (container memory limit), so they are
+/// configurable rather than baked in.
+fn env_mb(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(default)
 }
 
 /// Database-wide options.

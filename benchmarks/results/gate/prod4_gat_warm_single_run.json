@@ -1,0 +1,372 @@
+{
+  "benchmark": "gat_incremental_vs_full_recompute",
+  "prd_target": "Phase 5: GAT incremental embedding update at least 5x faster than full recompute, p95 latency under 100ms",
+  "provenance": {
+    "generated_at_unix": 1793248800,
+    "git_commit": "b213da83150fd3c38cf9c05e935fdc9b3f40c618",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-incremental.exe --db data/db/p4_scratch --trace benchmarks/traces/diabetes130_full.jsonl --model diabetes130_gat --model-kind gat --samples 30 --min-speedup 0 --out-dir C:/Users/adars/AppData/Local/Temp/p4b_gat"
+  },
+  "model": "diabetes130_gat",
+  "model_kind": "gat",
+  "incremental": {
+    "samples": 30,
+    "min_ms": 1.9441,
+    "median_ms": 63.4058,
+    "p95_ms": 259.78000000000003,
+    "max_ms": 267.0731
+  },
+  "full_recompute": {
+    "samples": 30,
+    "min_ms": 863.9886,
+    "median_ms": 1003.7396999999999,
+    "p95_ms": 1304.7803,
+    "max_ms": 1307.0338000000002
+  },
+  "median_speedup": 14.519644943668949,
+  "phase_median_ms": {
+    "resolve": 36.583200000000005,
+    "build_input": 11.124699999999999,
+    "forward": 25.736800000000002,
+    "other": 0.2717000000000098
+  },
+  "per_sample": [
+    {
+      "src": 1,
+      "dst": 600000,
+      "affected_count": 2,
+      "incremental_ms": 5.543,
+      "full_recompute_ms": 1304.7803,
+      "speedup": 235.3924409164712,
+      "resolve_ms": 0.4699,
+      "build_input_ms": 0.0439,
+      "forward_ms": 5.027399999999999
+    },
+    {
+      "src": 2819,
+      "dst": 603292,
+      "affected_count": 2,
+      "incremental_ms": 2.326,
+      "full_recompute_ms": 1307.0338000000002,
+      "speedup": 561.9233877901978,
+      "resolve_ms": 0.1998,
+      "build_input_ms": 0.0409,
+      "forward_ms": 2.0826
+    },
+    {
+      "src": 290,
+      "dst": 100001,
+      "affected_count": 521,
+      "incremental_ms": 141.8569,
+      "full_recompute_ms": 1254.1334,
+      "speedup": 8.840834672123808,
+      "resolve_ms": 59.3217,
+      "build_input_ms": 29.3809,
+      "forward_ms": 53.036
+    },
+    {
+      "src": 8243,
+      "dst": 610090,
+      "affected_count": 2,
+      "incremental_ms": 2.8986,
+      "full_recompute_ms": 1254.5027,
+      "speedup": 432.79607396674254,
+      "resolve_ms": 0.1793,
+      "build_input_ms": 0.032499999999999994,
+      "forward_ms": 2.6839
+    },
+    {
+      "src": 10799,
+      "dst": 100035,
+      "affected_count": 514,
+      "incremental_ms": 210.6648,
+      "full_recompute_ms": 1164.6178,
+      "speedup": 5.528298035552213,
+      "resolve_ms": 116.64529999999999,
+      "build_input_ms": 29.0792,
+      "forward_ms": 64.4583
+    },
+    {
+      "src": 13176,
+      "dst": 100438,
+      "affected_count": 8,
+      "incremental_ms": 131.31390000000002,
+      "full_recompute_ms": 1094.3966,
+      "speedup": 8.33420224363148,
+      "resolve_ms": 68.11290000000001,
+      "build_input_ms": 8.7564,
+      "forward_ms": 54.1138
+    },
+    {
+      "src": 6160,
+      "dst": 620259,
+      "affected_count": 13,
+      "incremental_ms": 63.4058,
+      "full_recompute_ms": 1199.3981,
+      "speedup": 18.916220598115633,
+      "resolve_ms": 38.483000000000004,
+      "build_input_ms": 8.1974,
+      "forward_ms": 16.5166
+    },
+    {
+      "src": 17670,
+      "dst": 200001,
+      "affected_count": 519,
+      "incremental_ms": 183.54139999999998,
+      "full_recompute_ms": 1134.9401,
+      "speedup": 6.183564579980321,
+      "resolve_ms": 96.42689999999999,
+      "build_input_ms": 17.846600000000002,
+      "forward_ms": 68.7898
+    },
+    {
+      "src": 20089,
+      "dst": 100111,
+      "affected_count": 264,
+      "incremental_ms": 178.214,
+      "full_recompute_ms": 1134.091,
+      "speedup": 6.363647075987296,
+      "resolve_ms": 81.9049,
+      "build_input_ms": 14.0585,
+      "forward_ms": 81.9789
+    },
+    {
+      "src": 22672,
+      "dst": 100076,
+      "affected_count": 515,
+      "incremental_ms": 259.78000000000003,
+      "full_recompute_ms": 1037.1453,
+      "speedup": 3.9923985680190923,
+      "resolve_ms": 106.4324,
+      "build_input_ms": 23.4043,
+      "forward_ms": 129.5985
+    },
+    {
+      "src": 25244,
+      "dst": 100244,
+      "affected_count": 132,
+      "incremental_ms": 220.1102,
+      "full_recompute_ms": 1103.7666,
+      "speedup": 5.014609045832496,
+      "resolve_ms": 74.5553,
+      "build_input_ms": 14.5364,
+      "forward_ms": 130.3581
+    },
+    {
+      "src": 27735,
+      "dst": 400000,
+      "affected_count": 517,
+      "incremental_ms": 51.5504,
+      "full_recompute_ms": 1125.3643,
+      "speedup": 21.830369890437318,
+      "resolve_ms": 20.4482,
+      "build_input_ms": 10.8149,
+      "forward_ms": 20.043
+    },
+    {
+      "src": 30298,
+      "dst": 639849,
+      "affected_count": 2,
+      "incremental_ms": 2.3923,
+      "full_recompute_ms": 1086.1498000000001,
+      "speedup": 454.0190611545375,
+      "resolve_ms": 0.1553,
+      "build_input_ms": 0.0375,
+      "forward_ms": 2.1903
+    },
+    {
+      "src": 32912,
+      "dst": 100035,
+      "affected_count": 515,
+      "incremental_ms": 223.9859,
+      "full_recompute_ms": 1028.4931,
+      "speedup": 4.591776089477061,
+      "resolve_ms": 101.8228,
+      "build_input_ms": 19.311999999999998,
+      "forward_ms": 101.7424
+    },
+    {
+      "src": 35616,
+      "dst": 200004,
+      "affected_count": 517,
+      "incremental_ms": 45.8166,
+      "full_recompute_ms": 1003.7396999999999,
+      "speedup": 21.907773601707675,
+      "resolve_ms": 24.3838,
+      "build_input_ms": 8.9869,
+      "forward_ms": 12.3435
+    },
+    {
+      "src": 36067,
+      "dst": 100270,
+      "affected_count": 264,
+      "incremental_ms": 61.248799999999996,
+      "full_recompute_ms": 1025.2545,
+      "speedup": 16.73917693081334,
+      "resolve_ms": 32.8955,
+      "build_input_ms": 7.4522,
+      "forward_ms": 20.7391
+    },
+    {
+      "src": 40884,
+      "dst": 653595,
+      "affected_count": 2,
+      "incremental_ms": 3.0336,
+      "full_recompute_ms": 985.8225,
+      "speedup": 324.96785996835445,
+      "resolve_ms": 0.1601,
+      "build_input_ms": 0.0339,
+      "forward_ms": 2.8357
+    },
+    {
+      "src": 43237,
+      "dst": 100152,
+      "affected_count": 487,
+      "incremental_ms": 215.4319,
+      "full_recompute_ms": 992.6413,
+      "speedup": 4.607680199636173,
+      "resolve_ms": 77.839,
+      "build_input_ms": 18.3756,
+      "forward_ms": 118.208
+    },
+    {
+      "src": 30114,
+      "dst": 400007,
+      "affected_count": 545,
+      "incremental_ms": 82.48400000000001,
+      "full_recompute_ms": 961.3469,
+      "speedup": 11.654950050918965,
+      "resolve_ms": 44.8487,
+      "build_input_ms": 11.1578,
+      "forward_ms": 26.293400000000002
+    },
+    {
+      "src": 43306,
+      "dst": 663821,
+      "affected_count": 10,
+      "incremental_ms": 40.7465,
+      "full_recompute_ms": 994.337,
+      "speedup": 24.403003938988626,
+      "resolve_ms": 17.498,
+      "build_input_ms": 5.2563,
+      "forward_ms": 17.881500000000003
+    },
+    {
+      "src": 49952,
+      "dst": 100035,
+      "affected_count": 516,
+      "incremental_ms": 250.7967,
+      "full_recompute_ms": 980.6319,
+      "speedup": 3.9100669984892145,
+      "resolve_ms": 85.06869999999999,
+      "build_input_ms": 26.6107,
+      "forward_ms": 138.173
+    },
+    {
+      "src": 52109,
+      "dst": 670568,
+      "affected_count": 2,
+      "incremental_ms": 1.9441,
+      "full_recompute_ms": 938.7244000000001,
+      "speedup": 482.8580834319223,
+      "resolve_ms": 0.1558,
+      "build_input_ms": 0.0288,
+      "forward_ms": 1.7574999999999998
+    },
+    {
+      "src": 54153,
+      "dst": 200006,
+      "affected_count": 517,
+      "incremental_ms": 50.049299999999995,
+      "full_recompute_ms": 931.3702000000001,
+      "speedup": 18.609055471305297,
+      "resolve_ms": 20.215,
+      "build_input_ms": 9.3239,
+      "forward_ms": 20.238200000000003
+    },
+    {
+      "src": 56315,
+      "dst": 100006,
+      "affected_count": 514,
+      "incremental_ms": 267.0731,
+      "full_recompute_ms": 927.2245,
+      "speedup": 3.4718004171891517,
+      "resolve_ms": 93.049,
+      "build_input_ms": 20.2967,
+      "forward_ms": 152.7348
+    },
+    {
+      "src": 58452,
+      "dst": 100347,
+      "affected_count": 18,
+      "incremental_ms": 88.0288,
+      "full_recompute_ms": 940.4285,
+      "speedup": 10.6831911828856,
+      "resolve_ms": 36.583200000000005,
+      "build_input_ms": 15.648599999999998,
+      "forward_ms": 35.284299999999995
+    },
+    {
+      "src": 60526,
+      "dst": 100011,
+      "affected_count": 514,
+      "incremental_ms": 205.7172,
+      "full_recompute_ms": 928.0299,
+      "speedup": 4.511192549772212,
+      "resolve_ms": 63.1673,
+      "build_input_ms": 31.276199999999996,
+      "forward_ms": 110.1833
+    },
+    {
+      "src": 29781,
+      "dst": 100008,
+      "affected_count": 527,
+      "incremental_ms": 72.23209999999999,
+      "full_recompute_ms": 903.9598,
+      "speedup": 12.514654841822404,
+      "resolve_ms": 30.6424,
+      "build_input_ms": 18.9931,
+      "forward_ms": 22.433
+    },
+    {
+      "src": 56358,
+      "dst": 691276,
+      "affected_count": 6,
+      "incremental_ms": 12.0764,
+      "full_recompute_ms": 952.9548,
+      "speedup": 78.91050313007187,
+      "resolve_ms": 4.9812,
+      "build_input_ms": 0.9409000000000001,
+      "forward_ms": 6.118799999999999
+    },
+    {
+      "src": 56802,
+      "dst": 200004,
+      "affected_count": 532,
+      "incremental_ms": 62.3901,
+      "full_recompute_ms": 905.8821,
+      "speedup": 14.519644943668949,
+      "resolve_ms": 25.1935,
+      "build_input_ms": 11.124699999999999,
+      "forward_ms": 25.736800000000002
+    },
+    {
+      "src": 65224,
+      "dst": 698265,
+      "affected_count": 10,
+      "incremental_ms": 41.4434,
+      "full_recompute_ms": 863.9886,
+      "speedup": 20.84743529729704,
+      "resolve_ms": 15.0762,
+      "build_input_ms": 6.42,
+      "forward_ms": 19.6363
+    }
+  ],
+  "min_speedup_target": 0.0,
+  "passed": true,
+  "notes": [
+    "0 of 30 sampled mutations touched a >2000-node affected set (hub-adjacent)",
+    "Phase 5 success criterion is p95 GAT incremental latency < 100ms on the benchmark graph, separate from this file's own 5x-speedup gate: measured p95 here is 259.78ms (MISS)",
+    "working tree was dirty at run time; not reproducible from the commit alone"
+  ]
+}

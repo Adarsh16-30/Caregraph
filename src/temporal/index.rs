@@ -325,6 +325,63 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
         self.all_adjacency_as_of(cf::CF_REVERSE, dst, as_of, true, limit)
     }
 
+    /// Neighbour ids only: [`all_edges_as_of_limited`](Self::all_edges_as_of_limited)
+    /// (`incoming = false`, yields each edge's `dst`) or its incoming
+    /// counterpart (`incoming = true`, yields each edge's `src`), without
+    /// building [`Edge`]s or parsing their properties. Same visibility rules
+    /// and `limit` semantics as the full walk.
+    pub fn all_neighbor_ids_as_of_limited(
+        &self,
+        anchor: NodeId,
+        as_of: Timestamp,
+        incoming: bool,
+        limit: usize,
+    ) -> Result<Vec<NodeId>> {
+        let family = if incoming {
+            cf::CF_REVERSE
+        } else {
+            cf::CF_EDGES
+        };
+        let prefix = node_prefix(anchor);
+        let mut resolved: HashSet<(EdgeType, NodeId)> = HashSet::new();
+        let mut live: Vec<NodeId> = Vec::new();
+        let mut failure: Option<CareGraphError> = None;
+
+        self.store
+            .scan_from_narrow_prefix(family, &prefix, &prefix, &mut |key, value| {
+                let Some((_, key_edge_type, timestamp, other)) = decode_edge_key(key) else {
+                    failure = Some(CareGraphError::MalformedKey {
+                        cf: family,
+                        expected: EDGE_KEY_LEN,
+                        found: key.len(),
+                    });
+                    return ControlFlow::Break(());
+                };
+                if timestamp > as_of || !resolved.insert((key_edge_type, other)) {
+                    return ControlFlow::Continue(());
+                }
+                match EdgeValue::is_tombstone(value) {
+                    Ok(false) => {
+                        live.push(other);
+                        if live.len() >= limit {
+                            return ControlFlow::Break(());
+                        }
+                        ControlFlow::Continue(())
+                    }
+                    Ok(true) => ControlFlow::Continue(()),
+                    Err(e) => {
+                        failure = Some(e);
+                        ControlFlow::Break(())
+                    }
+                }
+            })?;
+
+        if let Some(e) = failure {
+            return Err(e);
+        }
+        Ok(live)
+    }
+
     /// Shared walk for [`all_edges_as_of_limited`] and
     /// [`all_incoming_edges_as_of_limited`].
     ///

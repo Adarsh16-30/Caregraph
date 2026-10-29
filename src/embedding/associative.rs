@@ -38,7 +38,9 @@ pub fn incremental_aggregate<S: KvStore + ?Sized>(
     max_expanded_nodes: usize,
 ) -> Result<()> {
     let resolver = AffectedSubgraphResolver::new(store, fanout_cap, max_expanded_nodes);
+    let t = std::time::Instant::now();
     let subgraph = resolver.resolve(ctx.mutation)?;
+    ctx.timings.resolve = t.elapsed();
     let as_of = ctx.mutation.timestamp();
     aggregate_over_subgraph(ctx, store, model, subgraph, as_of)
 }
@@ -65,7 +67,14 @@ pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
 
     ctx.truncation = subgraph.truncation;
 
-    match run_forward_pass(store, model, &subgraph, ctx.active_model, as_of) {
+    match run_forward_pass(
+        store,
+        model,
+        &subgraph,
+        ctx.active_model,
+        as_of,
+        &mut ctx.timings,
+    ) {
         Ok(embeddings) => {
             ctx.affected = subgraph.affected;
             ctx.embeddings_after = embeddings;
@@ -104,9 +113,12 @@ fn run_forward_pass<S: KvStore + ?Sized>(
     subgraph: &ResolvedSubgraph,
     active_model: ModelKind,
     as_of: crate::types::Timestamp,
+    timings: &mut crate::embedding::state::PhaseTimings,
 ) -> Result<Vec<(crate::types::NodeId, Embedding)>> {
+    let t = std::time::Instant::now();
     let (features, edge_index, local) =
         build_model_input(store, &subgraph.nodes, &subgraph.edges, as_of)?;
+    timings.build_input = t.elapsed();
 
     let targets: Vec<usize> = subgraph
         .affected
@@ -114,7 +126,9 @@ fn run_forward_pass<S: KvStore + ?Sized>(
         .filter_map(|n| local.get(n).copied())
         .collect();
 
+    let t = std::time::Instant::now();
     let vectors = model.forward(&features, &edge_index, &targets)?;
+    timings.forward = t.elapsed();
 
     Ok(subgraph
         .affected

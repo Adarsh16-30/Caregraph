@@ -77,23 +77,34 @@ fn rank_by_cosine_similarity(
     candidates: Vec<(NodeId, Embedding)>,
     top_k: usize,
 ) -> Vec<(NodeId, f32)> {
-    let mut scored: Vec<(NodeId, f32)> = candidates
-        .into_iter()
-        .filter(|(node, embedding)| *node != query_node && embedding.model_id == query.model_id)
-        .map(|(node, embedding)| (node, cosine_similarity(&query.vector, &embedding.vector)))
-        .collect();
-
     // Descending by similarity; NodeId as a deterministic tiebreaker so the
     // result order does not depend on the column family's own scan order —
     // the same reproducibility argument `traversal.rs` makes for sorting
     // neighbours before a fan-out cap applies.
-    scored.sort_by(|a, b| {
+    fn order(a: &(NodeId, f32), b: &(NodeId, f32)) -> std::cmp::Ordering {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.0.cmp(&b.0))
-    });
-    scored.truncate(top_k);
-    scored
+    }
+
+    // Selection, not a full sort: the buffer is trimmed to the best `top_k`
+    // whenever it reaches twice that, so memory is O(top_k) and the work is
+    // O(N log top_k) amortised rather than O(N log N).
+    let keep = top_k.max(1);
+    let mut best: Vec<(NodeId, f32)> = Vec::with_capacity(keep * 2);
+    for (node, embedding) in candidates {
+        if node == query_node || embedding.model_id != query.model_id {
+            continue;
+        }
+        best.push((node, cosine_similarity(&query.vector, &embedding.vector)));
+        if best.len() >= keep * 2 {
+            best.select_nth_unstable_by(keep - 1, order);
+            best.truncate(keep);
+        }
+    }
+    best.sort_by(order);
+    best.truncate(top_k);
+    best
 }
 
 /// `0.0` for a zero vector rather than `NaN` — a node with an all-zero
@@ -185,5 +196,37 @@ mod tests {
         assert_eq!(ranked.len(), 2);
         assert_eq!(ranked[0].0, NodeId(3));
         assert_eq!(ranked[1].0, NodeId(2));
+    }
+
+    #[test]
+    fn selection_matches_a_full_sort_including_ties() {
+        // Deterministic pseudo-random scores with plenty of exact ties, so the
+        // NodeId tiebreak is exercised across the buffer-trim boundary.
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let query = emb("m", vec![1.0, 0.0]);
+        let candidates: Vec<(NodeId, Embedding)> = (2..500u64)
+            .map(|id| {
+                let y = (next() % 5) as f32;
+                (NodeId(id), emb("m", vec![1.0, y]))
+            })
+            .collect();
+
+        let mut reference: Vec<(NodeId, f32)> = candidates
+            .iter()
+            .map(|(n, e)| (*n, cosine_similarity(&query.vector, &e.vector)))
+            .collect();
+        reference.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then_with(|| a.0.cmp(&b.0)));
+
+        for k in [1usize, 2, 7, 10, 100, 497, 498, 1000] {
+            let got = rank_by_cosine_similarity(NodeId(1), &query, candidates.clone(), k);
+            let want: Vec<_> = reference.iter().take(k).copied().collect();
+            assert_eq!(got, want, "top_k={k}");
+        }
     }
 }

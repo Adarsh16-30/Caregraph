@@ -101,6 +101,19 @@ impl EdgeValue {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         Ok(serde_json::from_slice(bytes)?)
     }
+
+    /// Whether an encoded value is a tombstone, without materialising its
+    /// `properties`. Adjacency walks that only need neighbour ids call this
+    /// instead of [`decode`](Self::decode); serde skips the properties
+    /// subtree without allocating it.
+    pub fn is_tombstone(bytes: &[u8]) -> Result<bool> {
+        #[derive(Deserialize)]
+        struct Flag {
+            #[serde(default)]
+            deleted: bool,
+        }
+        Ok(serde_json::from_slice::<Flag>(bytes)?.deleted)
+    }
 }
 
 #[cfg(test)]

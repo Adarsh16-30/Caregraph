@@ -280,6 +280,10 @@ struct SampleResult {
     incremental_ms: f64,
     full_recompute_ms: f64,
     speedup: f64,
+    /// Where the incremental time went (milliseconds).
+    resolve_ms: f64,
+    build_input_ms: f64,
+    forward_ms: f64,
 }
 
 #[derive(Serialize)]
@@ -298,6 +302,19 @@ fn git(args: &[&str]) -> Option<String> {
 }
 
 #[derive(Serialize)]
+struct PhaseMedians {
+    resolve: f64,
+    build_input: f64,
+    forward: f64,
+    other: f64,
+}
+
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.total_cmp(b));
+    v[v.len() / 2]
+}
+
+#[derive(Serialize)]
 struct Report {
     benchmark: &'static str,
     prd_target: &'static str,
@@ -307,6 +324,8 @@ struct Report {
     incremental: Percentiles,
     full_recompute: Percentiles,
     median_speedup: f64,
+    /// Median milliseconds per phase of the incremental path.
+    phase_median_ms: PhaseMedians,
     per_sample: Vec<SampleResult>,
     min_speedup_target: f64,
     passed: bool,
@@ -380,7 +399,9 @@ fn main() -> Result<()> {
             // different aggregation call.
             let resolver =
                 AffectedSubgraphResolver::new(&store, caps.fanout_cap, caps.max_expanded_nodes);
+            let resolve_started = Instant::now();
             let mut subgraph = resolver.resolve(mutation)?;
+            ctx.timings.resolve = resolve_started.elapsed();
             patch_subgraph_for_mutation(&mut subgraph, &index, mutation)?;
             let path = if model.manifest.architecture == "GAT" {
                 ComputationPath::GatConstrained
@@ -431,6 +452,9 @@ fn main() -> Result<()> {
             incremental_ms: inc_ms,
             full_recompute_ms: full_ms,
             speedup: full_ms / inc_ms.max(1e-9),
+            resolve_ms: ctx.timings.resolve.as_secs_f64() * 1000.0,
+            build_input_ms: ctx.timings.build_input.as_secs_f64() * 1000.0,
+            forward_ms: ctx.timings.forward.as_secs_f64() * 1000.0,
         });
         eprintln!(
             "  {} -> {}: affected={} incremental={:.2}ms full={:.2}ms speedup={:.1}x",
@@ -453,6 +477,23 @@ fn main() -> Result<()> {
     speedups.sort_by(|a, b| a.total_cmp(b));
     let median_speedup = speedups[speedups.len() / 2];
     let passed = median_speedup >= args.min_speedup;
+    let phase_median_ms = PhaseMedians {
+        resolve: median(results.iter().map(|r| r.resolve_ms).collect()),
+        build_input: median(results.iter().map(|r| r.build_input_ms).collect()),
+        forward: median(results.iter().map(|r| r.forward_ms).collect()),
+        other: median(
+            results
+                .iter()
+                .map(|r| {
+                    (r.incremental_ms - r.resolve_ms - r.build_input_ms - r.forward_ms).max(0.0)
+                })
+                .collect(),
+        ),
+    };
+    eprintln!(
+        "  incremental phase split (median ms): resolve {:.1}  build_input {:.1}  forward {:.1}  other {:.1}",
+        phase_median_ms.resolve, phase_median_ms.build_input, phase_median_ms.forward, phase_median_ms.other
+    );
 
     let mut notes = vec![format!(
         "{} of {} sampled mutations touched a >2000-node affected set (hub-adjacent)",
@@ -518,6 +559,7 @@ fn main() -> Result<()> {
         incremental: incremental_p,
         full_recompute: full_p,
         median_speedup,
+        phase_median_ms,
         per_sample: results,
         min_speedup_target: args.min_speedup,
         passed,

@@ -1,0 +1,276 @@
+{
+  "benchmark": "gat_incremental_vs_full_recompute",
+  "prd_target": "Phase 5: GAT incremental embedding update at least 5x faster than full recompute, p95 latency under 100ms",
+  "provenance": {
+    "generated_at_unix": 1793249528,
+    "git_commit": "b213da83150fd3c38cf9c05e935fdc9b3f40c618",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\cg_target_base\\release\\caregraph-bench-incremental.exe --db data/db/p4_scratch --trace benchmarks/traces/diabetes130_full.jsonl --model diabetes130_gat --model-kind gat --samples 30 --min-speedup 0 --out-dir C:/Users/adars/AppData/Local/Temp/p3b_gat"
+  },
+  "model": "diabetes130_gat",
+  "model_kind": "gat",
+  "incremental": {
+    "samples": 30,
+    "min_ms": 2.8893999999999997,
+    "median_ms": 394.0381,
+    "p95_ms": 1062.8753,
+    "max_ms": 1170.0384
+  },
+  "full_recompute": {
+    "samples": 30,
+    "min_ms": 1370.2869,
+    "median_ms": 4759.8181,
+    "p95_ms": 5494.7952000000005,
+    "max_ms": 5559.5282
+  },
+  "median_speedup": 7.599780966158883,
+  "per_sample": [
+    {
+      "src": 1,
+      "dst": 600000,
+      "affected_count": 2,
+      "incremental_ms": 12.8513,
+      "full_recompute_ms": 4688.2046,
+      "speedup": 364.80391866970655
+    },
+    {
+      "src": 2819,
+      "dst": 603292,
+      "affected_count": 2,
+      "incremental_ms": 6.1966,
+      "full_recompute_ms": 4543.8642,
+      "speedup": 733.2834457605784
+    },
+    {
+      "src": 290,
+      "dst": 100001,
+      "affected_count": 521,
+      "incremental_ms": 422.2214,
+      "full_recompute_ms": 4861.1927000000005,
+      "speedup": 11.513373552359024
+    },
+    {
+      "src": 8243,
+      "dst": 610090,
+      "affected_count": 2,
+      "incremental_ms": 6.0952,
+      "full_recompute_ms": 4583.9139,
+      "speedup": 752.0530745504658
+    },
+    {
+      "src": 10799,
+      "dst": 100035,
+      "affected_count": 514,
+      "incremental_ms": 759.8607,
+      "full_recompute_ms": 4525.6313,
+      "speedup": 5.9558696745337665
+    },
+    {
+      "src": 13176,
+      "dst": 100438,
+      "affected_count": 8,
+      "incremental_ms": 394.0381,
+      "full_recompute_ms": 4612.5241,
+      "speedup": 11.705782004329022
+    },
+    {
+      "src": 6160,
+      "dst": 620259,
+      "affected_count": 13,
+      "incremental_ms": 330.2437,
+      "full_recompute_ms": 4759.8181,
+      "speedup": 14.413047394999513
+    },
+    {
+      "src": 17670,
+      "dst": 200001,
+      "affected_count": 519,
+      "incremental_ms": 722.7525,
+      "full_recompute_ms": 4627.0758000000005,
+      "speedup": 6.4020197785549
+    },
+    {
+      "src": 20089,
+      "dst": 100111,
+      "affected_count": 264,
+      "incremental_ms": 827.7612,
+      "full_recompute_ms": 4974.6042,
+      "speedup": 6.009709321963871
+    },
+    {
+      "src": 22672,
+      "dst": 100076,
+      "affected_count": 515,
+      "incremental_ms": 748.0676000000001,
+      "full_recompute_ms": 4757.3555,
+      "speedup": 6.359526197899761
+    },
+    {
+      "src": 25244,
+      "dst": 100244,
+      "affected_count": 132,
+      "incremental_ms": 807.8316,
+      "full_recompute_ms": 4881.8418,
+      "speedup": 6.0431429025554335
+    },
+    {
+      "src": 27735,
+      "dst": 400000,
+      "affected_count": 517,
+      "incremental_ms": 702.0884,
+      "full_recompute_ms": 4719.9721,
+      "speedup": 6.7227604102275444
+    },
+    {
+      "src": 30298,
+      "dst": 639849,
+      "affected_count": 2,
+      "incremental_ms": 6.279,
+      "full_recompute_ms": 4803.7409,
+      "speedup": 765.0487179487179
+    },
+    {
+      "src": 32912,
+      "dst": 100035,
+      "affected_count": 515,
+      "incremental_ms": 884.3725000000001,
+      "full_recompute_ms": 1897.9483,
+      "speedup": 2.1460960172325576
+    },
+    {
+      "src": 35616,
+      "dst": 200004,
+      "affected_count": 517,
+      "incremental_ms": 312.0258,
+      "full_recompute_ms": 1370.2869,
+      "speedup": 4.391582042254198
+    },
+    {
+      "src": 36067,
+      "dst": 100270,
+      "affected_count": 264,
+      "incremental_ms": 315.7087,
+      "full_recompute_ms": 1475.0328,
+      "speedup": 4.67213225356159
+    },
+    {
+      "src": 40884,
+      "dst": 653595,
+      "affected_count": 2,
+      "incremental_ms": 2.8893999999999997,
+      "full_recompute_ms": 1513.1182999999999,
+      "speedup": 523.6790683186821
+    },
+    {
+      "src": 43237,
+      "dst": 100152,
+      "affected_count": 487,
+      "incremental_ms": 358.0836,
+      "full_recompute_ms": 1443.0594,
+      "speedup": 4.029951106389682
+    },
+    {
+      "src": 30114,
+      "dst": 400007,
+      "affected_count": 545,
+      "incremental_ms": 254.3664,
+      "full_recompute_ms": 1637.3285,
+      "speedup": 6.436889856521931
+    },
+    {
+      "src": 43306,
+      "dst": 663821,
+      "affected_count": 10,
+      "incremental_ms": 157.6978,
+      "full_recompute_ms": 5193.7628,
+      "speedup": 32.934909681682306
+    },
+    {
+      "src": 49952,
+      "dst": 100035,
+      "affected_count": 516,
+      "incremental_ms": 951.5026,
+      "full_recompute_ms": 5152.8165,
+      "speedup": 5.415451833762724
+    },
+    {
+      "src": 52109,
+      "dst": 670568,
+      "affected_count": 2,
+      "incremental_ms": 6.4707,
+      "full_recompute_ms": 5477.619,
+      "speedup": 846.5264963605174
+    },
+    {
+      "src": 54153,
+      "dst": 200006,
+      "affected_count": 517,
+      "incremental_ms": 822.1587000000001,
+      "full_recompute_ms": 5147.0544,
+      "speedup": 6.260414686361647
+    },
+    {
+      "src": 56315,
+      "dst": 100006,
+      "affected_count": 514,
+      "incremental_ms": 1170.0384,
+      "full_recompute_ms": 4964.6745,
+      "speedup": 4.243172275371475
+    },
+    {
+      "src": 58452,
+      "dst": 100347,
+      "affected_count": 18,
+      "incremental_ms": 427.3458,
+      "full_recompute_ms": 5300.1254,
+      "speedup": 12.402427729487455
+    },
+    {
+      "src": 60526,
+      "dst": 100011,
+      "affected_count": 514,
+      "incremental_ms": 1062.8753,
+      "full_recompute_ms": 5309.8045,
+      "speedup": 4.995698460581407
+    },
+    {
+      "src": 29781,
+      "dst": 100008,
+      "affected_count": 527,
+      "incremental_ms": 683.4590000000001,
+      "full_recompute_ms": 5331.2116,
+      "speedup": 7.800338571882145
+    },
+    {
+      "src": 56358,
+      "dst": 691276,
+      "affected_count": 6,
+      "incremental_ms": 70.0558,
+      "full_recompute_ms": 5494.7952000000005,
+      "speedup": 78.43455074383563
+    },
+    {
+      "src": 56802,
+      "dst": 200004,
+      "affected_count": 532,
+      "incremental_ms": 721.1671,
+      "full_recompute_ms": 5480.7119999999995,
+      "speedup": 7.599780966158883
+    },
+    {
+      "src": 65224,
+      "dst": 698265,
+      "affected_count": 10,
+      "incremental_ms": 330.3106,
+      "full_recompute_ms": 5559.5282,
+      "speedup": 16.831213409439478
+    }
+  ],
+  "min_speedup_target": 0.0,
+  "passed": true,
+  "notes": [
+    "0 of 30 sampled mutations touched a >2000-node affected set (hub-adjacent)",
+    "Phase 5 success criterion is p95 GAT incremental latency < 100ms on the benchmark graph, separate from this file's own 5x-speedup gate: measured p95 here is 1062.88ms (MISS)",
+    "working tree was dirty at run time; not reproducible from the commit alone"
+  ]
+}

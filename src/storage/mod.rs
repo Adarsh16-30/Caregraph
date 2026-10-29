@@ -3,6 +3,7 @@
 pub mod cf;
 pub mod encryption;
 pub mod kv;
+pub mod node_types;
 
 pub use cf::{
     ALL, CF_COMMIT_META, CF_EDGES, CF_EMBEDDINGS, CF_META, CF_NODES, CF_REPAIR, CF_REVERSE,

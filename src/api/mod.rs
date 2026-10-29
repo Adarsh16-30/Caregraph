@@ -89,6 +89,23 @@ fn internal(err: CareGraphError) -> Status {
     }
 }
 
+/// Default result count when a request leaves `top_k` at zero.
+const DEFAULT_TOP_K: u32 = 10;
+/// Largest `top_k` a request may ask for; above this is `INVALID_ARGUMENT`
+/// rather than a silent clamp, so a caller never gets fewer rows than it
+/// believes it asked for.
+pub const MAX_TOP_K: u32 = 1000;
+
+fn clamp_top_k(requested: u32) -> Result<usize, Status> {
+    match requested {
+        0 => Ok(DEFAULT_TOP_K as usize),
+        n if n > MAX_TOP_K => Err(Status::invalid_argument(format!(
+            "top_k {n} exceeds the maximum of {MAX_TOP_K}"
+        ))),
+        n => Ok(n as usize),
+    }
+}
+
 fn env_permits(name: &str, default: usize) -> usize {
     std::env::var(name)
         .ok()
@@ -544,11 +561,7 @@ impl CareGraphService for CareGraphApi {
         request: Request<SimilarCarePathwaysRequest>,
     ) -> Result<Response<SimilarCarePathwaysResponse>, Status> {
         let req = request.into_inner();
-        let top_k = if req.top_k == 0 {
-            10
-        } else {
-            req.top_k as usize
-        };
+        let top_k = clamp_top_k(req.top_k)?;
 
         let (node, as_of) = (NodeId(req.node_id), Timestamp(req.as_of_us));
         let permits = self.inner.read_permits.clone();
@@ -583,11 +596,7 @@ impl CareGraphService for CareGraphApi {
         request: Request<SimilarityDeltaRequest>,
     ) -> Result<Response<SimilarityDeltaResponse>, Status> {
         let req = request.into_inner();
-        let top_k = if req.top_k == 0 {
-            10
-        } else {
-            req.top_k as usize
-        };
+        let top_k = clamp_top_k(req.top_k)?;
 
         let (node, from, to, min_abs) = (
             NodeId(req.node_id),

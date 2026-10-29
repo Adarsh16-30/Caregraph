@@ -83,30 +83,37 @@ pub struct ResolvedSubgraph {
 /// several edge types surfaces fewer total neighbours than it used to under
 /// the same `cap` value — a tighter bound, not a looser one, and still
 /// recorded in [`ResolutionTruncation`] exactly as before whenever it binds.
+/// One node's capped neighbour list: `(neighbours, fanout_capped, dropped)`.
+type Expansion = (Vec<NodeId>, bool, usize);
+
+/// Upper bound on scan threads per resolve; several mutations resolve at once
+/// under the worker pool, so one resolve must not claim every core.
+const MAX_RESOLVE_THREADS: usize = 4;
+
 fn capped_neighbors<S: KvStore + ?Sized>(
     index: &TemporalIndex<'_, S>,
     node: NodeId,
     as_of: Timestamp,
     cap: usize,
-) -> Result<(Vec<NodeId>, bool, usize)> {
+) -> Result<Expansion> {
     let mut neighbors = HashSet::new();
     let mut capped = false;
     let mut dropped = 0usize;
     let probe = cap.saturating_add(1);
 
-    let out = index.all_edges_as_of_limited(node, as_of, probe)?;
+    let out = index.all_neighbor_ids_as_of_limited(node, as_of, false, probe)?;
     if out.len() == probe {
         capped = true;
         dropped += out.len() - cap;
     }
-    neighbors.extend(out.into_iter().take(cap).map(|e| e.dst));
+    neighbors.extend(out.into_iter().take(cap));
 
-    let inc = index.all_incoming_edges_as_of_limited(node, as_of, probe)?;
+    let inc = index.all_neighbor_ids_as_of_limited(node, as_of, true, probe)?;
     if inc.len() == probe {
         capped = true;
         dropped += inc.len() - cap;
     }
-    neighbors.extend(inc.into_iter().take(cap).map(|e| e.src));
+    neighbors.extend(inc.into_iter().take(cap));
 
     Ok((neighbors.into_iter().collect(), capped, dropped))
 }
@@ -135,6 +142,43 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
             cap,
             max_expanded_nodes,
         }
+    }
+
+    /// [`capped_neighbors`] for every node, in the order given. The scans are
+    /// independent point reads that each pay RocksDB seek latency, so a ring of
+    /// hundreds of nodes is split across a few scoped threads; small rings stay
+    /// on the calling thread, where a spawn would cost more than it saves.
+    fn expand_all(&self, nodes: &[NodeId], as_of: Timestamp) -> Result<Vec<Expansion>> {
+        const MIN_PER_THREAD: usize = 48;
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(MAX_RESOLVE_THREADS)
+            .min(nodes.len() / MIN_PER_THREAD);
+        if threads <= 1 {
+            return nodes
+                .iter()
+                .map(|&n| capped_neighbors(&self.index, n, as_of, self.cap))
+                .collect();
+        }
+        let chunk = nodes.len().div_ceil(threads);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = nodes
+                .chunks(chunk)
+                .map(|part| {
+                    scope.spawn(move || {
+                        part.iter()
+                            .map(|&n| capped_neighbors(&self.index, n, as_of, self.cap))
+                            .collect::<Result<Vec<Expansion>>>()
+                    })
+                })
+                .collect();
+            let mut out = Vec::with_capacity(nodes.len());
+            for h in handles {
+                out.extend(h.join().expect("resolver scan thread panicked")?);
+            }
+            Ok(out)
+        })
     }
 
     pub fn resolve(&self, mutation: GraphMutation) -> Result<ResolvedSubgraph> {
@@ -171,43 +215,54 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
         let mut edge_set: HashSet<(NodeId, NodeId)> = HashSet::new();
         let mut fetched: HashSet<NodeId> = HashSet::new();
 
-        let mut ring = affected.clone();
+        let mut ring: Vec<NodeId> = affected.iter().copied().collect();
         for ring_number in 0..2 {
-            let mut next_ring = HashSet::new();
-            for node in ring {
-                if !fetched.insert(node) {
-                    continue;
-                }
-                // The budget applies from ring two onward only. Ring one *is*
-                // `affected` — the nodes this call reports embeddings for —
-                // and every one of them must get its own edges fetched or its
-                // computed embedding is wrong, not merely stale (isolated in
-                // the subgraph looks identical to having no neighbours at
-                // all). Ring two is what actually needs bounding: it is
-                // whatever ring one's neighbours turned out to be, sized by
-                // the graph's own structure rather than by the mutation, and
-                // it is what produced a 49,165-node receptive field from a
-                // 521-node affected set on the real clinical graph before
-                // this bound existed (`docs/benchmark_report.md` §7.6).
-                if ring_number > 0 && fetched.len() > self.max_expanded_nodes {
-                    // Stay in the loop rather than returning early: nodes
-                    // already queued in `ring` after this one still get their
-                    // `fetched` membership recorded (so a later duplicate
-                    // sighting is a no-op, not a second skipped attempt), but
-                    // none of them are expanded either. The budget is a hard
-                    // stop on further RocksDB work, not a soft slowdown.
+            // Sorted so the budget below always spends itself on the same
+            // nodes for the same graph state; a `HashSet`'s order differs per
+            // process and made *which* ring-two nodes were skipped arbitrary.
+            ring.sort();
+            let unfetched: Vec<NodeId> = ring
+                .iter()
+                .copied()
+                .filter(|n| fetched.insert(*n))
+                .collect();
+
+            // The budget applies from ring two onward only. Ring one *is*
+            // `affected` — the nodes this call reports embeddings for — and
+            // every one of them must get its own edges fetched or its
+            // computed embedding is wrong, not merely stale (isolated in the
+            // subgraph looks identical to having no neighbours at all). Ring
+            // two is what actually needs bounding: it is whatever ring one's
+            // neighbours turned out to be, sized by the graph's own structure
+            // rather than by the mutation, and it is what produced a
+            // 49,165-node receptive field from a 521-node affected set on the
+            // real clinical graph before this bound existed
+            // (`docs/benchmark_report.md` §7.6). Nodes past the budget are
+            // still recorded in `fetched` (a later duplicate sighting is a
+            // no-op) but are not expanded: the budget is a hard stop on
+            // further RocksDB work, not a soft slowdown.
+            let expand: &[NodeId] = if ring_number > 0 {
+                let already = fetched.len() - unfetched.len();
+                let allowed = self.max_expanded_nodes.saturating_sub(already);
+                if unfetched.len() > allowed {
                     truncation.expansion_capped = true;
-                    continue;
                 }
-                let (neighbors, capped, dropped) =
-                    capped_neighbors(&self.index, node, as_of, self.cap)?;
+                &unfetched[..unfetched.len().min(allowed)]
+            } else {
+                &unfetched
+            };
+
+            let expanded = self.expand_all(expand, as_of)?;
+
+            let mut next_ring = Vec::new();
+            for (&node, (neighbors, capped, dropped)) in expand.iter().zip(expanded) {
                 if capped {
                     truncation.fanout_capped = true;
                     truncation.neighbors_dropped += dropped;
                 }
                 for other in neighbors {
                     if nodes.insert(other) {
-                        next_ring.insert(other);
+                        next_ring.push(other);
                     }
                     let pair = if node.as_u64() <= other.as_u64() {
                         (node, other)
@@ -278,11 +333,22 @@ pub fn build_model_input<S: KvStore + ?Sized>(
     let index = TemporalIndex::new(store);
     let local: HashMap<NodeId, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 
+    let cache = store.node_type_cache();
     let mut features = vec![vec![0.0f32; NODE_TYPES.len()]; nodes.len()];
     for (i, &node) in nodes.iter().enumerate() {
+        if let Some(dim) = cache.and_then(|c| c.get(node, as_of)) {
+            if let Some(slot) = features[i].get_mut(dim as usize) {
+                *slot = 1.0;
+            }
+            continue;
+        }
         if let Some(n) = index.node_as_of(node, as_of)? {
-            if let Some(dim) = NODE_TYPES.iter().position(|t| *t == n.node_type) {
+            let dim = NODE_TYPES.iter().position(|t| *t == n.node_type);
+            if let Some(dim) = dim {
                 features[i][dim] = 1.0;
+                if let Some(c) = cache {
+                    c.insert(node, n.timestamp, dim as u8);
+                }
             }
         }
     }

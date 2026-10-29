@@ -134,7 +134,7 @@ Point-in-time embedding similarity search (Contribution 5,
 `src/api/similarity.rs`) — reads the query node's `CF_EMBEDDINGS` entry as
 of `as_of_us` and ranks every other node with an embedding at that same
 timestamp by cosine similarity. `top_k = 0` defaults to 10, not zero
-results. `query_node_has_no_embedding = true` means the node never went
+results; values above 1000 are refused with `INVALID_ARGUMENT`. `query_node_has_no_embedding = true` means the node never went
 through a mutation that computed one (or didn't exist yet at `as_of_us`) —
 `matches` is empty in that case, which is a real, correct answer, not an
 error. The query node itself is always excluded from `matches` — a
@@ -159,7 +159,8 @@ one end of the window is still surfaced, with `present_at_from`/
 delta is undefined, not small, and is never silently dropped or fabricated
 (see `src/api/diff.rs`'s module doc). `min_abs_delta` filters out candidates
 present at *both* timestamps whose `|delta|` falls below it; a one-sided
-candidate is never filtered by it. `top_k = 0` defaults to 10.
+candidate is never filtered by it. `top_k = 0` defaults to 10; values above 1000 are refused with
+`INVALID_ARGUMENT`.
 
 ## Enums
 
