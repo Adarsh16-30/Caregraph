@@ -17,9 +17,11 @@ use std::sync::RwLock;
 
 use crate::types::{NodeId, Timestamp};
 
-/// Stop inserting past this many entries; lookups keep working and the
-/// overflow simply reads from RocksDB, so memory stays bounded.
-const MAX_ENTRIES: usize = 4_000_000;
+/// Entries beyond the memory plan's cap are not inserted; lookups keep working
+/// and the overflow simply reads from RocksDB, so memory stays bounded.
+fn max_entries() -> usize {
+    crate::memory::current().node_type_entries as usize
+}
 
 #[derive(Default)]
 pub struct NodeTypeCache {
@@ -39,7 +41,7 @@ impl NodeTypeCache {
 
     pub fn insert(&self, node: NodeId, version_ts: Timestamp, dim: u8) {
         if let Ok(mut map) = self.entries.write() {
-            if map.len() < MAX_ENTRIES {
+            if map.len() < max_entries() {
                 map.insert(node, (version_ts, dim));
             }
         }

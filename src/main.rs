@@ -89,6 +89,10 @@ async fn main() -> anyhow::Result<()> {
     let (cfg, print_config) = load_config()?;
     if print_config {
         print!("{}", cfg.redacted());
+        match cfg.memory_plan() {
+            Ok(plan) => print!("\n{}", plan.describe()),
+            Err(e) => println!("\nmemory plan: {e}"),
+        }
         return Ok(());
     }
 
@@ -102,6 +106,14 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
+
+    // The memory plan must be fixed before the first database is opened: the
+    // shared cache and the memtable limit are created from it.
+    let plan = caregraph::memory::install(
+        cfg.memory_plan()
+            .context("the memory budget cannot be met")?,
+    );
+    tracing::info!("memory plan:\n{}", plan.describe());
 
     // Library code (model spawn, manifest load) resolves ML assets through
     // these variables so a TOML-supplied value applies everywhere.
@@ -218,8 +230,8 @@ async fn main() -> anyhow::Result<()> {
             std::fs::create_dir_all(dir)
                 .with_context(|| format!("creating audit directory {}", dir.display()))?;
             let audit_store = match &dek {
-                Some(key) => RocksKv::open_encrypted(dir, key.as_ref()),
-                None => RocksKv::open(dir),
+                Some(key) => RocksKv::open_audit(dir, Some(&key[..])),
+                None => RocksKv::open_audit(dir, None),
             }
             .with_context(|| format!("opening audit database at {}", dir.display()))?;
             let log = AuditLog::start(audit_store, &cfg.pod_name, 4096)
@@ -326,6 +338,15 @@ async fn main() -> anyhow::Result<()> {
         },
     );
     PoolCollector::register(health.clone(), &registry).context("registering pool metrics")?;
+    {
+        let api = api.clone();
+        caregraph::memory::MemoryCollector::register(
+            plan.clone(),
+            Arc::new(move || api.worker_pids()),
+            &registry,
+        )
+        .context("registering memory metrics")?;
+    }
 
     let metrics_addr = cfg.metrics_addr;
     let metrics_task = {

@@ -415,7 +415,7 @@ impl AuditLog {
     /// Opens `dir` as a [`RocksKv`] and starts the log on it.
     pub fn open_dir(dir: &Path, pod: &str, queue_capacity: usize) -> Result<Arc<Self>> {
         std::fs::create_dir_all(dir)?;
-        Self::start(RocksKv::open(dir)?, pod, queue_capacity)
+        Self::start(RocksKv::open_audit(dir, None)?, pod, queue_capacity)
     }
 
     /// Records an event and waits until it is durable. Used for reads, where a

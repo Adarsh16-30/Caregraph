@@ -6,6 +6,15 @@
 # Rules 7 and 9 depend on.
 #
 #   docker compose -f infrastructure/docker-compose/dev-stack.yml up --build
+#       just CareGraph (the default)
+#   ... --profile observability up      adds Prometheus and Grafana
+#   ... --profile baselines up          adds Neo4j and TerminusDB (Rule 4 runs)
+#   ... up -d neo4j terminusdb          naming a service starts it without the profile
+#
+# Only CareGraph runs by default: it does not need the baselines, and the two
+# baseline databases plus the observability pair are several gigabytes of memory
+# that a development session rarely uses. Each service has a memory ceiling you
+# can set in `.env` (CAREGRAPH_CONTAINER_MEM, NEO4J_MEM_LIMIT, ...).
 #
 # Credentials here are local-development only and come from the environment.
 # See infrastructure/docker-compose/.env.example.
@@ -21,22 +30,23 @@ services:
     environment:
       CAREGRAPH_DB_PATH: /var/lib/caregraph/db
       RUST_LOG: ${RUST_LOG:-caregraph=info}
+      # The server's own budget for its whole process tree (RocksDB, caches, and
+      # Python workers). Keep it below the container ceiling. Empty = unset.
+      CAREGRAPH_MEMORY_MB: ${CAREGRAPH_MEMORY_MB:-}
+    mem_limit: ${CAREGRAPH_CONTAINER_MEM:-2g}
     volumes:
       - caregraph_data:/var/lib/caregraph
     ports:
       - "50051:50051"   # gRPC query service (wired up in Phase 6)
       - "9100:9100"     # Prometheus scrape endpoint (Phase 7)
-    depends_on:
-      neo4j:
-        condition: service_healthy
-      terminusdb:
-        condition: service_started
     restart: unless-stopped
 
   # --- Baseline: traversal + GDS embedding comparison (Rule 4) ---------------
   neo4j:
     image: neo4j:5.26-community
     container_name: caregraph-neo4j
+    profiles: ["baselines"]
+    mem_limit: ${NEO4J_MEM_LIMIT:-4g}
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-caregraph-dev-only}
       NEO4J_PLUGINS: '["graph-data-science"]'
@@ -61,6 +71,8 @@ services:
   terminusdb:
     image: terminusdb/terminusdb-server:v11.1.14
     container_name: caregraph-terminusdb
+    profiles: ["baselines"]
+    mem_limit: ${TERMINUSDB_MEM_LIMIT:-2g}
     environment:
       TERMINUSDB_ADMIN_PASS: ${TERMINUSDB_PASSWORD:-caregraph-dev-only}
       TERMINUSDB_SERVER_PORT: 6363
@@ -73,6 +85,8 @@ services:
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: caregraph-prometheus
+    profiles: ["observability"]
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-512m}
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=30d
@@ -85,6 +99,8 @@ services:
   grafana:
     image: grafana/grafana:10.4.14
     container_name: caregraph-grafana
+    profiles: ["observability"]
+    mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-caregraph-dev-only}
       GF_USERS_ALLOW_SIGN_UP: "false"

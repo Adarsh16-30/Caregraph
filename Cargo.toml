@@ -175,8 +175,26 @@ path = "tests/embedding/main.rs"
 # (Rule 5); needs the worker built first and a real trained model on disk,
 # same preconditions as `embedding` above — not run by the default sweep.
 [[test]]
+name = "memory_budget"
+path = "tests/memory_budget/main.rs"
+
+[[test]]
 name = "fault_injection"
 path = "tests/fault_injection/main.rs"
+
+# Debug and test builds keep file and line information (backtraces, panics) but
+# not variable-level debug info. Full debug info made each test/tool binary take
+# about 4 GB to link on Windows; see docs/memory.md. Set `debug = true` locally
+# when you need to step through code in a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+# RocksDB is C++ compiled by this package's build script, which follows this
+# package's profile: unoptimised with full debug info it dominates link memory
+# and makes every database in a test slow. Nobody debugs into RocksDB from here.
+[profile.dev.package.librocksdb-sys]
+opt-level = 2
+debug = false
 
 [profile.release]
 lto = true

@@ -1,0 +1,88 @@
+== commit 2624e5e, 2026-10-29T11:39:46Z
+== settings: 
+== 1. idle, after start
+caregraph      pid 32244   working set     65 MB   private     57 MB
+python         pid 17956   working set      4 MB   private      1 MB
+python         pid 23124   working set      4 MB   private      1 MB
+python         pid 33628   working set    330 MB   private    823 MB
+python         pid 7816    working set    330 MB   private    823 MB
+TOTAL                      working set    733 MB   private   1705 MB
+== 2. after 1,000 req/s of reads for 15 s
+caregraph      pid 32244   working set    137 MB   private    129 MB
+python         pid 17956   working set      4 MB   private      1 MB
+python         pid 23124   working set      4 MB   private      1 MB
+python         pid 33628   working set    330 MB   private    823 MB
+python         pid 7816    working set    330 MB   private    823 MB
+TOTAL                      working set    805 MB   private   1777 MB
+== 3. after 8 req/s of writes for 20 s
+caregraph      pid 32244   working set    226 MB   private    223 MB
+python         pid 17956   working set      4 MB   private      1 MB
+python         pid 23124   working set      4 MB   private      1 MB
+python         pid 33628   working set    404 MB   private    896 MB
+python         pid 7816    working set    330 MB   private    823 MB
+TOTAL                      working set    968 MB   private   1944 MB
+== 4. 10 s after the load stopped
+caregraph      pid 32244   working set    226 MB   private    223 MB
+python         pid 17956   working set      4 MB   private      1 MB
+python         pid 23124   working set      4 MB   private      1 MB
+python         pid 33628   working set    404 MB   private    896 MB
+python         pid 7816    working set    330 MB   private    822 MB
+TOTAL                      working set    968 MB   private   1943 MB
+   /c/Users/adars/cg_memmatrix/default/load_r.txt:   achieved 1000.0 ok/s  p50 1.17ms  p95 5.10ms  p99 8.22ms  errors {}  dropped 0  late_slots 0
+   /c/Users/adars/cg_memmatrix/default/load_w.txt:   achieved 8.0 ok/s  p50 21.58ms  p95 28.77ms  p99 37.76ms  errors {}  dropped 0  late_slots 0
+
+== settings: CAREGRAPH_MEMORY_MB=1300
+== 1. idle, after start
+caregraph      pid 25124   working set     66 MB   private     57 MB
+python         pid 14520   working set      4 MB   private      1 MB
+python         pid 35140   working set      4 MB   private      1 MB
+python         pid 25648   working set    330 MB   private    823 MB
+python         pid 24596   working set    329 MB   private    822 MB
+TOTAL                      working set    733 MB   private   1704 MB
+== 2. after 1,000 req/s of reads for 15 s
+caregraph      pid 25124   working set    137 MB   private    128 MB
+python         pid 14520   working set      4 MB   private      1 MB
+python         pid 35140   working set      4 MB   private      1 MB
+python         pid 25648   working set    330 MB   private    823 MB
+python         pid 24596   working set    329 MB   private    822 MB
+TOTAL                      working set    804 MB   private   1775 MB
+== 3. after 8 req/s of writes for 20 s
+caregraph      pid 25124   working set    205 MB   private    201 MB
+python         pid 14520   working set      4 MB   private      1 MB
+python         pid 35140   working set      4 MB   private      1 MB
+python         pid 25648   working set    404 MB   private    896 MB
+python         pid 24596   working set    329 MB   private    822 MB
+TOTAL                      working set    946 MB   private   1921 MB
+== 4. 10 s after the load stopped
+caregraph      pid 25124   working set    204 MB   private    200 MB
+python         pid 14520   working set      4 MB   private      1 MB
+python         pid 35140   working set      4 MB   private      1 MB
+python         pid 25648   working set    404 MB   private    896 MB
+python         pid 24596   working set    329 MB   private    822 MB
+TOTAL                      working set    945 MB   private   1920 MB
+   /c/Users/adars/cg_memmatrix/budget/load_r.txt:   achieved 1000.0 ok/s  p50 1.17ms  p95 5.10ms  p99 8.07ms  errors {}  dropped 0  late_slots 0
+   /c/Users/adars/cg_memmatrix/budget/load_w.txt:   achieved 8.0 ok/s  p50 21.66ms  p95 29.12ms  p99 33.76ms  errors {}  dropped 0  late_slots 1
+
+== settings: CAREGRAPH_MEMORY_MB=700 CAREGRAPH_GAT_MODEL=none
+== 1. idle, after start
+caregraph      pid 37712   working set     66 MB   private     56 MB
+python         pid 20436   working set      4 MB   private      1 MB
+python         pid 4072    working set    330 MB   private    823 MB
+TOTAL                      working set    400 MB   private    880 MB
+== 2. after 1,000 req/s of reads for 15 s
+caregraph      pid 37712   working set    162 MB   private    163 MB
+python         pid 20436   working set      4 MB   private      1 MB
+python         pid 4072    working set    330 MB   private    823 MB
+TOTAL                      working set    496 MB   private    987 MB
+== 3. after 8 req/s of writes for 20 s
+caregraph      pid 37712   working set    193 MB   private    191 MB
+python         pid 20436   working set      4 MB   private      1 MB
+python         pid 4072    working set    404 MB   private    896 MB
+TOTAL                      working set    601 MB   private   1088 MB
+== 4. 10 s after the load stopped
+caregraph      pid 37712   working set    192 MB   private    188 MB
+python         pid 20436   working set      4 MB   private      1 MB
+python         pid 4072    working set    404 MB   private    896 MB
+TOTAL                      working set    600 MB   private   1085 MB
+   /c/Users/adars/cg_memmatrix/onemodel/load_r.txt:   achieved 1000.0 ok/s  p50 1.25ms  p95 6.27ms  p99 117.31ms  errors {}  dropped 0  late_slots 0
+   /c/Users/adars/cg_memmatrix/onemodel/load_w.txt:   achieved 8.0 ok/s  p50 21.76ms  p95 27.86ms  p99 42.46ms  errors {}  dropped 0  late_slots 0

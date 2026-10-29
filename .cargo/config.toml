@@ -1,0 +1,16 @@
+# Build and test memory.
+#
+# On Windows the MSVC linker is what uses the memory: with full debug information
+# each test or tool binary took about 4 GB to link (measured, see docs/memory.md),
+# and cargo links as many in parallel as it has jobs. Two settings bound that;
+# raise them if you have the RAM and want faster builds.
+
+[build]
+# Binaries linked at the same time (and compiler processes in flight).
+jobs = 4
+
+[env]
+# Tests running at once inside one test binary. Each integration test opens real
+# RocksDB databases and some start servers, so the default of one per CPU is
+# more memory than the machine needs. An explicit RUST_TEST_THREADS wins.
+RUST_TEST_THREADS = { value = "4", force = false }

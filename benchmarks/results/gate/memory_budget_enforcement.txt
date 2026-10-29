@@ -1,0 +1,2 @@
+peak resident memory: 346 MB with the historical defaults, 176 MB with CAREGRAPH_MEMORY_MB=256; memtables peaked at 36 MB against a 38 MB limit
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.92s

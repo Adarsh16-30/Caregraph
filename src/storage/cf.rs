@@ -59,24 +59,29 @@ pub const ALL: [&str; 8] = [
     CF_AUDIT,
 ];
 
-/// Options for a family whose keys carry a fixed-width prefix before the
-/// inverted timestamp.
-fn versioned_cf_options(prefix_len: usize, cache: &Cache, write_buffer_bytes: usize) -> Options {
+/// Options every family shares: one block cache for the whole process (see
+/// `crate::memory`), with index and filter blocks held in it so they are neither
+/// re-read from disk nor allocated outside the budget, and the memtable size.
+fn base_cf_options(cache: &Cache, write_buffer_bytes: usize) -> (Options, BlockBasedOptions) {
     let mut opts = Options::default();
     opts.set_write_buffer_size(write_buffer_bytes);
-    // One block cache shared by every column family (RocksDB's default is a
-    // small per-process cache that this graph's working set exceeds), with
-    // index and filter blocks held in it so they are not re-read from disk, and
-    // a Bloom filter so point-in-time seeks skip SST files that cannot contain
-    // the key's prefix.
+    opts.set_compression_type(DBCompressionType::Lz4);
     let mut table = BlockBasedOptions::default();
     table.set_block_cache(cache);
     table.set_cache_index_and_filter_blocks(true);
     table.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    (opts, table)
+}
+
+/// Options for a family whose keys carry a fixed-width prefix before the
+/// inverted timestamp.
+fn versioned_cf_options(prefix_len: usize, cache: &Cache, write_buffer_bytes: usize) -> Options {
+    let (mut opts, mut table) = base_cf_options(cache, write_buffer_bytes);
+    // A Bloom filter so point-in-time seeks skip SST files that cannot contain
+    // the key's prefix.
     table.set_bloom_filter(10.0, false);
     opts.set_block_based_table_factory(&table);
     opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(prefix_len));
-    opts.set_compression_type(DBCompressionType::Lz4);
     // Version history is append-only and read by seek, so level compaction with
     // a bloom filter on the prefix serves reads better than universal.
     opts.set_level_compaction_dynamic_level_bytes(true);
@@ -92,33 +97,32 @@ pub fn prefix_len(cf: &str) -> Option<usize> {
     }
 }
 
-/// Descriptors for all four families, in [`ALL`] order.
+/// Descriptors for every family, in [`ALL`] order, sized by the memory plan.
 pub fn descriptors() -> Vec<ColumnFamilyDescriptor> {
-    let cache = Cache::new_lru_cache(env_mb("CAREGRAPH_BLOCK_CACHE_MB", 256) << 20);
-    let write_buffer = env_mb("CAREGRAPH_WRITE_BUFFER_MB", 64) << 20;
+    descriptors_with(crate::memory::current().write_buffer_mb as usize)
+}
+
+/// Memtable size for a database that only ever holds a trickle of small records
+/// (the per-pod audit log).
+pub const SMALL_WRITE_BUFFER_MB: usize = 4;
+
+/// As [`descriptors`], with an explicit memtable size per family. Every family
+/// shares the process-wide cache.
+pub fn descriptors_with(write_buffer_mb: usize) -> Vec<ColumnFamilyDescriptor> {
+    let cache = crate::memory::rocksdb_cache();
+    let write_buffer = write_buffer_mb << 20;
     ALL.iter()
         .map(|name| {
             if *name == CF_META || *name == CF_AUDIT {
-                let mut opts = Options::default();
-                opts.set_compression_type(DBCompressionType::Lz4);
+                let (mut opts, table) = base_cf_options(cache, write_buffer);
+                opts.set_block_based_table_factory(&table);
                 return ColumnFamilyDescriptor::new(*name, opts);
             }
             let prefix =
                 prefix_len(name).expect("every versioned CF in ALL has a known prefix width");
-            ColumnFamilyDescriptor::new(*name, versioned_cf_options(prefix, &cache, write_buffer))
+            ColumnFamilyDescriptor::new(*name, versioned_cf_options(prefix, cache, write_buffer))
         })
         .collect()
-}
-
-/// Megabytes from an environment variable, or `default`. Block cache and write
-/// buffer sizing are deployment-dependent (container memory limit), so they are
-/// configurable rather than baked in.
-fn env_mb(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(default)
 }
 
 /// Database-wide options.
@@ -128,7 +132,12 @@ pub fn db_options() -> Options {
     opts.create_missing_column_families(true);
     // Durability is the point of the system (Rule 5); never disable the WAL.
     opts.set_use_fsync(false);
-    opts.increase_parallelism(num_cpus());
+    let plan = crate::memory::current();
+    opts.increase_parallelism((plan.background_jobs as i32).min(num_cpus()));
+    // One limit on every memtable in the process, charged to the shared cache.
+    if let Some(manager) = crate::memory::memtable_manager() {
+        opts.set_write_buffer_manager(manager);
+    }
     opts
 }
 

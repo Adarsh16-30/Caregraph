@@ -21,6 +21,7 @@ pub mod config;
 pub mod embedding;
 pub mod error;
 pub mod graph;
+pub mod memory;
 pub mod metrics_server;
 pub mod replication;
 pub mod security;

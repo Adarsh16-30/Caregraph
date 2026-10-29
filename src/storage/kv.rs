@@ -158,8 +158,8 @@ pub struct RocksKv {
     cf_ids: std::sync::OnceLock<std::collections::BTreeMap<String, u32>>,
 }
 
-/// Upper bounds on the in-memory tail of recent batches.
-const RECENT_MAX_BYTES: usize = 32 << 20;
+/// Upper bound on the in-memory tail of recent batches, besides the byte cap in
+/// the memory plan.
 const RECENT_MAX_BATCHES: usize = 8192;
 
 /// A batch as written: the sequence number of its first operation, its operation
@@ -207,11 +207,36 @@ impl RocksKv {
         Self::open_with(path, Some(key), WalRetention::default())
     }
 
+    /// The per-pod audit database: the same families, but small memtables, since it
+    /// only ever holds a trickle of small records. It shares the process's cache.
+    pub fn open_audit(path: impl AsRef<Path>, key: Option<&[u8]>) -> Result<Self> {
+        Self::open_sized(
+            path,
+            key,
+            WalRetention::default(),
+            cf::SMALL_WRITE_BUFFER_MB,
+        )
+    }
+
     /// The general constructor: optional encryption key and WAL retention.
     pub fn open_with(
         path: impl AsRef<Path>,
         key: Option<&[u8]>,
         retention: WalRetention,
+    ) -> Result<Self> {
+        Self::open_sized(
+            path,
+            key,
+            retention,
+            crate::memory::current().write_buffer_mb as usize,
+        )
+    }
+
+    fn open_sized(
+        path: impl AsRef<Path>,
+        key: Option<&[u8]>,
+        retention: WalRetention,
+        write_buffer_mb: usize,
     ) -> Result<Self> {
         let mut opts = cf::db_options();
         // Keep the Env alive until the database is open: it must outlive the
@@ -228,7 +253,7 @@ impl RocksKv {
         if retention.size_limit_mb > 0 {
             opts.set_wal_size_limit_mb(retention.size_limit_mb);
         }
-        let db = Db::open_cf_descriptors(&opts, path, cf::descriptors())?;
+        let db = Db::open_cf_descriptors(&opts, path, cf::descriptors_with(write_buffer_mb))?;
         let latest = db.latest_sequence_number();
         Ok(RocksKv {
             db,
@@ -477,7 +502,8 @@ impl KvStore for RocksKv {
                     count: count as u32,
                     data,
                 });
-                while recent.bytes > RECENT_MAX_BYTES || recent.entries.len() > RECENT_MAX_BATCHES {
+                let max_bytes = (crate::memory::current().recent_tail_mb as usize) << 20;
+                while recent.bytes > max_bytes || recent.entries.len() > RECENT_MAX_BATCHES {
                     match recent.entries.pop_front() {
                         Some(old) => recent.bytes -= old.data.len(),
                         None => break,

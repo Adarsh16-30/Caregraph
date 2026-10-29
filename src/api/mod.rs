@@ -519,6 +519,20 @@ impl CareGraphApi {
         })
     }
 
+    /// Process ids of each deployed model's workers, for memory accounting.
+    pub fn worker_pids(&self) -> Vec<(String, Vec<u32>)> {
+        let mut out = Vec::new();
+        for (name, model) in [
+            ("graphsage", &self.inner.graphsage_model),
+            ("gat", &self.inner.gat_model),
+        ] {
+            if let Some(m) = model {
+                out.push((name.to_string(), m.worker_pids()));
+            }
+        }
+        out
+    }
+
     /// Each deployed model's worker-pool state, for readiness and metrics.
     pub fn model_statuses(&self) -> Vec<ModelStatus> {
         let mut out = Vec::new();

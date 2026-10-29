@@ -1,0 +1,53 @@
+# Build memory: peak system memory while rebuilding every test target (cargo test --no-run)
+# scripts/measure_build_memory.sh, Windows 11, 16 logical CPUs, 16 GB RAM (about 8-9 GB in use by other programs at the start)
+
+## before: full debug info, RocksDB compiled unoptimised with debug info
+-- cargo --jobs 6
+jobs=6 exit=0 wall=128s baseline=9370MB peak=15931MB growth=6561MB samples=61
+
+-- cargo --jobs 2 (with per-process sampling)
+jobs=2 exit=0 wall=103s baseline=8832MB peak=14737MB growth=5905MB samples=56
+largest single build processes seen (name:MB):
+  link: 3992 MB
+  rustc: 229 MB
+  cargo: 80 MB
+the sample at the system peak:
+  14737 link:3795 link:3279 cargo:77 rustc:56 rustc:46
+
+## after step 1: [profile.dev] debug = line-tables-only, jobs = 4 (clean rebuild, then incremental)
+-- clean
+jobs=default exit=0 wall=384s baseline=8594MB peak=14585MB growth=5991MB samples=214
+largest single build processes seen (name:MB):
+  link: 2497 MB
+  rustc: 557 MB
+  cl: 315 MB
+  cargo: 86 MB
+the sample at the system peak:
+  14585 link:2382 link:2328 link:2265 link:784 cargo:78
+-- incremental
+jobs=default exit=0 wall=48s baseline=9349MB peak=15611MB growth=6262MB samples=22
+largest single build processes seen (name:MB):
+  link: 2610 MB
+  rustc: 234 MB
+  cargo: 78 MB
+the sample at the system peak:
+  15611 link:2610 link:2543 link:2494 link:1904 cargo:78
+
+## after step 2: also [profile.dev.package.librocksdb-sys] opt-level = 2, debug = false (clean rebuild, then incremental)
+-- clean
+jobs=default exit=0 wall=308s baseline=8692MB peak=9491MB growth=799MB samples=165
+largest single build processes seen (name:MB):
+  link: 868 MB
+  rustc: 541 MB
+  cl: 328 MB
+  cargo: 81 MB
+the sample at the system peak:
+  9491 cl:267 cl:267 cl:266 cl:106 cargo:79
+-- incremental
+jobs=default exit=0 wall=17s baseline=8042MB peak=9880MB growth=1838MB samples=10
+largest single build processes seen (name:MB):
+  link: 884 MB
+  rustc: 336 MB
+  cargo: 77 MB
+the sample at the system peak:
+  9880 link:870 link:829 link:697 cargo:74 rustc:53

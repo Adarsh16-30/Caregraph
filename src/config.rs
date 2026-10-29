@@ -69,6 +69,11 @@ pub struct Config {
     pub server: crate::server::ServerLimits,
     pub input: crate::server::InputLimits,
     pub replication: ReplicationSettings,
+    /// Memory budget for the whole process tree, in MB (`CAREGRAPH_MEMORY_MB`).
+    /// `None` keeps the historical defaults. See `crate::memory`.
+    pub memory_mb: Option<u64>,
+    /// Expected resident memory of one embedding worker, in MB.
+    pub worker_memory_mb: u64,
 }
 
 /// Replication role, how a follower reaches its leader, and how the leader
@@ -320,6 +325,32 @@ impl Config {
             log_json: boolean("CAREGRAPH_LOG_JSON", prod)?,
             server: crate::server::ServerLimits::load(src)?,
             input: crate::server::InputLimits::load(src, explain_enabled)?,
+            memory_mb: match src
+                .get("CAREGRAPH_MEMORY_MB")
+                .filter(|v| !v.trim().is_empty())
+            {
+                Some(v) => Some(
+                    v.trim()
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|&n| n > 0)
+                        .with_context(|| {
+                            format!("CAREGRAPH_MEMORY_MB must be a positive number of megabytes, got `{v}`")
+                        })?,
+                ),
+                None => None,
+            },
+            worker_memory_mb: match src.get("CAREGRAPH_WORKER_MEMORY_MB") {
+                Some(v) => v
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|&n| n > 0)
+                    .with_context(|| {
+                        format!("CAREGRAPH_WORKER_MEMORY_MB must be a positive number, got `{v}`")
+                    })?,
+                None => crate::memory::DEFAULT_WORKER_MB,
+            },
             replication: ReplicationSettings::load(
                 src,
                 &src.get("CAREGRAPH_DB_PATH")
@@ -435,6 +466,7 @@ impl Config {
              audit_dir        = {}\n\
              backup_dir       = {}\n\
              replication      = {}\n\
+             memory_mb        = {}\n\
              pod_name         = {}\n\
              graphsage_model  = {}\n\
              gat_model        = {}\n\
@@ -467,6 +499,10 @@ impl Config {
             path(&self.audit_dir),
             path(&self.backup_dir),
             self.replication.summary(),
+            self.memory_mb.map_or_else(
+                || "<unset: historical defaults>".to_string(),
+                |m| m.to_string()
+            ),
             self.pod_name,
             self.graphsage_model,
             self.gat_model,
@@ -490,6 +526,30 @@ impl Config {
 
     pub fn model_dir(&self, model_id: &str) -> PathBuf {
         self.ml_dir.join("deployed").join(model_id)
+    }
+
+    /// How many embedding model pools this configuration will start: one per
+    /// model whose `model.pt` is deployed.
+    pub fn deployed_pools(&self) -> usize {
+        [&self.graphsage_model, &self.gat_model]
+            .iter()
+            .filter(|m| self.model_dir(m).join("model.pt").exists())
+            .count()
+    }
+
+    /// The memory plan for this configuration, or why the budget cannot be met.
+    pub fn memory_plan(&self) -> Result<crate::memory::MemoryPlan> {
+        crate::memory::MemoryPlan::derive(
+            &crate::memory::Inputs {
+                budget_mb: self.memory_mb,
+                pools: self.deployed_pools(),
+                workers_per_pool: crate::embedding::worker::pool::PoolConfig::from_env().workers,
+                worker_mb: self.worker_memory_mb,
+                overrides: crate::memory::Overrides::from_env(),
+            },
+            std::thread::available_parallelism().map_or(2, |n| n.get()),
+        )
+        .map_err(anyhow::Error::msg)
     }
 }
 
@@ -565,6 +625,47 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("standalone|leader|follower"), "{err}");
+    }
+
+    #[test]
+    fn the_memory_budget_is_validated_and_turned_into_a_plan() {
+        let none = Config::load(&Map(HashMap::new())).unwrap();
+        assert_eq!(none.memory_mb, None);
+        assert_eq!(none.worker_memory_mb, crate::memory::DEFAULT_WORKER_MB);
+
+        for bad in ["abc", "0", "-5", "1.5"] {
+            let err = Config::load(&Map(HashMap::from([("CAREGRAPH_MEMORY_MB", bad)])))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("CAREGRAPH_MEMORY_MB"), "{bad}: {err}");
+        }
+        let bad_worker = Config::load(&Map(HashMap::from([("CAREGRAPH_WORKER_MEMORY_MB", "0")])));
+        assert!(bad_worker.is_err());
+
+        // The deployed models in the repository decide how many workers the
+        // budget has to reserve; turning one off frees a worker's share.
+        let both = Config::load(&Map(HashMap::from([("CAREGRAPH_MEMORY_MB", "4096")]))).unwrap();
+        let one = Config::load(&Map(HashMap::from([
+            ("CAREGRAPH_MEMORY_MB", "4096"),
+            ("CAREGRAPH_GAT_MODEL", "none"),
+        ])))
+        .unwrap();
+        if both.deployed_pools() == 2 {
+            assert_eq!(one.deployed_pools(), 1);
+            let (a, b) = (both.memory_plan().unwrap(), one.memory_plan().unwrap());
+            assert_eq!(
+                a.workers_mb - b.workers_mb,
+                crate::memory::DEFAULT_WORKER_MB
+            );
+            assert!(
+                b.rocksdb_mb > a.rocksdb_mb,
+                "the freed memory goes to the database"
+            );
+
+            let tiny = Config::load(&Map(HashMap::from([("CAREGRAPH_MEMORY_MB", "300")]))).unwrap();
+            let err = tiny.memory_plan().unwrap_err().to_string();
+            assert!(err.contains("too small"), "{err}");
+        }
     }
 
     #[test]
