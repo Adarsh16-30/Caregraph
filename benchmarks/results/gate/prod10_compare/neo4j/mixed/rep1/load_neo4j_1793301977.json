@@ -1,0 +1,388 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793301977,
+    "git_commit": "d9368192140310f594a7c5fb0a638e63ed050716",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --target neo4j --neo4j-uri 127.0.0.1:7687 --trace benchmarks/traces/diabetes130_full.jsonl --rates 10,20,40,80,160,320,640,1280,2560,5120,10240,20480 --duration-secs 12 --warmup-secs 3 --mix snapshot=90,traverse=10 --out-dir C:/Users/adars/cg_p10run/neo4j/mixed/rep1 --stop-when-saturated --seed 7919 --request-timeout-secs 10",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": null
+  },
+  "target": "neo4j",
+  "addr": "127.0.0.1:7687",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "snapshot": 90,
+    "traverse": 10
+  },
+  "arrivals": "constant",
+  "server_timestamps": false,
+  "duration_secs": 12,
+  "warmup_secs": 3,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 10.0,
+      "achieved_ok_rps": 10.0,
+      "sent": 120,
+      "ok": 120,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 120,
+          "p50_ms": 3.651,
+          "p95_ms": 26.511,
+          "p99_ms": 52.447,
+          "p999_ms": 64.799,
+          "max_ms": 64.799,
+          "mean_ms": 6.754091666666668,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 109,
+          "p50_ms": 3.577,
+          "p95_ms": 5.279,
+          "p99_ms": 5.715,
+          "p999_ms": 5.747,
+          "max_ms": 5.747,
+          "mean_ms": 3.8114403669724775,
+          "mean_items": 7.486238532110092,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 11,
+          "p50_ms": 40.671,
+          "p95_ms": 64.799,
+          "p99_ms": 64.799,
+          "p999_ms": 64.799,
+          "max_ms": 64.799,
+          "mean_ms": 35.91309090909091,
+          "mean_items": 39416.09090909091,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 20.0,
+      "achieved_ok_rps": 20.0,
+      "sent": 240,
+      "ok": 240,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 240,
+          "p50_ms": 3.135,
+          "p95_ms": 29.951,
+          "p99_ms": 41.631,
+          "p999_ms": 55.967,
+          "max_ms": 55.967,
+          "mean_ms": 6.084574999999999,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 217,
+          "p50_ms": 3.061,
+          "p95_ms": 5.091,
+          "p99_ms": 6.087,
+          "p999_ms": 10.847,
+          "max_ms": 10.847,
+          "mean_ms": 3.4203778801843323,
+          "mean_items": 7.820276497695852,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 23,
+          "p50_ms": 35.711,
+          "p95_ms": 42.687,
+          "p99_ms": 55.967,
+          "p999_ms": 55.967,
+          "max_ms": 55.967,
+          "mean_ms": 31.220695652173912,
+          "mean_items": 38380.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 40.0,
+      "achieved_ok_rps": 40.0,
+      "sent": 480,
+      "ok": 480,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 1,
+      "per_op": {
+        "all": {
+          "count": 480,
+          "p50_ms": 3.143,
+          "p95_ms": 31.775,
+          "p99_ms": 45.151,
+          "p999_ms": 53.791,
+          "max_ms": 53.791,
+          "mean_ms": 6.097162500000001,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 430,
+          "p50_ms": 3.027,
+          "p95_ms": 4.999,
+          "p99_ms": 6.339,
+          "p999_ms": 17.535,
+          "max_ms": 17.535,
+          "mean_ms": 3.3808744186046513,
+          "mean_items": 7.82093023255814,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 50,
+          "p50_ms": 31.759,
+          "p95_ms": 48.223,
+          "p99_ms": 53.791,
+          "p999_ms": 53.791,
+          "max_ms": 53.791,
+          "mean_ms": 29.457240000000006,
+          "mean_items": 35985.62,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 80.0,
+      "achieved_ok_rps": 80.0,
+      "sent": 960,
+      "ok": 960,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 960,
+          "p50_ms": 2.901,
+          "p95_ms": 32.303,
+          "p99_ms": 48.223,
+          "p999_ms": 77.119,
+          "max_ms": 77.119,
+          "mean_ms": 6.030862500000003,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 856,
+          "p50_ms": 2.839,
+          "p95_ms": 4.587,
+          "p99_ms": 5.987,
+          "p999_ms": 9.631,
+          "max_ms": 9.631,
+          "mean_ms": 3.063554906542055,
+          "mean_items": 7.425233644859813,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 104,
+          "p50_ms": 31.151,
+          "p95_ms": 49.983,
+          "p99_ms": 75.647,
+          "p999_ms": 77.119,
+          "max_ms": 77.119,
+          "mean_ms": 30.454086538461542,
+          "mean_items": 38747.46153846154,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 160.0,
+      "achieved_ok_rps": 160.0,
+      "sent": 1920,
+      "ok": 1920,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 1920,
+          "p50_ms": 2.507,
+          "p95_ms": 30.783,
+          "p99_ms": 45.311,
+          "p999_ms": 82.175,
+          "max_ms": 89.023,
+          "mean_ms": 5.515760416666667,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 1717,
+          "p50_ms": 2.441,
+          "p95_ms": 4.679,
+          "p99_ms": 7.591,
+          "p999_ms": 11.103,
+          "max_ms": 11.519,
+          "mean_ms": 2.7218491555037847,
+          "mean_items": 7.507862550960978,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 203,
+          "p50_ms": 30.143,
+          "p95_ms": 48.895,
+          "p99_ms": 53.887,
+          "p999_ms": 89.023,
+          "max_ms": 89.023,
+          "mean_ms": 29.147019704433486,
+          "mean_items": 37483.70935960591,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 320.0,
+      "achieved_ok_rps": 320.0,
+      "sent": 3840,
+      "ok": 3840,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 3840,
+          "p50_ms": 2.457,
+          "p95_ms": 34.367,
+          "p99_ms": 54.047,
+          "p999_ms": 91.519,
+          "max_ms": 114.495,
+          "mean_ms": 6.090978385416664,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 3462,
+          "p50_ms": 2.327,
+          "p95_ms": 5.507,
+          "p99_ms": 9.215,
+          "p999_ms": 39.839,
+          "max_ms": 47.647,
+          "mean_ms": 2.938495956094743,
+          "mean_items": 7.6002310803004045,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 378,
+          "p50_ms": 34.335,
+          "p95_ms": 65.215,
+          "p99_ms": 91.519,
+          "p999_ms": 114.495,
+          "max_ms": 114.495,
+          "mean_ms": 34.963714285714275,
+          "mean_items": 37485.90476190476,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 640.0,
+      "achieved_ok_rps": 640.0,
+      "sent": 7680,
+      "ok": 7680,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 130,
+      "per_op": {
+        "all": {
+          "count": 7680,
+          "p50_ms": 623.615,
+          "p95_ms": 1255.423,
+          "p99_ms": 1360.895,
+          "p999_ms": 1597.439,
+          "max_ms": 1709.055,
+          "mean_ms": 636.1919028645842,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 6894,
+          "p50_ms": 558.079,
+          "p95_ms": 1243.135,
+          "p99_ms": 1311.743,
+          "p999_ms": 1358.847,
+          "max_ms": 1378.303,
+          "mean_ms": 614.3011601392507,
+          "mean_items": 7.578909196402669,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 786,
+          "p50_ms": 839.679,
+          "p95_ms": 1461.247,
+          "p99_ms": 1597.439,
+          "p999_ms": 1709.055,
+          "max_ms": 1709.055,
+          "mean_ms": 828.195440203562,
+          "mean_items": 37314.3155216285,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 1280.0,
+      "achieved_ok_rps": 748.25,
+      "sent": 15360,
+      "ok": 8979,
+      "errors_by_code": {
+        "TIMEOUT": 6202,
+        "neo4j:Neo4j error `Neo.ClientError.Transaction": 11,
+        "neo4j:unexpected response for PULL: Err(Unknow": 45,
+        "neo4j:unexpected response for PULL: Ok(Failure": 9,
+        "neo4j:unexpected response for RUN: Ok(Record(R": 41,
+        "neo4j:unknown message b\"\\xb0~\"": 73
+      },
+      "dropped": 0,
+      "late_slots": 240,
+      "per_op": {
+        "all": {
+          "count": 15360,
+          "p50_ms": 9986.047,
+          "p95_ms": 10018.815,
+          "p99_ms": 10018.815,
+          "p999_ms": 10018.815,
+          "max_ms": 10027.007,
+          "mean_ms": 8915.190400000005,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "snapshot": {
+          "count": 13824,
+          "p50_ms": 9986.047,
+          "p95_ms": 10018.815,
+          "p99_ms": 10018.815,
+          "p999_ms": 10018.815,
+          "max_ms": 10027.007,
+          "mean_ms": 8913.105777777779,
+          "mean_items": 6.851211903047756,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 1536,
+          "p50_ms": 10002.431,
+          "p95_ms": 10018.815,
+          "p99_ms": 10018.815,
+          "p999_ms": 10027.007,
+          "max_ms": 10027.007,
+          "mean_ms": 8933.952,
+          "mean_items": 32204.42015503876,
+          "truncated_share": 0.0
+        }
+      }
+    }
+  ]
+}

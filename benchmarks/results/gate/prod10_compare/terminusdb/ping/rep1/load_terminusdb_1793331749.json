@@ -1,0 +1,160 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793331749,
+    "git_commit": "d9368192140310f594a7c5fb0a638e63ed050716",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --target terminusdb --terminus-url http://127.0.0.1:6363 --trace benchmarks/traces/diabetes130_full.jsonl --rates 100,200,400,800,1600,3200,6400,12800,25600,51200,102400,204800 --duration-secs 12 --warmup-secs 3 --mix ping=100 --out-dir C:/Users/adars/cg_p10run/terminusdb/ping/rep1 --stop-when-saturated --seed 7919 --request-timeout-secs 10",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": null
+  },
+  "target": "terminusdb",
+  "addr": "http://127.0.0.1:6363",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "ping": 100
+  },
+  "arrivals": "constant",
+  "server_timestamps": false,
+  "duration_secs": 12,
+  "warmup_secs": 3,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 100.0,
+      "achieved_ok_rps": 100.0,
+      "sent": 1200,
+      "ok": 1200,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 31,
+      "per_op": {
+        "all": {
+          "count": 1200,
+          "p50_ms": 4.507,
+          "p95_ms": 8.839,
+          "p99_ms": 53.695,
+          "p999_ms": 74.815,
+          "max_ms": 74.943,
+          "mean_ms": 6.06948166666667,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 1200,
+          "p50_ms": 4.507,
+          "p95_ms": 8.839,
+          "p99_ms": 53.695,
+          "p999_ms": 74.815,
+          "max_ms": 74.943,
+          "mean_ms": 6.06948166666667,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 200.0,
+      "achieved_ok_rps": 200.0,
+      "sent": 2400,
+      "ok": 2400,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 47,
+      "per_op": {
+        "all": {
+          "count": 2400,
+          "p50_ms": 3.929,
+          "p95_ms": 11.647,
+          "p99_ms": 41.855,
+          "p999_ms": 79.679,
+          "max_ms": 89.727,
+          "mean_ms": 5.308793750000003,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 2400,
+          "p50_ms": 3.929,
+          "p95_ms": 11.647,
+          "p99_ms": 41.855,
+          "p999_ms": 79.679,
+          "max_ms": 89.727,
+          "mean_ms": 5.308793750000003,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 400.0,
+      "achieved_ok_rps": 400.0,
+      "sent": 4800,
+      "ok": 4800,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 64,
+      "per_op": {
+        "all": {
+          "count": 4800,
+          "p50_ms": 6.439,
+          "p95_ms": 27.423,
+          "p99_ms": 40.703,
+          "p999_ms": 58.623,
+          "max_ms": 71.871,
+          "mean_ms": 10.379966666666666,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 4800,
+          "p50_ms": 6.439,
+          "p95_ms": 27.423,
+          "p99_ms": 40.703,
+          "p999_ms": 58.623,
+          "max_ms": 71.871,
+          "mean_ms": 10.379966666666666,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 800.0,
+      "achieved_ok_rps": 800.0,
+      "sent": 9600,
+      "ok": 9600,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 447,
+      "per_op": {
+        "all": {
+          "count": 9600,
+          "p50_ms": 4122.623,
+          "p95_ms": 6180.863,
+          "p99_ms": 6660.095,
+          "p999_ms": 7356.415,
+          "max_ms": 7553.023,
+          "mean_ms": 3715.383184166668,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 9600,
+          "p50_ms": 4122.623,
+          "p95_ms": 6180.863,
+          "p99_ms": 6660.095,
+          "p999_ms": 7356.415,
+          "max_ms": 7553.023,
+          "mean_ms": 3715.383184166668,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    }
+  ]
+}

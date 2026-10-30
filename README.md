@@ -67,8 +67,21 @@ methodology, baselines, and disclosed limitations.
   misconfigured.
 - **Observability** — Prometheus metrics and a Grafana dashboard for the
   query and mutation paths, including per-dispatch-path latency breakdowns.
-- **Benchmarked against real baselines** — a three-way harness runs the same
-  trace against CareGraph, Neo4j + GDS, and TerminusDB.
+- **Built to run in production** — a supervised pool of embedding workers,
+  ordered concurrent commits, back-pressure and graceful shutdown, mutual TLS with
+  role-based access and a tamper-evident audit trail, encrypted backups, read
+  replicas with synchronous replication and operator-run failover, one memory budget
+  for the whole server, and a Helm chart, alerts, dashboards and runbooks. What each
+  guarantees, and what it does not, is in [docs/security.md](docs/security.md),
+  [docs/replication.md](docs/replication.md) and [docs/kubernetes.md](docs/kubernetes.md).
+- **Benchmarked against real baselines, one request at a time and under
+  concurrent load** — the same trace and the same load generator drive CareGraph,
+  Neo4j and TerminusDB. On this laptop CareGraph sustained about 4x Neo4j's point-read
+  rate (10,240 against 2,560 snapshots/s at p99 under 50 ms, both lower bounds) with
+  roughly 5x lower latency; TerminusDB managed about 10/s. A 2-hop traversal is not
+  like for like: CareGraph bounds the answer (about 2,500 nodes here) where Neo4j
+  returns all 38,700, so read [section 10.8 of the report](docs/benchmark_report.md)
+  and its limits before quoting a ratio.
 
 ### Dispatch, self-tuning, and attribution at a glance
 

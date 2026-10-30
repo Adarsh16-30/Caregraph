@@ -47,12 +47,14 @@ services:
     container_name: caregraph-neo4j
     profiles: ["baselines"]
     mem_limit: ${NEO4J_MEM_LIMIT:-4g}
+    cpus: ${BASELINE_CPUS:-4}
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-caregraph-dev-only}
       NEO4J_PLUGINS: '["graph-data-science"]'
       NEO4J_dbms_security_procedures_unrestricted: "gds.*"
       NEO4J_dbms_security_procedures_allowlist: "gds.*"
       NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP:-2G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-1G}
     ports:
       - "7474:7474"   # HTTP browser
       - "7687:7687"   # Bolt
@@ -73,6 +75,7 @@ services:
     container_name: caregraph-terminusdb
     profiles: ["baselines"]
     mem_limit: ${TERMINUSDB_MEM_LIMIT:-2g}
+    cpus: ${BASELINE_CPUS:-4}
     environment:
       TERMINUSDB_ADMIN_PASS: ${TERMINUSDB_PASSWORD:-caregraph-dev-only}
       TERMINUSDB_SERVER_PORT: 6363

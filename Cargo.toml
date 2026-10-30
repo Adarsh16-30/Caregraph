@@ -138,10 +138,15 @@ aes = { version = "0.8", features = ["zeroize"] }
 # AES-256-GCM for wrapping the data key under a key-encryption key.
 aes-gcm = "0.10"
 sha2 = "0.10"
+# Load-generator drivers for the Neo4j and TerminusDB baselines (feature `baselines`).
+neo4rs = { version = "0.8", optional = true }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 
 [features]
 default = ["otel"]
 # OTLP trace export. Off, the server still logs and exports Prometheus metrics.
+# Drivers that let the load generator drive Neo4j (Bolt) and TerminusDB (HTTP) as well.
+baselines = ["dep:neo4rs", "dep:reqwest"]
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
 
 [build-dependencies]

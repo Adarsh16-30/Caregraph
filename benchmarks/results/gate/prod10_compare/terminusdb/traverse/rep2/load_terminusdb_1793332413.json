@@ -1,0 +1,63 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793332413,
+    "git_commit": "d9368192140310f594a7c5fb0a638e63ed050716",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --target terminusdb --terminus-url http://127.0.0.1:6363 --trace benchmarks/traces/diabetes130_full.jsonl --rates 1,2,5 --duration-secs 12 --warmup-secs 3 --mix traverse=100 --out-dir C:/Users/adars/cg_p10run/terminusdb/traverse/rep2 --stop-when-saturated --seed 15838 --request-timeout-secs 10",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": null
+  },
+  "target": "terminusdb",
+  "addr": "http://127.0.0.1:6363",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "traverse": 100
+  },
+  "arrivals": "constant",
+  "server_timestamps": false,
+  "duration_secs": 12,
+  "warmup_secs": 3,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 1.0,
+      "achieved_ok_rps": 0.0,
+      "sent": 12,
+      "ok": 0,
+      "errors_by_code": {
+        "TIMEOUT": 12
+      },
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 12,
+          "p50_ms": 10010.623,
+          "p95_ms": 10018.815,
+          "p99_ms": 10018.815,
+          "p999_ms": 10018.815,
+          "max_ms": 10018.815,
+          "mean_ms": 10005.162666666667,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "traverse": {
+          "count": 12,
+          "p50_ms": 10010.623,
+          "p95_ms": 10018.815,
+          "p99_ms": 10018.815,
+          "p999_ms": 10018.815,
+          "max_ms": 10018.815,
+          "mean_ms": 10005.162666666667,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    }
+  ]
+}

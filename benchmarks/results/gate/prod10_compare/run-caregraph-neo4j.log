@@ -1,0 +1,393 @@
+
+== 00:13:54 starting CareGraph on a scratch copy of the database
+
+== 00:13:56 caregraph: warm-up (not recorded)
+
+== 00:14:26 caregraph ping repeat 1 (start 100/s)
+   achieved 100.0 ok/s  p50 0.47ms  p95 0.65ms  p99 0.80ms  errors {}  dropped 0  late_slots 0
+   achieved 200.0 ok/s  p50 0.36ms  p95 0.54ms  p99 0.74ms  errors {}  dropped 0  late_slots 3
+   achieved 400.0 ok/s  p50 0.24ms  p95 0.39ms  p99 0.51ms  errors {}  dropped 0  late_slots 0
+   achieved 800.0 ok/s  p50 0.22ms  p95 0.32ms  p99 0.42ms  errors {}  dropped 0  late_slots 8
+   achieved 1600.0 ok/s  p50 0.14ms  p95 0.23ms  p99 0.33ms  errors {}  dropped 0  late_slots 0
+   achieved 3200.0 ok/s  p50 0.10ms  p95 0.15ms  p99 0.23ms  errors {}  dropped 0  late_slots 0
+   achieved 6400.0 ok/s  p50 0.09ms  p95 0.14ms  p99 0.23ms  errors {}  dropped 0  late_slots 0
+   achieved 12800.0 ok/s  p50 0.09ms  p95 0.13ms  p99 0.21ms  errors {}  dropped 0  late_slots 0
+   achieved 25600.0 ok/s  p50 0.09ms  p95 0.17ms  p99 0.26ms  errors {}  dropped 0  late_slots 0
+   achieved 51200.0 ok/s  p50 0.21ms  p95 0.47ms  p99 1.09ms  errors {}  dropped 0  late_slots 0
+   achieved 102400.0 ok/s  p50 60.45ms  p95 311.81ms  p99 432.13ms  errors {}  dropped 0  late_slots 0
+   achieved 98710.6 ok/s  p50 188.67ms  p95 510.98ms  p99 612.35ms  errors {}  dropped 1273074  late_slots 50435
+   saturated: ending the sweep here
+
+== 00:17:27 caregraph snapshot repeat 1 (start 10/s)
+   achieved 10.0 ok/s  p50 0.73ms  p95 1.30ms  p99 2.69ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 0.69ms  p95 0.95ms  p99 1.26ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 0.67ms  p95 0.90ms  p99 1.05ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 0.63ms  p95 0.89ms  p99 1.06ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 0.50ms  p95 0.73ms  p99 0.92ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 0.40ms  p95 0.70ms  p99 0.96ms  errors {}  dropped 0  late_slots 0
+   achieved 640.0 ok/s  p50 0.35ms  p95 0.50ms  p99 0.64ms  errors {}  dropped 0  late_slots 0
+   achieved 1280.0 ok/s  p50 0.25ms  p95 0.36ms  p99 0.48ms  errors {}  dropped 0  late_slots 0
+   achieved 2560.0 ok/s  p50 0.22ms  p95 0.33ms  p99 0.43ms  errors {}  dropped 0  late_slots 0
+   achieved 5120.0 ok/s  p50 0.22ms  p95 0.30ms  p99 0.44ms  errors {}  dropped 0  late_slots 0
+   achieved 10240.0 ok/s  p50 0.38ms  p95 0.99ms  p99 2.49ms  errors {}  dropped 0  late_slots 0
+   achieved 16724.2 ok/s  p50 1191.93ms  p95 1554.43ms  p99 1643.52ms  errors {}  dropped 45069  late_slots 0
+   saturated: ending the sweep here
+
+== 00:20:29 caregraph traverse repeat 1 (start 5/s)
+   achieved 5.0 ok/s  p50 4.53ms  p95 8.72ms  p99 10.70ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 5.25ms  p95 10.64ms  p99 14.49ms  errors {}  dropped 0  late_slots 2
+   achieved 20.0 ok/s  p50 4.81ms  p95 9.89ms  p99 13.00ms  errors {}  dropped 0  late_slots 1
+   achieved 40.0 ok/s  p50 4.54ms  p95 9.38ms  p99 14.59ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 4.45ms  p95 9.49ms  p99 12.95ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 4.05ms  p95 8.41ms  p99 12.98ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 4.80ms  p95 11.08ms  p99 17.84ms  errors {}  dropped 0  late_slots 0
+   achieved 640.0 ok/s  p50 7671.81ms  p95 9568.25ms  p99 10444.80ms  errors {}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 00:22:36 caregraph mixed repeat 1 (start 10/s)
+   achieved 10.0 ok/s  p50 0.63ms  p95 4.54ms  p99 5.90ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 0.66ms  p95 4.58ms  p99 8.04ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 0.66ms  p95 5.05ms  p99 8.53ms  errors {}  dropped 0  late_slots 1
+   achieved 80.0 ok/s  p50 0.61ms  p95 4.72ms  p99 8.79ms  errors {}  dropped 0  late_slots 1
+   achieved 160.0 ok/s  p50 0.51ms  p95 4.56ms  p99 7.77ms  errors {}  dropped 0  late_slots 1
+   achieved 320.0 ok/s  p50 0.40ms  p95 4.29ms  p99 7.62ms  errors {}  dropped 0  late_slots 1
+   achieved 640.0 ok/s  p50 0.35ms  p95 4.13ms  p99 7.18ms  errors {}  dropped 0  late_slots 0
+   achieved 1280.0 ok/s  p50 0.32ms  p95 4.80ms  p99 9.53ms  errors {}  dropped 0  late_slots 0
+   achieved 2560.0 ok/s  p50 0.54ms  p95 13.64ms  p99 27.60ms  errors {}  dropped 0  late_slots 0
+   achieved 4749.9 ok/s  p50 3956.74ms  p95 5955.58ms  p99 6275.07ms  errors {}  dropped 4441  late_slots 0
+   saturated: ending the sweep here
+
+== 00:25:11 caregraph ping repeat 2 (start 100/s)
+   achieved 100.0 ok/s  p50 0.37ms  p95 0.56ms  p99 0.84ms  errors {}  dropped 0  late_slots 0
+   achieved 200.0 ok/s  p50 0.29ms  p95 0.48ms  p99 0.83ms  errors {}  dropped 0  late_slots 2
+   achieved 400.0 ok/s  p50 0.30ms  p95 0.47ms  p99 0.63ms  errors {}  dropped 0  late_slots 2
+   achieved 800.0 ok/s  p50 0.26ms  p95 0.39ms  p99 0.48ms  errors {}  dropped 0  late_slots 0
+   achieved 1600.0 ok/s  p50 0.16ms  p95 0.30ms  p99 0.38ms  errors {}  dropped 0  late_slots 0
+   achieved 3200.0 ok/s  p50 0.09ms  p95 0.18ms  p99 0.33ms  errors {}  dropped 0  late_slots 66
+   achieved 6400.0 ok/s  p50 0.09ms  p95 0.14ms  p99 0.28ms  errors {}  dropped 0  late_slots 121
+   achieved 12800.0 ok/s  p50 0.09ms  p95 0.14ms  p99 0.24ms  errors {}  dropped 0  late_slots 0
+   achieved 25600.0 ok/s  p50 0.09ms  p95 0.20ms  p99 0.42ms  errors {}  dropped 0  late_slots 0
+   achieved 51200.0 ok/s  p50 0.22ms  p95 0.66ms  p99 2.56ms  errors {}  dropped 0  late_slots 0
+   achieved 102400.0 ok/s  p50 82.24ms  p95 322.56ms  p99 392.96ms  errors {}  dropped 0  late_slots 443
+   achieved 103024.6 ok/s  p50 177.02ms  p95 484.10ms  p99 578.05ms  errors {}  dropped 1221306  late_slots 75445
+   saturated: ending the sweep here
+
+== 00:28:13 caregraph snapshot repeat 2 (start 10/s)
+   achieved 10.0 ok/s  p50 0.69ms  p95 1.05ms  p99 1.76ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 0.70ms  p95 1.00ms  p99 1.16ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 0.67ms  p95 1.04ms  p99 2.15ms  errors {}  dropped 0  late_slots 4
+   achieved 80.0 ok/s  p50 0.62ms  p95 0.94ms  p99 1.41ms  errors {}  dropped 0  late_slots 4
+   achieved 160.0 ok/s  p50 0.52ms  p95 0.78ms  p99 1.15ms  errors {}  dropped 0  late_slots 1
+   achieved 320.0 ok/s  p50 0.37ms  p95 0.65ms  p99 0.90ms  errors {}  dropped 0  late_slots 12
+   achieved 640.0 ok/s  p50 0.29ms  p95 0.46ms  p99 0.65ms  errors {}  dropped 0  late_slots 18
+   achieved 1280.0 ok/s  p50 0.26ms  p95 0.39ms  p99 0.56ms  errors {}  dropped 0  late_slots 27
+   achieved 2560.0 ok/s  p50 0.22ms  p95 0.35ms  p99 0.67ms  errors {}  dropped 0  late_slots 54
+   achieved 5120.0 ok/s  p50 0.23ms  p95 0.39ms  p99 0.72ms  errors {}  dropped 0  late_slots 6
+   achieved 10240.0 ok/s  p50 0.43ms  p95 1.29ms  p99 5.70ms  errors {}  dropped 0  late_slots 0
+   achieved 16113.0 ok/s  p50 1317.89ms  p95 2017.28ms  p99 2121.73ms  errors {}  dropped 52404  late_slots 0
+   saturated: ending the sweep here
+
+== 00:31:14 caregraph traverse repeat 2 (start 5/s)
+   achieved 5.0 ok/s  p50 5.04ms  p95 8.33ms  p99 9.17ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 5.08ms  p95 9.57ms  p99 11.97ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 4.95ms  p95 10.02ms  p99 15.46ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 4.67ms  p95 9.98ms  p99 14.84ms  errors {}  dropped 0  late_slots 1
+   achieved 80.0 ok/s  p50 4.40ms  p95 8.81ms  p99 12.71ms  errors {}  dropped 0  late_slots 1
+   achieved 160.0 ok/s  p50 4.18ms  p95 8.96ms  p99 13.19ms  errors {}  dropped 0  late_slots 1
+   achieved 320.0 ok/s  p50 4.53ms  p95 10.49ms  p99 16.21ms  errors {}  dropped 0  late_slots 0
+   achieved 640.0 ok/s  p50 7725.06ms  p95 9805.82ms  p99 10780.67ms  errors {}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 00:33:21 caregraph mixed repeat 2 (start 10/s)
+   achieved 10.0 ok/s  p50 0.84ms  p95 4.64ms  p99 8.61ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 0.78ms  p95 5.51ms  p99 10.17ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 0.65ms  p95 5.51ms  p99 9.59ms  errors {}  dropped 0  late_slots 4
+   achieved 80.0 ok/s  p50 0.62ms  p95 4.86ms  p99 8.29ms  errors {}  dropped 0  late_slots 1
+   achieved 160.0 ok/s  p50 0.52ms  p95 4.66ms  p99 8.89ms  errors {}  dropped 0  late_slots 3
+   achieved 320.0 ok/s  p50 0.41ms  p95 4.43ms  p99 8.40ms  errors {}  dropped 0  late_slots 2
+   achieved 640.0 ok/s  p50 0.35ms  p95 4.07ms  p99 7.28ms  errors {}  dropped 0  late_slots 2
+   achieved 1280.0 ok/s  p50 0.34ms  p95 4.89ms  p99 9.49ms  errors {}  dropped 0  late_slots 0
+   achieved 2560.0 ok/s  p50 0.65ms  p95 13.85ms  p99 26.43ms  errors {}  dropped 0  late_slots 0
+   achieved 4741.3 ok/s  p50 3823.61ms  p95 6246.40ms  p99 6500.35ms  errors {}  dropped 4544  late_slots 0
+   saturated: ending the sweep here
+
+== 00:35:56 caregraph ping repeat 3 (start 100/s)
+   achieved 100.0 ok/s  p50 0.39ms  p95 0.60ms  p99 0.81ms  errors {}  dropped 0  late_slots 1
+   achieved 200.0 ok/s  p50 0.34ms  p95 0.57ms  p99 0.82ms  errors {}  dropped 0  late_slots 0
+   achieved 400.0 ok/s  p50 0.23ms  p95 0.40ms  p99 0.54ms  errors {}  dropped 0  late_slots 2
+   achieved 800.0 ok/s  p50 0.20ms  p95 0.33ms  p99 0.42ms  errors {}  dropped 0  late_slots 13
+   achieved 1600.0 ok/s  p50 0.33ms  p95 2.57ms  p99 7.07ms  errors {}  dropped 0  late_slots 250
+   achieved 3200.0 ok/s  p50 0.32ms  p95 3.46ms  p99 9.33ms  errors {}  dropped 0  late_slots 620
+   achieved 6400.0 ok/s  p50 0.35ms  p95 4.60ms  p99 15.06ms  errors {}  dropped 0  late_slots 2026
+   achieved 12800.0 ok/s  p50 0.43ms  p95 13.58ms  p99 33.92ms  errors {}  dropped 0  late_slots 7253
+   achieved 25600.0 ok/s  p50 1.88ms  p95 30.93ms  p99 89.98ms  errors {}  dropped 0  late_slots 28824
+   achieved 51200.0 ok/s  p50 16.51ms  p95 339.45ms  p99 433.66ms  errors {}  dropped 0  late_slots 302594
+   achieved 80423.6 ok/s  p50 6332.41ms  p95 8298.50ms  p99 8462.33ms  errors {}  dropped 263717  late_slots 1535039
+   saturated: ending the sweep here
+
+== 00:38:51 caregraph snapshot repeat 3 (start 10/s)
+   achieved 10.0 ok/s  p50 1.15ms  p95 4.71ms  p99 6.63ms  errors {}  dropped 0  late_slots 2
+   achieved 20.0 ok/s  p50 0.75ms  p95 1.28ms  p99 3.02ms  errors {}  dropped 0  late_slots 3
+   achieved 40.0 ok/s  p50 0.74ms  p95 1.07ms  p99 1.48ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 1.09ms  p95 5.40ms  p99 10.48ms  errors {}  dropped 0  late_slots 46
+   achieved 160.0 ok/s  p50 1.01ms  p95 3.06ms  p99 7.80ms  errors {}  dropped 0  late_slots 43
+   achieved 320.0 ok/s  p50 0.91ms  p95 2.50ms  p99 5.96ms  errors {}  dropped 0  late_slots 85
+   achieved 640.0 ok/s  p50 0.77ms  p95 1.93ms  p99 6.58ms  errors {}  dropped 0  late_slots 85
+   achieved 1280.0 ok/s  p50 0.63ms  p95 3.19ms  p99 9.70ms  errors {}  dropped 0  late_slots 290
+   achieved 2560.0 ok/s  p50 0.59ms  p95 3.71ms  p99 9.00ms  errors {}  dropped 0  late_slots 542
+   achieved 5120.0 ok/s  p50 0.59ms  p95 4.39ms  p99 12.82ms  errors {}  dropped 0  late_slots 1455
+   achieved 10240.0 ok/s  p50 1.92ms  p95 14.70ms  p99 28.03ms  errors {}  dropped 0  late_slots 4214
+   achieved 13047.8 ok/s  p50 1474.56ms  p95 2289.66ms  p99 2459.65ms  errors {}  dropped 89186  late_slots 15096
+   saturated: ending the sweep here
+
+== 00:41:53 caregraph traverse repeat 3 (start 5/s)
+   achieved 5.0 ok/s  p50 9.88ms  p95 17.52ms  p99 24.41ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 9.63ms  p95 19.09ms  p99 25.52ms  errors {}  dropped 0  late_slots 2
+   achieved 20.0 ok/s  p50 9.53ms  p95 18.35ms  p99 29.71ms  errors {}  dropped 0  late_slots 2
+   achieved 40.0 ok/s  p50 9.28ms  p95 17.84ms  p99 24.05ms  errors {}  dropped 0  late_slots 18
+   achieved 80.0 ok/s  p50 8.94ms  p95 17.20ms  p99 30.24ms  errors {}  dropped 0  late_slots 33
+   achieved 160.0 ok/s  p50 8.61ms  p95 17.97ms  p99 27.63ms  errors {}  dropped 0  late_slots 43
+   achieved 320.0 ok/s  p50 13.22ms  p95 36.86ms  p99 56.51ms  errors {}  dropped 0  late_slots 80
+   achieved 640.0 ok/s  p50 15867.90ms  p95 19267.58ms  p99 20021.25ms  errors {}  dropped 0  late_slots 171
+   saturated: ending the sweep here
+
+== 00:44:11 caregraph mixed repeat 3 (start 10/s)
+   achieved 10.0 ok/s  p50 1.17ms  p95 11.85ms  p99 19.09ms  errors {}  dropped 0  late_slots 1
+   achieved 20.0 ok/s  p50 1.39ms  p95 9.88ms  p99 14.41ms  errors {}  dropped 0  late_slots 7
+   achieved 40.0 ok/s  p50 1.07ms  p95 7.52ms  p99 12.34ms  errors {}  dropped 0  late_slots 6
+   achieved 80.0 ok/s  p50 0.70ms  p95 4.89ms  p99 8.83ms  errors {}  dropped 0  late_slots 2
+   achieved 160.0 ok/s  p50 0.57ms  p95 4.56ms  p99 8.50ms  errors {}  dropped 0  late_slots 3
+   achieved 320.0 ok/s  p50 0.46ms  p95 4.43ms  p99 7.61ms  errors {}  dropped 0  late_slots 3
+   achieved 640.0 ok/s  p50 0.40ms  p95 4.31ms  p99 7.32ms  errors {}  dropped 0  late_slots 0
+   achieved 1280.0 ok/s  p50 0.32ms  p95 4.67ms  p99 9.28ms  errors {}  dropped 0  late_slots 0
+   achieved 2560.0 ok/s  p50 0.63ms  p95 14.26ms  p99 28.21ms  errors {}  dropped 0  late_slots 0
+   achieved 4773.8 ok/s  p50 3790.85ms  p95 6025.22ms  p99 6324.22ms  errors {}  dropped 4155  late_slots 0
+   saturated: ending the sweep here
+
+== 00:46:53 starting Neo4j (4 CPUs, 3g, heap 1G, page cache 1G)
+ Container caregraph-neo4j Starting 
+ Container caregraph-neo4j Started 
+neo4j holds: nodes, relationships = 174298, 524116
+
+== 00:47:48 neo4j: warm-up (not recorded)
+
+== 00:48:18 neo4j ping repeat 1 (start 100/s)
+   achieved 100.0 ok/s  p50 3.18ms  p95 4.84ms  p99 5.90ms  errors {}  dropped 0  late_slots 0
+   achieved 200.0 ok/s  p50 2.40ms  p95 3.78ms  p99 5.06ms  errors {}  dropped 0  late_slots 0
+   achieved 400.0 ok/s  p50 1.76ms  p95 3.07ms  p99 4.46ms  errors {}  dropped 0  late_slots 1
+   achieved 800.0 ok/s  p50 1.98ms  p95 2.93ms  p99 4.70ms  errors {}  dropped 0  late_slots 0
+   achieved 1600.0 ok/s  p50 2.61ms  p95 3.60ms  p99 5.88ms  errors {}  dropped 0  late_slots 0
+   achieved 3200.0 ok/s  p50 3.57ms  p95 19.47ms  p99 36.41ms  errors {}  dropped 0  late_slots 0
+   achieved 5074.0 ok/s  p50 4579.33ms  p95 5042.18ms  p99 5091.33ms  errors {}  dropped 15912  late_slots 0
+   saturated: ending the sweep here
+
+== 00:50:09 neo4j snapshot repeat 1 (start 10/s)
+   achieved 10.0 ok/s  p50 3.71ms  p95 6.78ms  p99 8.03ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 3.56ms  p95 6.93ms  p99 11.69ms  errors {}  dropped 0  late_slots 1
+   achieved 40.0 ok/s  p50 3.29ms  p95 5.29ms  p99 6.71ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 2.94ms  p95 4.82ms  p99 7.19ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 2.35ms  p95 3.85ms  p99 5.47ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 1.82ms  p95 2.96ms  p99 4.60ms  errors {}  dropped 0  late_slots 0
+   achieved 640.0 ok/s  p50 1.98ms  p95 3.17ms  p99 4.87ms  errors {}  dropped 0  late_slots 0
+   achieved 1280.0 ok/s  p50 2.55ms  p95 3.56ms  p99 5.37ms  errors {}  dropped 0  late_slots 0
+   achieved 2560.0 ok/s  p50 3.50ms  p95 12.63ms  p99 29.30ms  errors {}  dropped 0  late_slots 0
+   achieved 4677.2 ok/s  p50 4165.63ms  p95 5480.45ms  p99 5505.02ms  errors {}  dropped 5314  late_slots 0
+   saturated: ending the sweep here
+
+== 00:52:44 neo4j traverse repeat 1 (start 5/s)
+   achieved 5.0 ok/s  p50 30.80ms  p95 47.77ms  p99 65.86ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 33.09ms  p95 47.71ms  p99 55.20ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 34.59ms  p95 53.05ms  p99 67.90ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 35.07ms  p95 57.22ms  p99 77.06ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 4243.45ms  p95 6787.07ms  p99 7335.94ms  errors {}  dropped 0  late_slots 10
+   saturated: ending the sweep here
+
+== 00:54:06 neo4j mixed repeat 1 (start 10/s)
+   achieved 10.0 ok/s  p50 3.65ms  p95 26.51ms  p99 52.45ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 3.13ms  p95 29.95ms  p99 41.63ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 3.14ms  p95 31.77ms  p99 45.15ms  errors {}  dropped 0  late_slots 1
+   achieved 80.0 ok/s  p50 2.90ms  p95 32.30ms  p99 48.22ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 2.51ms  p95 30.78ms  p99 45.31ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 2.46ms  p95 34.37ms  p99 54.05ms  errors {}  dropped 0  late_slots 0
+   achieved 640.0 ok/s  p50 623.62ms  p95 1255.42ms  p99 1360.89ms  errors {}  dropped 0  late_slots 130
+   achieved 748.2 ok/s  p50 9986.05ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 6202, "neo4j:Neo4j error `Neo.ClientError.Transaction": 11, "neo4j:unexpected response for PULL: Err(Unknow": 45, "neo4j:unexpected response for PULL: Ok(Failure": 9, "neo4j:unexpected response for RUN: Ok(Record(R": 41, "neo4j:unknown message b\"\\xb0~\"": 73}  dropped 0  late_slots 240
+   saturated: ending the sweep here
+
+== 00:56:18 neo4j traverse_bounded repeat 1 (start 5/s)
+   achieved 5.0 ok/s  p50 10.13ms  p95 15.00ms  p99 21.63ms  errors {}  dropped 0  late_slots 1
+   achieved 10.0 ok/s  p50 9.81ms  p95 13.98ms  p99 15.42ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 9.51ms  p95 13.39ms  p99 16.13ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 9.16ms  p95 12.65ms  p99 15.28ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 8.54ms  p95 11.60ms  p99 14.60ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 8.94ms  p95 14.97ms  p99 21.44ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 2625.53ms  p95 4020.22ms  p99 4110.34ms  errors {}  dropped 0  late_slots 110
+   saturated: ending the sweep here
+
+== 00:58:07 neo4j ping repeat 2 (start 100/s)
+   achieved 100.0 ok/s  p50 2.63ms  p95 4.37ms  p99 6.75ms  errors {}  dropped 0  late_slots 2
+   achieved 200.0 ok/s  p50 1.97ms  p95 3.31ms  p99 5.52ms  errors {}  dropped 0  late_slots 0
+   achieved 400.0 ok/s  p50 1.69ms  p95 2.68ms  p99 4.11ms  errors {}  dropped 0  late_slots 0
+   achieved 800.0 ok/s  p50 1.94ms  p95 2.84ms  p99 4.22ms  errors {}  dropped 0  late_slots 0
+   achieved 1600.0 ok/s  p50 2.55ms  p95 3.52ms  p99 5.92ms  errors {}  dropped 0  late_slots 0
+   achieved 3200.0 ok/s  p50 3.55ms  p95 9.72ms  p99 25.60ms  errors {}  dropped 0  late_slots 0
+   achieved 5311.4 ok/s  p50 4214.78ms  p95 4759.55ms  p99 4775.94ms  errors {}  dropped 13063  late_slots 10
+   saturated: ending the sweep here
+
+== 00:59:57 neo4j snapshot repeat 2 (start 10/s)
+   achieved 10.0 ok/s  p50 3.29ms  p95 5.21ms  p99 5.46ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 3.21ms  p95 5.21ms  p99 6.15ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 3.09ms  p95 4.99ms  p99 6.38ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 2.76ms  p95 4.39ms  p99 5.19ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 2.18ms  p95 3.55ms  p99 5.10ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 1.78ms  p95 2.66ms  p99 4.74ms  errors {}  dropped 0  late_slots 3
+   achieved 640.0 ok/s  p50 1.92ms  p95 3.25ms  p99 4.88ms  errors {}  dropped 0  late_slots 0
+   achieved 1280.0 ok/s  p50 2.40ms  p95 3.62ms  p99 5.31ms  errors {}  dropped 0  late_slots 0
+   achieved 2560.0 ok/s  p50 3.31ms  p95 5.71ms  p99 19.01ms  errors {}  dropped 0  late_slots 0
+   achieved 4914.6 ok/s  p50 3547.14ms  p95 5439.49ms  p99 5492.73ms  errors {}  dropped 2465  late_slots 0
+   saturated: ending the sweep here
+
+== 01:02:33 neo4j traverse repeat 2 (start 5/s)
+   achieved 5.0 ok/s  p50 31.68ms  p95 46.98ms  p99 79.36ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 31.21ms  p95 46.72ms  p99 53.41ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 45.82ms  p95 91.20ms  p99 111.81ms  errors {}  dropped 0  late_slots 4
+   achieved 40.0 ok/s  p50 39.94ms  p95 76.09ms  p99 98.56ms  errors {}  dropped 0  late_slots 25
+   achieved 80.0 ok/s  p50 3874.82ms  p95 6696.96ms  p99 7184.38ms  errors {}  dropped 0  late_slots 3
+   saturated: ending the sweep here
+
+== 01:03:54 neo4j mixed repeat 2 (start 10/s)
+   achieved 10.0 ok/s  p50 3.29ms  p95 24.05ms  p99 54.81ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 3.32ms  p95 33.76ms  p99 49.57ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 3.20ms  p95 33.95ms  p99 48.86ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 2.91ms  p95 31.68ms  p99 47.68ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 2.46ms  p95 31.23ms  p99 46.94ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 3.91ms  p95 174.21ms  p99 365.06ms  errors {}  dropped 0  late_slots 26
+   achieved 640.0 ok/s  p50 1371.13ms  p95 2328.57ms  p99 2498.56ms  errors {}  dropped 0  late_slots 159
+   saturated: ending the sweep here
+
+== 01:05:42 neo4j traverse_bounded repeat 2 (start 5/s)
+   achieved 5.0 ok/s  p50 9.73ms  p95 14.18ms  p99 15.42ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 10.70ms  p95 15.26ms  p99 16.72ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 9.81ms  p95 14.40ms  p99 15.33ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 9.45ms  p95 14.18ms  p99 16.18ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 8.90ms  p95 13.41ms  p99 18.40ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 9.18ms  p95 15.35ms  p99 19.50ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 2691.07ms  p95 4337.66ms  p99 4505.60ms  errors {}  dropped 0  late_slots 172
+   saturated: ending the sweep here
+
+== 01:07:32 neo4j ping repeat 3 (start 100/s)
+   achieved 100.0 ok/s  p50 2.81ms  p95 4.44ms  p99 5.31ms  errors {}  dropped 0  late_slots 0
+   achieved 200.0 ok/s  p50 1.96ms  p95 3.16ms  p99 4.79ms  errors {}  dropped 0  late_slots 0
+   achieved 400.0 ok/s  p50 1.71ms  p95 3.94ms  p99 5.83ms  errors {}  dropped 0  late_slots 3
+   achieved 800.0 ok/s  p50 2.02ms  p95 3.48ms  p99 4.73ms  errors {}  dropped 0  late_slots 0
+   achieved 1600.0 ok/s  p50 2.70ms  p95 4.12ms  p99 6.13ms  errors {}  dropped 0  late_slots 0
+   achieved 3200.0 ok/s  p50 3.69ms  p95 12.62ms  p99 26.13ms  errors {}  dropped 0  late_slots 0
+   achieved 5353.0 ok/s  p50 4065.28ms  p95 4796.41ms  p99 4808.70ms  errors {}  dropped 12564  late_slots 0
+   saturated: ending the sweep here
+
+== 01:09:22 neo4j snapshot repeat 3 (start 10/s)
+   achieved 10.0 ok/s  p50 3.48ms  p95 5.26ms  p99 5.97ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 3.23ms  p95 5.13ms  p99 5.71ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 3.46ms  p95 5.62ms  p99 6.93ms  errors {}  dropped 0  late_slots 1
+   achieved 80.0 ok/s  p50 4.61ms  p95 6.53ms  p99 9.46ms  errors {}  dropped 0  late_slots 7
+   achieved 160.0 ok/s  p50 3.95ms  p95 5.74ms  p99 8.89ms  errors {}  dropped 0  late_slots 28
+   achieved 320.0 ok/s  p50 1.81ms  p95 2.98ms  p99 4.58ms  errors {}  dropped 0  late_slots 0
+   achieved 640.0 ok/s  p50 2.08ms  p95 4.00ms  p99 5.55ms  errors {}  dropped 0  late_slots 0
+   achieved 1280.0 ok/s  p50 3.03ms  p95 9.71ms  p99 54.56ms  errors {}  dropped 0  late_slots 274
+   achieved 2560.0 ok/s  p50 3.28ms  p95 10.43ms  p99 28.83ms  errors {}  dropped 0  late_slots 630
+   achieved 5120.0 ok/s  p50 1917.95ms  p95 3004.41ms  p99 3074.05ms  errors {}  dropped 0  late_slots 16715
+   saturated: ending the sweep here
+
+== 01:11:55 neo4j traverse repeat 3 (start 5/s)
+   achieved 5.0 ok/s  p50 33.50ms  p95 59.10ms  p99 79.74ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 42.08ms  p95 66.50ms  p99 77.76ms  errors {}  dropped 0  late_slots 4
+   achieved 20.0 ok/s  p50 35.26ms  p95 56.51ms  p99 70.53ms  errors {}  dropped 0  late_slots 5
+   achieved 40.0 ok/s  p50 35.17ms  p95 55.97ms  p99 72.70ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 4984.83ms  p95 7835.65ms  p99 8265.73ms  errors {}  dropped 0  late_slots 8
+   saturated: ending the sweep here
+
+== 01:13:18 neo4j mixed repeat 3 (start 10/s)
+   achieved 10.0 ok/s  p50 3.64ms  p95 33.60ms  p99 44.03ms  errors {}  dropped 0  late_slots 0
+   achieved 20.0 ok/s  p50 3.53ms  p95 29.77ms  p99 44.32ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 3.32ms  p95 28.99ms  p99 40.48ms  errors {}  dropped 0  late_slots 0
+   achieved 80.0 ok/s  p50 2.92ms  p95 28.05ms  p99 44.64ms  errors {}  dropped 0  late_slots 0
+   achieved 160.0 ok/s  p50 2.43ms  p95 27.95ms  p99 42.91ms  errors {}  dropped 0  late_slots 0
+   achieved 320.0 ok/s  p50 2.40ms  p95 35.33ms  p99 53.25ms  errors {}  dropped 0  late_slots 1
+   achieved 640.0 ok/s  p50 2003.97ms  p95 3026.94ms  p99 3145.73ms  errors {}  dropped 0  late_slots 114
+   saturated: ending the sweep here
+
+== 01:15:07 neo4j traverse_bounded repeat 3 (start 5/s)
+   achieved 5.0 ok/s  p50 10.66ms  p95 14.87ms  p99 19.73ms  errors {}  dropped 0  late_slots 0
+   achieved 10.0 ok/s  p50 10.03ms  p95 14.52ms  p99 18.91ms  errors {}  dropped 0  late_slots 1
+   achieved 20.0 ok/s  p50 9.60ms  p95 14.66ms  p99 15.54ms  errors {}  dropped 0  late_slots 0
+   achieved 40.0 ok/s  p50 14.50ms  p95 17.84ms  p99 24.21ms  errors {}  dropped 0  late_slots 5
+   achieved 80.0 ok/s  p50 12.91ms  p95 16.93ms  p99 21.61ms  errors {}  dropped 0  late_slots 13
+   achieved 160.0 ok/s  p50 11.49ms  p95 17.58ms  p99 21.73ms  errors {}  dropped 0  late_slots 29
+   achieved 320.0 ok/s  p50 3043.33ms  p95 5029.89ms  p99 5128.19ms  errors {}  dropped 0  late_slots 231
+   saturated: ending the sweep here
+
+== 01:17:01 starting TerminusDB (4 CPUs, 3g)
+ Container caregraph-terminusdb Starting 
+ Container caregraph-terminusdb Started 
+
+== 01:17:05 terminusdb: warm-up (not recorded)
+
+== 01:17:51 terminusdb ping repeat 1 (start 100/s)
+   achieved 100.0 ok/s  p50 6.07ms  p95 9.33ms  p99 13.12ms  errors {}  dropped 0  late_slots 21
+   achieved 200.0 ok/s  p50 5.92ms  p95 7.65ms  p99 10.04ms  errors {}  dropped 0  late_slots 34
+   achieved 400.0 ok/s  p50 4.58ms  p95 7.29ms  p99 8.82ms  errors {}  dropped 0  late_slots 25
+   achieved 800.0 ok/s  p50 4.02ms  p95 7.92ms  p99 11.04ms  errors {}  dropped 0  late_slots 58
+   achieved 1103.2 ok/s  p50 7864.32ms  p95 10436.61ms  p99 10600.45ms  errors {"TIMEOUT": 5962}  dropped 0  late_slots 3328
+   saturated: ending the sweep here
+
+== 01:19:24 terminusdb snapshot repeat 1 (start 10/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 120}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:19:55 terminusdb traverse repeat 1 (start 5/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10027.01ms  errors {"TIMEOUT": 60}  dropped 0  late_slots 1
+   saturated: ending the sweep here
+
+== 01:20:26 terminusdb mixed repeat 1 (start 10/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 120}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:20:58 terminusdb ping repeat 2 (start 100/s)
+   achieved 100.0 ok/s  p50 5.16ms  p95 7.28ms  p99 8.70ms  errors {}  dropped 0  late_slots 0
+   achieved 200.0 ok/s  p50 4.95ms  p95 88.06ms  p99 103.94ms  errors {}  dropped 0  late_slots 37
+   achieved 400.0 ok/s  p50 4.00ms  p95 6.83ms  p99 8.78ms  errors {}  dropped 0  late_slots 0
+   achieved 800.0 ok/s  p50 34.40ms  p95 64.25ms  p99 71.30ms  errors {}  dropped 0  late_slots 1
+   achieved 552.1 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 12575}  dropped 0  late_slots 40
+   saturated: ending the sweep here
+
+== 01:22:31 terminusdb snapshot repeat 2 (start 10/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 120}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:23:02 terminusdb traverse repeat 2 (start 5/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 60}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:23:33 terminusdb mixed repeat 2 (start 10/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 120}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:24:05 terminusdb ping repeat 3 (start 100/s)
+   achieved 100.0 ok/s  p50 5.34ms  p95 7.96ms  p99 9.61ms  errors {}  dropped 0  late_slots 6
+   achieved 200.0 ok/s  p50 6.40ms  p95 91.39ms  p99 103.04ms  errors {}  dropped 0  late_slots 51
+   achieved 400.0 ok/s  p50 3.88ms  p95 6.97ms  p99 309.25ms  errors {}  dropped 0  late_slots 10
+   achieved 800.0 ok/s  p50 1064.96ms  p95 1203.20ms  p99 1300.48ms  errors {}  dropped 0  late_slots 65
+
+== 01:25:28 terminusdb snapshot repeat 3 (start 10/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 120}  dropped 0  late_slots 2
+   saturated: ending the sweep here
+
+== 01:26:00 terminusdb traverse repeat 3 (start 5/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 60}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:26:31 terminusdb mixed repeat 3 (start 10/s)
+   achieved 0.0 ok/s  p50 10010.62ms  p95 10018.82ms  p99 10018.82ms  errors {"TIMEOUT": 120}  dropped 0  late_slots 0
+   saturated: ending the sweep here
+
+== 01:27:00 done: /c/Users/adars/cg_p10run
+exit=0

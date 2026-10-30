@@ -126,6 +126,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --bin caregraph-bench-load --features baselines -- -D warnings
 
   test:
     name: tests against real RocksDB

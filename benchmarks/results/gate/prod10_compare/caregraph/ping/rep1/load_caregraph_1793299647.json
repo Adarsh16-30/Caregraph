@@ -1,0 +1,424 @@
+{
+  "benchmark": "concurrent_load",
+  "provenance": {
+    "generated_at_unix": 1793299647,
+    "git_commit": "d9368192140310f594a7c5fb0a638e63ed050716",
+    "git_dirty": true,
+    "command": "C:\\Users\\adars\\Downloads\\CareGraph\\caregraph\\target\\release\\caregraph-bench-load.exe --target caregraph --addr http://127.0.0.1:50091 --api-key bench-key --trace benchmarks/traces/diabetes130_full.jsonl --rates 100,200,400,800,1600,3200,6400,12800,25600,51200,102400,204800 --duration-secs 12 --warmup-secs 3 --mix ping=100 --out-dir C:/Users/adars/cg_p10run/caregraph/ping/rep1 --stop-when-saturated --seed 7919 --request-timeout-secs 10",
+    "os": "windows",
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "hardware_note": null
+  },
+  "target": "caregraph",
+  "addr": "http://127.0.0.1:50091",
+  "trace": "benchmarks/traces/diabetes130_full.jsonl",
+  "mix": {
+    "ping": 100
+  },
+  "arrivals": "constant",
+  "server_timestamps": false,
+  "duration_secs": 12,
+  "warmup_secs": 3,
+  "connections": 4,
+  "patients_sampled": 50000,
+  "edges_sampled": 5000,
+  "results": [
+    {
+      "offered_rps": 100.0,
+      "achieved_ok_rps": 100.0,
+      "sent": 1200,
+      "ok": 1200,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 1200,
+          "p50_ms": 0.47,
+          "p95_ms": 0.653,
+          "p99_ms": 0.798,
+          "p999_ms": 3.649,
+          "max_ms": 4.443,
+          "mean_ms": 0.49056249999999985,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 1200,
+          "p50_ms": 0.47,
+          "p95_ms": 0.653,
+          "p99_ms": 0.798,
+          "p999_ms": 3.649,
+          "max_ms": 4.443,
+          "mean_ms": 0.49056249999999985,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 200.0,
+      "achieved_ok_rps": 200.0,
+      "sent": 2400,
+      "ok": 2400,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 3,
+      "per_op": {
+        "all": {
+          "count": 2400,
+          "p50_ms": 0.359,
+          "p95_ms": 0.537,
+          "p99_ms": 0.743,
+          "p999_ms": 4.243,
+          "max_ms": 14.255,
+          "mean_ms": 0.38692374999999973,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 2400,
+          "p50_ms": 0.359,
+          "p95_ms": 0.537,
+          "p99_ms": 0.743,
+          "p999_ms": 4.243,
+          "max_ms": 14.255,
+          "mean_ms": 0.38692374999999973,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 400.0,
+      "achieved_ok_rps": 400.0,
+      "sent": 4800,
+      "ok": 4800,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 4800,
+          "p50_ms": 0.243,
+          "p95_ms": 0.39,
+          "p99_ms": 0.51,
+          "p999_ms": 2.045,
+          "max_ms": 2.817,
+          "mean_ms": 0.2603979166666666,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 4800,
+          "p50_ms": 0.243,
+          "p95_ms": 0.39,
+          "p99_ms": 0.51,
+          "p999_ms": 2.045,
+          "max_ms": 2.817,
+          "mean_ms": 0.2603979166666666,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 800.0,
+      "achieved_ok_rps": 800.0,
+      "sent": 9600,
+      "ok": 9600,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 8,
+      "per_op": {
+        "all": {
+          "count": 9600,
+          "p50_ms": 0.222,
+          "p95_ms": 0.322,
+          "p99_ms": 0.417,
+          "p999_ms": 4.755,
+          "max_ms": 15.239,
+          "mean_ms": 0.2367445833333333,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 9600,
+          "p50_ms": 0.222,
+          "p95_ms": 0.322,
+          "p99_ms": 0.417,
+          "p999_ms": 4.755,
+          "max_ms": 15.239,
+          "mean_ms": 0.2367445833333333,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 1600.0,
+      "achieved_ok_rps": 1600.0,
+      "sent": 19200,
+      "ok": 19200,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 19200,
+          "p50_ms": 0.139,
+          "p95_ms": 0.234,
+          "p99_ms": 0.334,
+          "p999_ms": 2.259,
+          "max_ms": 9.519,
+          "mean_ms": 0.15716020833333336,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 19200,
+          "p50_ms": 0.139,
+          "p95_ms": 0.234,
+          "p99_ms": 0.334,
+          "p999_ms": 2.259,
+          "max_ms": 9.519,
+          "mean_ms": 0.15716020833333336,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 3200.0,
+      "achieved_ok_rps": 3200.0,
+      "sent": 38400,
+      "ok": 38400,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 38400,
+          "p50_ms": 0.096,
+          "p95_ms": 0.148,
+          "p99_ms": 0.235,
+          "p999_ms": 2.211,
+          "max_ms": 5.207,
+          "mean_ms": 0.10700497395833335,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 38400,
+          "p50_ms": 0.096,
+          "p95_ms": 0.148,
+          "p99_ms": 0.235,
+          "p999_ms": 2.211,
+          "max_ms": 5.207,
+          "mean_ms": 0.10700497395833335,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 6400.0,
+      "achieved_ok_rps": 6400.0,
+      "sent": 76800,
+      "ok": 76800,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 76800,
+          "p50_ms": 0.089,
+          "p95_ms": 0.138,
+          "p99_ms": 0.23,
+          "p999_ms": 1.146,
+          "max_ms": 5.003,
+          "mean_ms": 0.09928063802083328,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 76800,
+          "p50_ms": 0.089,
+          "p95_ms": 0.138,
+          "p99_ms": 0.23,
+          "p999_ms": 1.146,
+          "max_ms": 5.003,
+          "mean_ms": 0.09928063802083328,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 12800.0,
+      "achieved_ok_rps": 12800.0,
+      "sent": 153600,
+      "ok": 153600,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 153600,
+          "p50_ms": 0.086,
+          "p95_ms": 0.129,
+          "p99_ms": 0.212,
+          "p999_ms": 1.024,
+          "max_ms": 3.665,
+          "mean_ms": 0.0935595377604169,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 153600,
+          "p50_ms": 0.086,
+          "p95_ms": 0.129,
+          "p99_ms": 0.212,
+          "p999_ms": 1.024,
+          "max_ms": 3.665,
+          "mean_ms": 0.0935595377604169,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 25600.0,
+      "achieved_ok_rps": 25600.0,
+      "sent": 307200,
+      "ok": 307200,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 307200,
+          "p50_ms": 0.088,
+          "p95_ms": 0.17,
+          "p99_ms": 0.264,
+          "p999_ms": 1.094,
+          "max_ms": 4.659,
+          "mean_ms": 0.10247225260416648,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 307200,
+          "p50_ms": 0.088,
+          "p95_ms": 0.17,
+          "p99_ms": 0.264,
+          "p999_ms": 1.094,
+          "max_ms": 4.659,
+          "mean_ms": 0.10247225260416648,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 51200.0,
+      "achieved_ok_rps": 51200.0,
+      "sent": 614400,
+      "ok": 614400,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 614400,
+          "p50_ms": 0.209,
+          "p95_ms": 0.475,
+          "p99_ms": 1.086,
+          "p999_ms": 6.843,
+          "max_ms": 31.935,
+          "mean_ms": 0.2683824772135417,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 614400,
+          "p50_ms": 0.209,
+          "p95_ms": 0.475,
+          "p99_ms": 1.086,
+          "p999_ms": 6.843,
+          "max_ms": 31.935,
+          "mean_ms": 0.2683824772135417,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 102400.0,
+      "achieved_ok_rps": 102400.0,
+      "sent": 1228800,
+      "ok": 1228800,
+      "errors_by_code": {},
+      "dropped": 0,
+      "late_slots": 0,
+      "per_op": {
+        "all": {
+          "count": 1228800,
+          "p50_ms": 60.447,
+          "p95_ms": 311.807,
+          "p99_ms": 432.127,
+          "p999_ms": 504.319,
+          "max_ms": 526.335,
+          "mean_ms": 88.71814093180336,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 1228800,
+          "p50_ms": 60.447,
+          "p95_ms": 311.807,
+          "p99_ms": 432.127,
+          "p999_ms": 504.319,
+          "max_ms": 526.335,
+          "mean_ms": 88.71814093180336,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    },
+    {
+      "offered_rps": 204800.0,
+      "achieved_ok_rps": 98710.58333333333,
+      "sent": 1184527,
+      "ok": 1184527,
+      "errors_by_code": {},
+      "dropped": 1273074,
+      "late_slots": 50435,
+      "per_op": {
+        "all": {
+          "count": 1184527,
+          "p50_ms": 188.671,
+          "p95_ms": 510.975,
+          "p99_ms": 612.351,
+          "p999_ms": 663.039,
+          "max_ms": 687.615,
+          "mean_ms": 201.9737030181665,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        },
+        "ping": {
+          "count": 1184527,
+          "p50_ms": 188.671,
+          "p95_ms": 510.975,
+          "p99_ms": 612.351,
+          "p999_ms": 663.039,
+          "max_ms": 687.615,
+          "mean_ms": 201.9737030181665,
+          "mean_items": 0.0,
+          "truncated_share": 0.0
+        }
+      }
+    }
+  ]
+}

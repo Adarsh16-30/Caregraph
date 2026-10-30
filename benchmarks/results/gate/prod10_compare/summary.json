@@ -1,0 +1,259 @@
+{
+  "ping": {
+    "caregraph": {
+      "sustained_p99_lt_50ms": [
+        51200.0,
+        51200.0,
+        12800.0
+      ],
+      "sustained_p99_lt_250ms": [
+        51200.0,
+        51200.0,
+        25600.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        102400.0,
+        102400.0,
+        51200.0
+      ],
+      "mean_items": 0.0,
+      "truncated_share": 0.0
+    },
+    "neo4j": {
+      "sustained_p99_lt_50ms": [
+        3200.0,
+        3200.0,
+        3200.0
+      ],
+      "sustained_p99_lt_250ms": [
+        3200.0,
+        3200.0,
+        3200.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        3200.0,
+        3200.0,
+        3200.0
+      ],
+      "mean_items": 0.0,
+      "truncated_share": 0.0
+    },
+    "terminusdb": {
+      "sustained_p99_lt_50ms": [
+        400.0,
+        400.0,
+        400.0
+      ],
+      "sustained_p99_lt_250ms": [
+        400.0,
+        400.0,
+        400.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        400.0,
+        800.0,
+        400.0
+      ],
+      "mean_items": 0.0,
+      "truncated_share": 0.0
+    }
+  },
+  "snapshot": {
+    "caregraph": {
+      "sustained_p99_lt_50ms": [
+        10240.0,
+        10240.0,
+        10240.0
+      ],
+      "sustained_p99_lt_250ms": [
+        10240.0,
+        10240.0,
+        10240.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        10240.0,
+        10240.0,
+        10240.0
+      ],
+      "mean_items": 7.420381303267045,
+      "truncated_share": 0.0
+    },
+    "neo4j": {
+      "sustained_p99_lt_50ms": [
+        2560.0,
+        2560.0,
+        2560.0
+      ],
+      "sustained_p99_lt_250ms": [
+        2560.0,
+        2560.0,
+        2560.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        2560.0,
+        2560.0,
+        2560.0
+      ],
+      "mean_items": 7.565666345966002,
+      "truncated_share": 0.0
+    },
+    "terminusdb": {
+      "sustained_p99_lt_50ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_250ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        10.0,
+        0.0,
+        10.0
+      ],
+      "mean_items": 7.644047619047619,
+      "truncated_share": 0.0
+    }
+  },
+  "traverse": {
+    "caregraph": {
+      "sustained_p99_lt_50ms": [
+        320.0,
+        320.0,
+        160.0
+      ],
+      "sustained_p99_lt_250ms": [
+        320.0,
+        320.0,
+        320.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        320.0,
+        320.0,
+        320.0
+      ],
+      "mean_items": 2505.261941189236,
+      "truncated_share": 0.9990180121527777
+    },
+    "neo4j": {
+      "sustained_p99_lt_50ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_250ms": [
+        40.0,
+        40.0,
+        40.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        40.0,
+        40.0,
+        40.0
+      ],
+      "mean_items": 38701.567291666666,
+      "truncated_share": 0.0
+    },
+    "terminusdb": {
+      "sustained_p99_lt_50ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_250ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mean_items": 0.0,
+      "truncated_share": 0.0
+    }
+  },
+  "traverse_bounded": {
+    "neo4j": {
+      "sustained_p99_lt_50ms": [
+        160.0,
+        160.0,
+        160.0
+      ],
+      "sustained_p99_lt_250ms": [
+        160.0,
+        160.0,
+        160.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        160.0,
+        160.0,
+        160.0
+      ],
+      "mean_items": 9768.943365575396,
+      "truncated_share": 0.0
+    }
+  },
+  "mixed": {
+    "caregraph": {
+      "sustained_p99_lt_50ms": [
+        2560.0,
+        2560.0,
+        2560.0
+      ],
+      "sustained_p99_lt_250ms": [
+        2560.0,
+        2560.0,
+        2560.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        2560.0,
+        2560.0,
+        2560.0
+      ],
+      "mean_items": 2517.440876326861,
+      "truncated_share": 0.9990607927122823
+    },
+    "neo4j": {
+      "sustained_p99_lt_50ms": [
+        160.0,
+        160.0,
+        160.0
+      ],
+      "sustained_p99_lt_250ms": [
+        320.0,
+        160.0,
+        320.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        320.0,
+        320.0,
+        320.0
+      ],
+      "mean_items": 37809.85077646827,
+      "truncated_share": 0.0
+    },
+    "terminusdb": {
+      "sustained_p99_lt_50ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_250ms": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "sustained_p99_lt_1000ms": [
+        2.0,
+        0.0,
+        0.0
+      ],
+      "mean_items": 0.0,
+      "truncated_share": 0.0
+    }
+  }
+}

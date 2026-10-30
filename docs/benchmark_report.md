@@ -762,6 +762,10 @@ relative ordering and the rough magnitude of the gaps as the trustworthy
 signal, the same way §7.8 treats absolute milliseconds as thermally
 contaminated.
 
+> **Correction (see 10.8):** the TerminusDB figure in this table was produced by a runner whose query
+> follows a single edge regardless of `--hops`, so it is a one-hop latency, not a two-hop one. The
+> Neo4j and CareGraph rows are two-hop.
+
 ### 8.3 Outstanding
 
 - **Working tree was dirty at run time**: `benchmarks/baselines/terminusdb_runner.py`
@@ -1221,3 +1225,153 @@ routes single-key puts and deletes through it. 30 SIGKILLs per model with the re
 mutation pipeline (`benchmarks/results/gate/prod8_fault_injection.log`): GraphSAGE 20
 kills, GAT 28 kills, every run fully committed or fully uncommitted, **0 non-atomic
 states**. This is 30 per model, not the full 100.
+
+### 10.8 Concurrent load against Neo4j and TerminusDB (P10)
+
+Section 8 compared the three systems one request at a time. This compares them under
+concurrent load, with one load generator for all three, so that client overhead, arrival
+process and latency definition are identical.
+
+[benchmark: benchmarks/results/gate/prod10_compare/summary.md]
+
+**What was run.** `scripts/p10_compare.sh`, one system at a time, on the same real
+graph (174,298 nodes, the Diabetes 130 trace), driven by `caregraph-bench-load`
+(`--target caregraph|neo4j|terminusdb`): open loop, constant arrivals, latency measured
+from the intended send time, patients sampled from the trace. Each workload is a sweep
+at offered rates that double (the same rates for every system; TerminusDB, which cannot
+sustain them, also has lower rates), 3 s warm-up plus 12 s measured per rate, a 10 s
+client timeout counted as an error, and the sweep ends at the first rate the system
+cannot sustain. **Every sweep was repeated three times** and all three are shown, so the
+spread is visible. Raw results for every run are in `prod10_compare/`.
+
+| | CareGraph | Neo4j | TerminusDB |
+|---|---|---|---|
+| version | this repository (d936819 plus the P10 load-generator changes, uncommitted at run time) | 5.26 Community | 11.1.14 |
+| where | native process, pinned to 4 logical CPUs, `CAREGRAPH_MEMORY_MB=2048`, embedding models off (reads only) | Docker, 4 CPUs, 3 GB, heap 1 GB, page cache 1 GB | Docker, 4 CPUs, 3 GB |
+| client | tonic (gRPC) | `neo4rs` (Bolt) | `reqwest` (HTTP, WOQL) |
+| graph held | 174,298 nodes, 515,117 edges (versioned) | 174,298 nodes, 524,116 relationships (current state) | 174,298 nodes, 591,456 edge documents (current state) |
+
+The edge counts differ because the trace has repeated and retracted edges and each
+system's loader applies them its own way (section 8.1); none of the three holds a
+different set of patients.
+
+**What each operation means** (the same question on all three; see the asymmetries
+below):
+
+* `snapshot`: a node with its outgoing edges and the type of each far-end node, current
+  state.
+* `traverse`: every node within two hops, edges taken as undirected.
+* `ping`: the cheapest request each system answers (`gRPC health check`, `RETURN 1`,
+  `GET /api/info`). It is the floor for protocol, authentication, and, for the two
+  containers, Docker's port forwarding. That forwarding was measured separately with a
+  trivial HTTP server (busybox in Docker against a native Python server, same client):
+  about 0.3 ms extra, so it is a small part of the floors below.
+* `mixed`: 90% snapshot, 10% traverse.
+
+#### Throughput: the highest offered rate each system sustained
+
+"Sustained" means p99 under the limit and at least 95% of the offered rate completed with
+under 1% errors. The rates double, so each number is a **lower bound within a factor of
+two** of where the system actually breaks; the three repeats are listed in order.
+
+| workload | system | p99 < 50 ms | p99 < 250 ms | p99 < 1 s |
+|---|---|---|---|---|
+| ping | CareGraph | 51,200 / 51,200 / 12,800 | 51,200 / 51,200 / 25,600 | 102,400 / 102,400 / 51,200 |
+| | Neo4j | 3,200 x3 | 3,200 x3 | 3,200 x3 |
+| | TerminusDB | 400 x3 | 400 x3 | 400 / 800 / 400 |
+| snapshot | CareGraph | 10,240 x3 | 10,240 x3 | 10,240 x3 |
+| | Neo4j | 2,560 x3 | 2,560 x3 | 2,560 x3 |
+| | TerminusDB | 0 x3 | 0 x3 | 10 / 0 / 10 |
+| traverse | CareGraph | 320 / 320 / 160 | 320 x3 | 320 x3 |
+| | Neo4j (all nodes) | 0 x3 | 40 x3 | 40 x3 |
+| | Neo4j (at most 10,000 nodes) | 160 x3 | 160 x3 | 160 x3 |
+| | TerminusDB | 0 x3 | 0 x3 | 0 x3 |
+| mixed | CareGraph | 2,560 x3 | 2,560 x3 | 2,560 x3 |
+| | Neo4j | 160 x3 | 320 / 160 / 320 | 320 x3 |
+| | TerminusDB | 0 x3 | 0 x3 | 0 / 0 / 2 |
+
+The CareGraph `ping` and `snapshot` ceilings are partly the load generator's: it shares
+the machine, and the third repeat of both shows the generator falling behind
+(`late_slots` in the result files: 4,214 at 10,240 snapshots/s) well before the first two
+repeats did. Read them as "at least this much", not as CareGraph's limit.
+
+#### Latency at the same offered rate (median, with min-max over the three repeats)
+
+| operation, offered rate | CareGraph p50 / p99 | Neo4j p50 / p99 | TerminusDB p50 / p99 |
+|---|---|---|---|
+| ping, 100/s | 0.39 [0.37-0.47] / 0.81 ms | 2.81 [2.63-3.18] / 5.90 ms | 4.51 [4.21-4.63] / 8.06 ms |
+| ping, 800/s | 0.22 / 0.42 ms | 1.98 / 4.70 ms | 455 / 1,085 ms (queueing begins) |
+| snapshot, 10/s | 0.73 [0.69-1.15] / 2.69 ms | 3.48 [3.29-3.71] / 5.97 ms | 213 [201-226] / 455 ms |
+| snapshot, 20/s | 0.70 / 1.26 ms | 3.23 / 6.15 ms | overloaded: 8 completed/s, 283 timeouts over the three repeats |
+| traverse, 5/s | 5.04 [4.53-9.88] / 10.70 ms | 31.7 [30.8-33.5] / 79.4 ms (all nodes); 10.1 [9.7-10.7] / 19.7 ms (at most 10,000) | every request timed out (10 s) |
+
+#### What the numbers do and do not say
+
+* **Point reads: CareGraph is roughly 4x Neo4j in sustained throughput and 4-5x lower in
+  latency, and both are far ahead of TerminusDB.** Most of Neo4j's 3.3 ms snapshot
+  latency is its floor: a `RETURN 1` costs it 2-3 ms through this client, so the query
+  itself adds about 0.5-1 ms. CareGraph's floor is 0.2-0.4 ms. Some of that difference is
+  the protocol and the client (gRPC against Bolt), not the storage engine, and the
+  comparison cannot separate them.
+* **Traversal: the two systems did not do the same work, and that is the main caveat of
+  this section.** CareGraph bounds a traversal by design (at most 512 neighbours per node,
+  direction and edge type, 10,000 nodes returned; section 5). On this graph every sampled
+  traversal hit a cap: it returned 2,505 nodes on average, against 38,702 from Neo4j,
+  which answers exhaustively through the hub nodes. Neo4j limited to CareGraph's own
+  10,000-node ceiling still returned about 9,800 nodes, four times what CareGraph did. So
+  "320/s against 40/s" is about 8x on a different amount of work; against the bounded
+  Neo4j (160/s) it is 2x for a quarter of the data, which makes the per-node cost close.
+  What is solid: CareGraph answers a bounded 2-hop question in about 5 ms at p50 and keeps
+  p99 under 50 ms to 160-320 requests/s, and it says when it cut the answer short (every
+  response carries the truncation flags; 100% did here). What is not shown: that it is
+  faster than Neo4j for the *exhaustive* answer, which it does not offer.
+* **TerminusDB** sustains about 10 snapshots/s with p99 near 450 ms, fails at 20/s, and
+  does not complete a 2-hop traversal in 10 s even at 1 request/s. Two things temper
+  that. The WOQL here is mine, written to ask the same question, and has not been tuned
+  by someone who knows the engine; the snapshot joins each edge to its far-end node by a
+  value lookup, which may be the slow part. And TerminusDB kept computing a query after
+  the client gave up: a few abandoned traversals held all 4 CPUs for minutes, so the
+  script restarts the server before every workload and warms it with a trickle of
+  snapshots (a restarted server answers its first queries slowly while it pages the
+  graph in). A correction to section 8: its TerminusDB "2-hop" row (72 ms p50)
+  came from a runner whose WOQL follows one edge whatever `--hops` says (its own comment
+  notes the shape differs for more than one hop), so that row measured one hop. The
+  two-hop query here is a much heavier request.
+* **Mixed (90% snapshot, 10% traverse)**: CareGraph sustains 2,560/s, Neo4j 160-320/s.
+  The traversals are the heavy tenth of the mix, and this sweep does not separate their
+  cost from the snapshots'. The answer-size caveat applies.
+* **Writes are not compared.** A CareGraph write includes a GNN forward pass and an
+  atomic commit with a synchronous standby; neither baseline does anything comparable.
+  CareGraph's own write numbers are in sections 10.2 to 10.7.
+
+#### Limits of this measurement
+
+* One laptop (Intel i5-13450HX, 16 GB, Windows 11), shared by the server, the Docker VM
+  and the load generator, with other programs using about 9 GB. It is not a dedicated
+  machine, it is thermally variable, and the Neo4j and TerminusDB containers pay for
+  Docker Desktop's virtual machine while CareGraph does not (measured at about 0.3 ms on
+  a trivial server, but not eliminated). A CareGraph container could not be built on
+  this machine (the release build of RocksDB exhausted its memory; `docs/memory.md`), which
+  is why CareGraph ran natively.
+* The CPU limits are equal in count (four) but not in kind: a native process pinned to
+  four logical CPUs against containers limited by quota over all of them.
+* The rate lattice doubles, so every "sustained" value is within 2x of the break point.
+  Three repeats show the run-to-run spread but are not a confidence interval.
+* Neo4j and TerminusDB hold the current state only. Their half of the comparison is
+  "now"; CareGraph's point-in-time reads at earlier timestamps have no counterpart here.
+* The query shapes are the author's. Neo4j has a uniqueness index on `id` and used it;
+  nothing was tuned for any system.
+* An earlier pass of the TerminusDB sweep was discarded: the laptop had gone to sleep
+  during it (one latency reads 3,600,809 ms) and a freshly restarted server timed out its
+  first requests. The numbers above are from the rerun, with the machine kept awake and
+  the warm-up in the script.
+* Neo4j's relationship count (524,116) is lower than the 599,497 trace records because
+  its loader merges repeated edges, as section 8 describes.
+
+**Reproducing 10.8.** Load Neo4j and TerminusDB from the trace
+(`benchmarks/baselines/neo4j_runner.py load`, `terminusdb_runner.py load`, with the
+containers from `infrastructure/docker-compose/dev-stack.yml`), build
+`cargo build --release --features baselines --bin caregraph --bin caregraph-bench-load`,
+then `bash scripts/p10_compare.sh <out-dir>` and `python scripts/summarize_compare.py <out-dir>`.
+On a dedicated machine, with the load generator on its own hardware, this is the run
+that should replace the laptop figures above.
