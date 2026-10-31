@@ -139,7 +139,12 @@ caregraph-admin remote failover --addr https://old-leader:50051 \
    and audit-chain head are re-read from the database first, so strict timestamp
    ordering and the audit chain continue unbroken.
 3. **Outside CareGraph:** move the write Service to the new leader (relabel the pod
-   in Kubernetes; see the runbook).
+   in Kubernetes; see the runbook). Once `demote` has returned with the standby caught
+   up, the old leader ends the stream of every follower that already has everything it
+   committed (`stale_leader: leadership was handed over`); they retry and, because
+   replicas find their leader through the write Service, land on the new one. Without
+   this a read replica would sit on the old leader's idle stream indefinitely. A
+   follower that is still behind keeps being served until it has caught up.
 4. Rebuild the old leader from a checkpoint of the new one before it rejoins.
 
 If the old leader cannot be reached, confirm it is down or its volume is detached

@@ -310,6 +310,11 @@ impl AdminService for CareGraphApi {
         let final_sequence = self.store().latest_sequence();
         // The stream stays up so the standby can receive everything up to it.
         let caught_up = wait_for_follower(&repl, final_sequence, timeout).await;
+        if caught_up {
+            // The standby has everything this node will ever commit. Followers that also
+            // have it can now be sent to the new leader (see `ReplicationState::handed_over`).
+            repl.finish_handover();
+        }
         tracing::warn!(final_sequence, caught_up, "leader demoted");
         Ok(Response::new(DemoteResponse {
             final_sequence,

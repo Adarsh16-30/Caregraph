@@ -173,6 +173,9 @@ pub struct ReplicationState {
     /// Follower: newest leader sequence reported by the stream.
     leader_seq: AtomicU64,
     needs_bootstrap: AtomicBool,
+    /// Demoted leader: the operator's `Demote` finished and the standby has everything, so
+    /// no follower will ever be sent anything more. See `handed_over`.
+    handed_over: AtomicBool,
     connected_to_leader: AtomicBool,
     rx_count: AtomicU64,
     last_rx: Mutex<Option<Instant>>,
@@ -278,6 +281,7 @@ impl ReplicationState {
             applied: AtomicU64::new(0),
             leader_seq: AtomicU64::new(0),
             needs_bootstrap: AtomicBool::new(false),
+            handed_over: AtomicBool::new(false),
             connected_to_leader: AtomicBool::new(false),
             rx_count: AtomicU64::new(0),
             last_rx: Mutex::new(None),
@@ -393,6 +397,23 @@ impl ReplicationState {
         self.lock().role = Role::Demoted;
         self.persist(Role::Demoted);
         self.acks.notify_waiters();
+    }
+
+    /// Records that the demotion is complete: the final sequence is fixed and the standby
+    /// has it. From here a demoted leader sends nothing new, so a follower that already has
+    /// everything gains nothing from staying attached to it. In memory only: after a restart
+    /// the node is still demoted but streams as before, which is harmless.
+    pub fn finish_handover(&self) {
+        self.handed_over.store(true, Ordering::Release);
+        self.acks.notify_waiters();
+    }
+
+    /// True once a demoted leader's handover is complete. The stream uses it to let go of
+    /// followers that have everything (see `finish_handover`). Not before: `Demote` judges
+    /// "the standby has caught up" from the followers still registered on their streams, so
+    /// a stream must not end while that decision is being made.
+    pub fn handed_over(&self) -> bool {
+        self.role() == Role::Demoted && self.handed_over.load(Ordering::Acquire)
     }
 
     /// Fences this node: it refuses writes and the stream from now on, across

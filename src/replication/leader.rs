@@ -102,6 +102,12 @@ fn precondition(msg: impl Into<String>) -> Status {
     Status::failed_precondition(msg.into())
 }
 
+/// What a demoted leader tells a follower that has everything it will ever commit. A follower
+/// treats it like any lost connection and retries; it is not a reason to rebuild.
+fn handed_over() -> Status {
+    precondition("stale_leader: leadership was handed over; reconnect to the new leader")
+}
+
 impl CareGraphApi {
     /// Pushes batches to one follower until it goes away or this node stops
     /// being the leader.
@@ -113,6 +119,12 @@ impl CareGraphApi {
     ) {
         let repl = self.replication().clone();
         let mut commits = self.store().subscribe_commits();
+        // A follower that already has everything a handed-over leader will ever commit is
+        // turned away before it registers, so it does not count as a follower either.
+        if repl.handed_over() && next > self.store().latest_sequence() {
+            let _ = tx.send(Err(handed_over())).await;
+            return;
+        }
         let _registered = repl.follower_connected(&follower_id, next - 1);
         loop {
             if tx.is_closed() {
@@ -127,6 +139,14 @@ impl CareGraphApi {
                 return;
             }
             let latest = self.store().latest_sequence();
+            // The handover is complete and this follower has everything: nothing more will
+            // ever be sent on this stream, and an idle stream to a demoted leader would keep a
+            // replica from ever finding the new one. Ending it makes the follower reconnect
+            // through the write Service, which now points at the new leader.
+            if repl.handed_over() && next > latest {
+                let _ = tx.send(Err(handed_over())).await;
+                return;
+            }
             if next <= latest {
                 let from = next;
                 // A follower that is keeping up is served from memory; only one

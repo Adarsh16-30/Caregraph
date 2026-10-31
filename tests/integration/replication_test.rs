@@ -516,6 +516,74 @@ async fn a_planned_failover_loses_nothing_and_the_old_leader_is_fenced() {
     leader.stop().await;
 }
 
+/// A read replica is attached to whichever node the write Service pointed at when it
+/// connected. After a failover that node is the demoted old leader, and nothing ever
+/// makes it send again, so an open, idle stream would keep the replica there for good
+/// (found by the kind smoke test: the replica never followed the new leader). Once the
+/// handover is complete the old leader must end the streams of followers that have
+/// everything, so they reconnect through the Service to the new leader.
+#[tokio::test]
+async fn a_demoted_leader_releases_followers_that_have_everything_once_the_handover_is_done() {
+    let (root, a, b) = dirs();
+    let c = root.path().join("c");
+    let leader = start(Spec::leader(&a)).await;
+    let audit = MutationAudit::open(leader.store()).unwrap();
+    commit(leader.store(), &audit, 1..=40);
+    let standby = start(Spec::follower(&b, leader.addr)).await;
+    let reader = start(Spec::follower(&c, leader.addr)).await;
+    converged(&leader, &standby).await;
+    converged(&leader, &reader).await;
+    wait_until(
+        "the leader to see both followers",
+        Duration::from_secs(10),
+        || leader.api.replication().followers().len() == 2,
+    )
+    .await;
+
+    let demoted = leader
+        .admin()
+        .await
+        .demote(DemoteRequest { timeout_ms: 5_000 })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(demoted.follower_caught_up);
+    standby
+        .admin()
+        .await
+        .promote(PromoteRequest {
+            wait_for_sequence: demoted.final_sequence,
+            wait_timeout_ms: 5_000,
+            force: false,
+        })
+        .await
+        .unwrap();
+
+    // The handover is done and both followers hold everything the old leader will ever
+    // commit: it lets them go instead of holding them on an idle stream.
+    wait_until(
+        "the old leader to release the followers that have everything",
+        Duration::from_secs(10),
+        || leader.api.replication().followers().is_empty(),
+    )
+    .await;
+    assert_eq!(
+        reader.store().latest_sequence(),
+        demoted.final_sequence,
+        "the replica lost nothing by being released"
+    );
+    // And the old leader does not take a caught-up follower back: a replica that
+    // reconnects to the stale address is turned away, to retry through the Service.
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert!(
+        leader.api.replication().followers().is_empty(),
+        "a caught-up follower is not re-registered on a demoted leader"
+    );
+    reader.stop().await;
+    standby.stop().await;
+    leader.stop().await;
+}
+
 fn add_edge() -> AddEdgeRequest {
     AddEdgeRequest {
         src: 1,

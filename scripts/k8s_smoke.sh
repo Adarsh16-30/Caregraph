@@ -43,6 +43,13 @@ dump() {
             kubectl -n "$NS" logs "$p" -c "$c" --tail=40 2>&1 | tail -40 || true
         done
     done
+    # Last, so a log tail ends with it: what each node says about replication and roles.
+    for p in "$FULL-writer-0" "$FULL-writer-1" "$FULL-reader-0"; do
+        echo "--- $p / replication messages"
+        kubectl -n "$NS" logs "$p" -c caregraph --tail=400 2>&1 |
+            grep -iE 'replicat|follower|stale|epoch|diverg|bootstrap|fenc|demot|promot' |
+            cut -c1-300 | tail -8 || true
+    done
 }
 
 cleanup() {
