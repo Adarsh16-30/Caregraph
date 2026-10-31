@@ -6,6 +6,7 @@
 //! sequences and graph shapes* being generated, not to the database being faked.
 
 mod graph_fixture;
+mod hub_deferral_synthetic_test;
 mod snapshot_synthetic_test;
 mod temporal_pit_synthetic_test;
 mod traversal_synthetic_test;

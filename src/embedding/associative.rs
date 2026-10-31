@@ -66,6 +66,7 @@ pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
     );
 
     ctx.truncation = subgraph.truncation;
+    ctx.deferred_nodes = subgraph.deferred.clone();
 
     match run_forward_pass(
         store,

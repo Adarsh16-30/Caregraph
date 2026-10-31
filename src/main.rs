@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context};
 use caregraph::api::admin::AdminOps;
+use caregraph::api::repair_task::RepairWorkerConfig;
 use caregraph::api::{AuthInterceptor, CareGraphApi, MutualTlsInterceptor, ServiceOptions};
 use caregraph::config::{Config, Layered, ProcessEnv};
 use caregraph::replication::epoch::EpochHistory;
@@ -290,9 +291,21 @@ async fn main() -> anyhow::Result<()> {
             audit_log: audit_log.clone(),
             admin,
             replication: Some(repl.clone()),
+            defer_hub_degree: cfg.defer_hub_degree,
         },
     )
     .context("building the gRPC service")?;
+
+    // Refreshes embeddings that were left stale or deferred. It works only while
+    // this node accepts writes, and is stopped before the drain below.
+    let repair_worker = cfg.repair_enabled.then(|| {
+        let mut worker = RepairWorkerConfig {
+            interval: std::time::Duration::from_millis(cfg.repair_interval_ms),
+            ..RepairWorkerConfig::default()
+        };
+        worker.params.batch = cfg.repair_batch;
+        api.spawn_repair_worker(worker)
+    });
 
     let addr = cfg.grpc_addr;
     tracing::info!(
@@ -509,6 +522,9 @@ async fn main() -> anyhow::Result<()> {
     if let Some(task) = follower_task {
         let _ = task.await;
     }
+
+    // No repair may start once the drain begins.
+    drop(repair_worker);
 
     // Requests whose clients went away keep running on the blocking pool;
     // wait for them, then force the WAL to disk before the store closes.

@@ -281,6 +281,11 @@ pub fn execute_admitted(
     if ctx.fallback {
         metrics.incremental_fallback_total.inc();
     }
+    if !ctx.deferred_nodes.is_empty() {
+        metrics
+            .embedding_updates_deferred_total
+            .inc_by(ctx.deferred_nodes.len() as u64);
+    }
 
     metrics
         .mutation_latency_seconds

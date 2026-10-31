@@ -64,6 +64,17 @@ pub struct Config {
     pub ts_policy: TsPolicy,
     pub sync_writes: bool,
     pub explain_enabled: bool,
+    /// Hub degree above which a mutation defers a node's embedding update to the
+    /// repair worker (`CAREGRAPH_DEFER_HUB_DEGREE`). `None` (the default) updates
+    /// every affected node synchronously. See `embedding/deferral.rs`.
+    pub defer_hub_degree: Option<usize>,
+    /// Run the embedding repair worker (`CAREGRAPH_REPAIR_ENABLED`, default on).
+    pub repair_enabled: bool,
+    /// Pause between repair passes (`CAREGRAPH_REPAIR_INTERVAL_MS`).
+    pub repair_interval_ms: u64,
+    /// Nodes claimed per repair pass (`CAREGRAPH_REPAIR_BATCH`, default 1024: twice
+    /// the fan-out cap, the most one hub mutation can defer).
+    pub repair_batch: usize,
     pub rbac_policy: Option<PathBuf>,
     pub log_json: bool,
     /// OTLP/gRPC collector for traces (`CAREGRAPH_OTEL_ENDPOINT`, or the standard
@@ -296,6 +307,30 @@ impl Config {
         };
 
         let explain_enabled = boolean("CAREGRAPH_EXPLAIN_ENABLED", !prod)?;
+        let positive = |name: &str, default: u64| -> Result<u64> {
+            match src.get(name).filter(|v| !v.trim().is_empty()) {
+                Some(v) => v
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|&n| n > 0)
+                    .with_context(|| format!("{name} must be a positive integer, got `{v}`")),
+                None => Ok(default),
+            }
+        };
+        let defer_hub_degree = match src
+            .get("CAREGRAPH_DEFER_HUB_DEGREE")
+            .filter(|v| !v.trim().is_empty())
+        {
+            None => None,
+            Some(v) => match v.trim().parse::<usize>() {
+                Ok(0) => None,
+                Ok(n) => Some(n),
+                Err(_) => bail!(
+                    "CAREGRAPH_DEFER_HUB_DEGREE must be a non-negative integer (0 = off), got `{v}`"
+                ),
+            },
+        };
         let cfg = Config {
             environment,
             db_path: src
@@ -334,6 +369,10 @@ impl Config {
             ts_policy,
             sync_writes: boolean("CAREGRAPH_SYNC_WRITES", prod)?,
             explain_enabled,
+            defer_hub_degree,
+            repair_enabled: boolean("CAREGRAPH_REPAIR_ENABLED", true)?,
+            repair_interval_ms: positive("CAREGRAPH_REPAIR_INTERVAL_MS", 200)?,
+            repair_batch: positive("CAREGRAPH_REPAIR_BATCH", 1024)? as usize,
             rbac_policy: src.get("CAREGRAPH_RBAC_POLICY").map(PathBuf::from),
             log_json: boolean("CAREGRAPH_LOG_JSON", prod)?,
             otel_endpoint: src
@@ -429,6 +468,11 @@ impl Config {
                 );
             }
         }
+        if self.defer_hub_degree.is_some() && !self.repair_enabled {
+            bail!(
+                "CAREGRAPH_DEFER_HUB_DEGREE defers embedding updates to the repair worker, so                  CAREGRAPH_REPAIR_ENABLED must be true"
+            );
+        }
         if self.environment == Environment::Production {
             let mut problems = Vec::new();
             if tls_set != 3 {
@@ -503,6 +547,8 @@ impl Config {
              ts_policy        = {:?}\n\
              sync_writes      = {}\n\
              explain_enabled  = {}\n\
+             defer_hub_degree = {}\n\
+             repair           = {}\n\
              rbac_policy      = {}\n\
              log_json         = {}\n\
              otel             = {}\n\
@@ -540,6 +586,16 @@ impl Config {
             self.ts_policy,
             self.sync_writes,
             self.explain_enabled,
+            self.defer_hub_degree
+                .map_or_else(|| "<off>".to_string(), |d| d.to_string()),
+            if self.repair_enabled {
+                format!(
+                    "on (every {} ms, batch {})",
+                    self.repair_interval_ms, self.repair_batch
+                )
+            } else {
+                "off".to_string()
+            },
             path(&self.rbac_policy),
             self.log_json,
             self.otel_endpoint.as_deref().map_or_else(

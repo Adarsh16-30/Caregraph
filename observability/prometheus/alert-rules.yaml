@@ -134,6 +134,24 @@ groups:
           summary: "{{ $labels.pod }}: more than 5% of embedding updates fell back to full recompute"
           runbook: docs/runbooks/worker-crashloop.md
 
+      - alert: CareGraphRepairBacklog
+        # Nodes whose embedding was deferred (hub deferral) or left stale (a model failure)
+        # wait here for the repair worker. A short queue is normal; a queue that stays
+        # long means repairs are not keeping up, or are not running.
+        expr: repair_pending > 20000
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: {{ $value }} nodes are waiting for an embedding repair"
+          runbook: docs/runbooks/repair-backlog.md
+
+      - alert: CareGraphRepairFailing
+        expr: increase(repair_failures_total[15m]) >= 5
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.pod }}: repair batches are failing; deferred nodes stay stale"
+          runbook: docs/runbooks/repair-backlog.md
+
   - name: caregraph.replication
     rules:
       - alert: CareGraphReplicationLag

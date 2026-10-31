@@ -178,6 +178,24 @@ more than one worker is safe), `CAREGRAPH_MAX_CONCURRENT_READS`/`_WRITES`
 unavailable a mutation is rejected with a retryable `UNAVAILABLE` rather than
 committed with stale embeddings).
 
+**Repair and hub deferral.** A node whose embedding is left behind gets a durable
+marker in the same atomic batch as the write, and a background **repair worker**
+(`CAREGRAPH_REPAIR_ENABLED`, on by default; `_INTERVAL_MS`, `_BATCH`) refreshes it as of the
+marker's timestamp, on the leader only. Two things leave markers: a model failure that was
+allowed to commit, and, if you opt in, **hub deferral**. With
+`CAREGRAPH_DEFER_HUB_DEGREE=64` (off by default) a write that touches a node with more than
+that many neighbours does not recompute the hub or its neighbours on the request path; they are
+refreshed by the worker shortly after. On the real graph that cut the synchronous update's p95
+from 181-212 ms to 67-74 ms (two back-to-back pairs); the deferred work is not free, but it
+runs after the write returns and is coalesced when writes pile up on one hub
+([benchmark report 10.9](docs/benchmark_report.md), [runbook](docs/runbooks/repair-backlog.md)).
+Deferral changes what a mutation response lists as `affected_nodes`, which is why it is opt-in.
+
+**Embedding quality.** The deployed models take only a node's type as input. Measured on a
+causal 30-day readmission task, their embeddings predict as well as the patient's own
+neighbourhood counts and no better, and 96-99.9% of their variance is explained by those
+counts. See [docs/embedding_quality.md](docs/embedding_quality.md).
+
 **Limits, probes and shutdown.** Requests are bounded before they reach
 storage: `properties_json` at most 64 KiB and 32 levels deep
 (`CAREGRAPH_MAX_PROPERTIES_BYTES`/`_DEPTH`), client timestamps at most five

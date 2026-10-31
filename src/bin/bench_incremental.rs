@@ -46,6 +46,7 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
+use caregraph::embedding::repair_worker::{repair_group, RepairModel, RepairParams};
 use caregraph::embedding::resolver::{patch_subgraph_for_mutation, AffectedSubgraphResolver};
 use caregraph::embedding::staged_incremental;
 use caregraph::embedding::state::{GraphMutation, MutationContext};
@@ -86,6 +87,9 @@ struct Args {
     samples: usize,
     out_dir: PathBuf,
     min_speedup: f64,
+    /// Also time the repair worker's refresh of whatever hub deferral postponed.
+    /// This writes embeddings, so run it against a copy of the database.
+    time_repair: bool,
 }
 
 fn parse_model_kind(s: &str) -> Result<ModelKind> {
@@ -105,6 +109,7 @@ fn parse_args() -> Result<Args> {
     let mut samples = 30usize;
     let mut out_dir = PathBuf::from("benchmarks/results");
     let mut min_speedup = DEFAULT_MIN_SPEEDUP;
+    let mut time_repair = false;
 
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -117,11 +122,12 @@ fn parse_args() -> Result<Args> {
             "--samples" => samples = next()?.parse()?,
             "--out-dir" => out_dir = PathBuf::from(next()?),
             "--min-speedup" => min_speedup = next()?.parse()?,
+            "--time-repair" => time_repair = true,
             "-h" | "--help" => {
                 println!(
                     "usage: caregraph-bench-incremental --trace <file.jsonl> [--db <path>] \
                      [--model <name>] [--model-kind graphsage|gcn|gat] [--samples N] \
-                     [--out-dir DIR] [--min-speedup X]"
+                     [--out-dir DIR] [--min-speedup X] [--time-repair]"
                 );
                 std::process::exit(0);
             }
@@ -137,6 +143,7 @@ fn parse_args() -> Result<Args> {
         samples,
         out_dir,
         min_speedup,
+        time_repair,
     })
 }
 
@@ -284,6 +291,10 @@ struct SampleResult {
     resolve_ms: f64,
     build_input_ms: f64,
     forward_ms: f64,
+    /// Nodes hub deferral postponed for this mutation (0 when deferral is off).
+    deferred_count: usize,
+    /// Time for the repair worker to refresh them, when `--time-repair` is set.
+    repair_ms: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -443,6 +454,27 @@ fn main() -> Result<()> {
         )?;
         let full_elapsed = t0.elapsed();
 
+        // The work deferral moved off the request path, timed the way the repair
+        // worker does it. Writes embeddings: only with --time-repair, on a copy.
+        let repair_ms = if args.time_repair && !ctx.deferred_nodes.is_empty() {
+            let params = RepairParams {
+                fanout_cap: caps.fanout_cap,
+                max_expanded_nodes: caps.max_expanded_nodes,
+                ..RepairParams::default()
+            };
+            let rm = RepairModel {
+                model: &model,
+                kind: args.model_kind,
+            };
+            let t0 = Instant::now();
+            for chunk in ctx.deferred_nodes.chunks(params.chunk) {
+                repair_group(&store, &rm, chunk, s.ts, &params)?;
+            }
+            Some(t0.elapsed().as_secs_f64() * 1000.0)
+        } else {
+            None
+        };
+
         let inc_ms = incremental_elapsed.as_secs_f64() * 1000.0;
         let full_ms = full_elapsed.as_secs_f64() * 1000.0;
         results.push(SampleResult {
@@ -455,12 +487,15 @@ fn main() -> Result<()> {
             resolve_ms: ctx.timings.resolve.as_secs_f64() * 1000.0,
             build_input_ms: ctx.timings.build_input.as_secs_f64() * 1000.0,
             forward_ms: ctx.timings.forward.as_secs_f64() * 1000.0,
+            deferred_count: ctx.deferred_nodes.len(),
+            repair_ms,
         });
         eprintln!(
-            "  {} -> {}: affected={} incremental={:.2}ms full={:.2}ms speedup={:.1}x",
+            "  {} -> {}: affected={} deferred={} incremental={:.2}ms full={:.2}ms speedup={:.1}x",
             s.src.as_u64(),
             s.dst.as_u64(),
             ctx.affected.len(),
+            ctx.deferred_nodes.len(),
             inc_ms,
             full_ms,
             full_ms / inc_ms.max(1e-9)
@@ -500,6 +535,28 @@ fn main() -> Result<()> {
         hub_touching,
         results.len()
     )];
+    match caregraph::embedding::deferral::hub_degree() {
+        Some(degree) => {
+            let deferred: Vec<f64> = results.iter().map(|r| r.deferred_count as f64).collect();
+            notes.push(format!(
+                "hub deferral ON (CAREGRAPH_DEFER_HUB_DEGREE={degree}): {} of {} samples deferred                  work, median {:.0} nodes deferred per sample; the latency above is the                  synchronous part only",
+                results.iter().filter(|r| r.deferred_count > 0).count(),
+                results.len(),
+                median(deferred),
+            ));
+            let repair: Vec<f64> = results.iter().filter_map(|r| r.repair_ms).collect();
+            if !repair.is_empty() {
+                let rp = percentiles(repair.clone());
+                notes.push(format!(
+                    "repair worker, off the request path: median {:.1} ms, p95 {:.1} ms per                      deferring sample ({} samples; each ran against the graph without its                      own mutation, so this is a timing, not an exactness, figure)",
+                    rp.median_ms,
+                    rp.p95_ms,
+                    repair.len()
+                ));
+            }
+        }
+        None => notes.push("hub deferral OFF: every affected node updated synchronously".into()),
+    }
     if args.model_kind == ModelKind::GAT {
         notes.push(format!(
             "Phase 5 success criterion is p95 GAT incremental latency < 100ms on the \

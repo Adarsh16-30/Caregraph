@@ -138,6 +138,20 @@ pub struct CommitMeta {
     /// per-request `explain` flag was unset) — never a zero-valued placeholder.
     #[serde(default)]
     pub attribution: Option<Attribution>,
+    /// The hub degree in force for this commit (`deferral.rs`), `None` when
+    /// deferral was off. Recorded even when nothing was deferred, so a past
+    /// commit's behaviour never depends on today's configuration.
+    #[serde(default)]
+    pub hub_defer_degree: Option<usize>,
+    /// How many nodes this mutation left for the repair worker.
+    #[serde(default)]
+    pub deferred_count: usize,
+    /// True when this record belongs to an embedding written by the repair
+    /// worker rather than by a mutation's own commit. Such an embedding is the
+    /// same computation as a synchronous one, done later against the committed
+    /// graph as of the marker's timestamp.
+    #[serde(default)]
+    pub repair: bool,
 }
 
 fn default_schema() -> u32 {
@@ -153,6 +167,9 @@ impl CommitMeta {
             caps: EffectiveCaps::default(),
             truncation: ResolutionTruncation::default(),
             attribution: None,
+            hub_defer_degree: None,
+            deferred_count: 0,
+            repair: false,
         }
     }
 

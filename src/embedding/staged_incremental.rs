@@ -70,6 +70,7 @@ pub fn staged_incremental_update<S: KvStore + ?Sized>(
     );
 
     ctx.truncation = subgraph.truncation;
+    ctx.deferred_nodes = subgraph.deferred.clone();
 
     match run_forward_pass(
         store,

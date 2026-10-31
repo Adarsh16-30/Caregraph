@@ -9,6 +9,7 @@ probes (`/healthz`, `/readyz`, `/startupz`) and `/role`. The series, by area:
 |---|---|
 | Requests | `rpc_requests_total{rpc,code}`, `rpc_duration_seconds{rpc}` (from a tower layer around every gRPC service; the code is the response's `grpc-status`, so an error after a stream has started is not seen) |
 | Writes | `mutations_total`, `mutation_latency_seconds`, `embedding_update_latency_seconds{computation_path}`, `commit_wait_seconds`, `mutation_conflict_retries_total`, `incremental_fallback_total` |
+| Deferral and repair | `embedding_updates_deferred_total`, `repair_pending`, `repairs_completed_total`, `repair_failures_total`, `repair_batch_seconds` |
 | Reads | `point_in_time_query_seconds`, `traversal_latency_seconds`, `similarity_delta_seconds` |
 | Workers | `workers_configured`, `worker_healthy`, `breaker_open`, `worker_restarts_total`, `worker_timeouts_total`, `worker_failures_total` (all `{model}`) |
 | Replication | `replication_epoch`, `replication_applied_sequence`, `replication_lag_sequences`, `replication_connected_followers`, `replication_sync_degraded`, `replication_needs_bootstrap`, `replication_batches_applied_total`, `replication_degraded_writes_total`, `replication_ack_timeouts_total`, `replication_ack_wait_seconds` |

@@ -79,6 +79,9 @@ pub struct AtomicCommitter<'a> {
     store: &'a RocksKv,
     writer: TemporalWriter<'a>,
     index: TemporalIndex<'a, RocksKv>,
+    /// Hub degree above which a node's update is deferred to the repair worker
+    /// (`deferral.rs`); `None` recomputes every affected node synchronously.
+    hub_degree: Option<usize>,
 }
 
 /// Everything computed for a mutation, ready to be written. Holds no database
@@ -99,7 +102,15 @@ impl<'a> AtomicCommitter<'a> {
             store,
             writer: TemporalWriter::new(store)?,
             index: TemporalIndex::new(store),
+            hub_degree: crate::embedding::deferral::hub_degree(),
         })
+    }
+
+    /// Overrides the process-wide hub degree for this committer (tests and
+    /// benchmarks that must pin the behaviour regardless of the environment).
+    pub fn with_hub_degree(mut self, hub_degree: Option<usize>) -> Self {
+        self.hub_degree = hub_degree;
+        self
     }
 
     /// Stage the mutation, resolve and compute its embedding update against
@@ -141,7 +152,8 @@ impl<'a> AtomicCommitter<'a> {
         // Reads whatever is durably committed right now. Nothing below has
         // staged this mutation into the database yet, so that is exactly the
         // graph as it stood the instant before it.
-        let resolver = AffectedSubgraphResolver::new(self.store, fanout_cap, max_expanded_nodes);
+        let resolver = AffectedSubgraphResolver::new(self.store, fanout_cap, max_expanded_nodes)
+            .with_hub_degree(self.hub_degree);
         let resolve_started = std::time::Instant::now();
         let mut subgraph =
             tracing::info_span!("resolve").in_scope(|| resolver.resolve(mutation))?;
@@ -233,6 +245,8 @@ impl<'a> AtomicCommitter<'a> {
         meta.dispatch = dispatch;
         meta.caps = caps;
         meta.truncation = ctx.truncation;
+        meta.hub_defer_degree = self.hub_degree;
+        meta.deferred_count = ctx.deferred_nodes.len();
 
         // Feature 1: only the mutation's own two endpoints, never every
         // affected node — see attribution.rs's module doc for the measured

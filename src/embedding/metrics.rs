@@ -4,7 +4,7 @@
 //! `incremental_fallback_total` must go up exactly when a fallback happens,
 //! never as an estimate.
 
-use prometheus::{Histogram, HistogramOpts, IntCounter, Registry};
+use prometheus::{Histogram, HistogramOpts, IntCounter, IntGauge, Registry};
 
 pub struct EmbeddingMetrics {
     pub mutations_total: IntCounter,
@@ -15,6 +15,17 @@ pub struct EmbeddingMetrics {
     pub commit_wait_seconds: Histogram,
     /// Mutations recomputed because a concurrent commit touched their read set.
     pub mutation_conflict_retries_total: IntCounter,
+    /// Nodes whose update a mutation left for the repair worker (hub deferral).
+    /// Not a fallback: each has a durable marker and is refreshed shortly after.
+    pub embedding_updates_deferred_total: IntCounter,
+    /// Nodes waiting in the repair queue right now.
+    pub repair_pending: IntGauge,
+    /// Nodes the repair worker has refreshed.
+    pub repairs_completed_total: IntCounter,
+    /// Repair batches that failed (the nodes are retried, then left marked).
+    pub repair_failures_total: IntCounter,
+    /// Time to refresh one repair batch.
+    pub repair_batch_seconds: Histogram,
 }
 
 impl EmbeddingMetrics {
@@ -42,6 +53,32 @@ impl EmbeddingMetrics {
             "Mutations recomputed because a concurrent commit touched their read set",
         )?;
 
+        let embedding_updates_deferred_total = IntCounter::new(
+            "embedding_updates_deferred_total",
+            "Node embedding updates a mutation deferred to the repair worker (hub deferral)",
+        )?;
+        let repair_pending = IntGauge::new(
+            "repair_pending",
+            "Nodes waiting for the repair worker to refresh their embedding",
+        )?;
+        let repairs_completed_total = IntCounter::new(
+            "repairs_completed_total",
+            "Node embeddings refreshed by the repair worker",
+        )?;
+        let repair_failures_total = IntCounter::new(
+            "repair_failures_total",
+            "Repair batches that failed and were retried or left marked",
+        )?;
+        let repair_batch_seconds = Histogram::with_opts(HistogramOpts::new(
+            "repair_batch_seconds",
+            "Time for the repair worker to refresh one batch of nodes",
+        ))?;
+
+        registry.register(Box::new(embedding_updates_deferred_total.clone()))?;
+        registry.register(Box::new(repair_pending.clone()))?;
+        registry.register(Box::new(repairs_completed_total.clone()))?;
+        registry.register(Box::new(repair_failures_total.clone()))?;
+        registry.register(Box::new(repair_batch_seconds.clone()))?;
         registry.register(Box::new(mutations_total.clone()))?;
         registry.register(Box::new(commit_wait_seconds.clone()))?;
         registry.register(Box::new(mutation_conflict_retries_total.clone()))?;
@@ -56,6 +93,11 @@ impl EmbeddingMetrics {
             embedding_update_latency_seconds,
             commit_wait_seconds,
             mutation_conflict_retries_total,
+            embedding_updates_deferred_total,
+            repair_pending,
+            repairs_completed_total,
+            repair_failures_total,
+            repair_batch_seconds,
         })
     }
 }

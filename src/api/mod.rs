@@ -16,14 +16,21 @@
 //!
 //! Section 3.1 names "auth" as a Layer 5 responsibility in a five-word table
 //! cell and never specifies a mechanism anywhere else in the document — no
-//! scheme, no token format, no library. Rather than inventing an elaborate
-//! auth system the PRD never asked for, [`AuthInterceptor`] does the
-//! smallest real thing that mechanism-agnostic sentence supports: every RPC
-//! requires a bearer token in the `authorization` metadata that matches
-//! `CAREGRAPH_API_KEY`, checked before any handler runs. The server refuses
-//! to start if that variable is unset — an API with auth silently disabled
-//! is a fake auth endpoint in exactly the sense Rule 2 exists to forbid,
-//! even though Rule 2's own grep only checks RPC response bodies.
+//! scheme, no token format, no library. There are two real mechanisms, chosen
+//! by `CAREGRAPH_ENV`:
+//!
+//! * **Development:** [`AuthInterceptor`] requires a bearer token in the
+//!   `authorization` metadata that matches `CAREGRAPH_API_KEY`, checked before
+//!   any handler runs. Every caller is the single principal `api-key`, with no
+//!   role policy. The server refuses to start if that variable is unset — an
+//!   API with auth silently disabled is a fake auth endpoint in exactly the
+//!   sense Rule 2 exists to forbid, even though Rule 2's own grep only checks
+//!   RPC response bodies.
+//! * **Production:** [`MutualTlsInterceptor`] takes the caller's identity from
+//!   the verified client certificate, optionally backed by a hashed bearer
+//!   token that must belong to the same principal, and the RBAC policy
+//!   (`security/rbac.rs`) decides which RPCs that principal may call. See
+//!   `docs/security.md`.
 //!
 //! # Result limits
 //!
@@ -49,6 +56,7 @@
 pub mod admin;
 pub mod diff;
 pub mod metrics;
+pub mod repair_task;
 pub mod similarity;
 
 pub mod proto {
@@ -103,6 +111,10 @@ pub struct ServiceOptions {
     pub admin: Option<std::sync::Arc<admin::AdminOps>>,
     /// Role, epoch and replication progress. `None` is a standalone node.
     pub replication: Option<std::sync::Arc<crate::replication::ReplicationState>>,
+    /// Hub degree above which a mutation defers a node's embedding update to the
+    /// repair worker (`embedding/deferral.rs`). `None` leaves the process-wide
+    /// setting (off unless `CAREGRAPH_DEFER_HUB_DEGREE` is set) untouched.
+    pub defer_hub_degree: Option<usize>,
 }
 
 impl Default for ServiceOptions {
@@ -115,6 +127,7 @@ impl Default for ServiceOptions {
             audit_log: None,
             admin: None,
             replication: None,
+            defer_hub_degree: None,
         }
     }
 }
@@ -282,6 +295,10 @@ struct Inner {
     explain_permits: std::sync::Arc<tokio::sync::Semaphore>,
     read_capacity: usize,
     write_capacity: usize,
+    /// Nodes waiting for the repair worker (`embedding/repair_worker.rs`).
+    repair_queue: crate::embedding::repair_worker::RepairQueue,
+    /// True once a repair worker is running; until then mutations do not queue.
+    repair_active: std::sync::atomic::AtomicBool,
 }
 
 /// The tonic service implementation. Cheap to clone — tonic clones the
@@ -344,6 +361,9 @@ impl CareGraphApi {
         registry: &prometheus::Registry,
         options: ServiceOptions,
     ) -> crate::error::Result<Self> {
+        if options.defer_hub_degree.is_some() {
+            crate::embedding::deferral::set_hub_degree(options.defer_hub_degree);
+        }
         let repl = options
             .replication
             .unwrap_or_else(crate::replication::ReplicationState::standalone);
@@ -383,6 +403,8 @@ impl CareGraphApi {
                 explain_permits: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
                 read_capacity,
                 write_capacity,
+                repair_queue: crate::embedding::repair_worker::RepairQueue::new(),
+                repair_active: std::sync::atomic::AtomicBool::new(false),
             }),
         })
     }
@@ -729,6 +751,28 @@ impl CareGraphApi {
                 )
                 .map_err(internal)?;
                 let ctx = &outcome.ctx;
+
+                // Nodes this commit left stale or deferred have durable markers;
+                // hand them to the repair worker (if one is running).
+                if !outcome.replayed
+                    && inner
+                        .repair_active
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                    && (!ctx.deferred_nodes.is_empty() || !ctx.stale_nodes.is_empty())
+                {
+                    inner.repair_queue.push_all(
+                        ctx.deferred_nodes
+                            .iter()
+                            .chain(ctx.stale_nodes.iter())
+                            .copied(),
+                        outcome.timestamp,
+                        &model.model_id,
+                    );
+                    inner
+                        .metrics
+                        .repair_pending
+                        .set(inner.repair_queue.len() as i64);
+                }
 
                 Ok(MutationResponse {
                     affected_nodes: ctx.affected.iter().map(|n| n.as_u64()).collect(),

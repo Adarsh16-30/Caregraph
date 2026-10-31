@@ -14,6 +14,7 @@ mod associative_correctness_test;
 mod attribution_completeness_test;
 mod concurrent_commit_equivalence_test;
 mod gat_correctness_test;
+mod hub_deferral_repair_test;
 mod idempotency_test;
 mod replication_end_to_end_test;
 mod tracing_spans_test;

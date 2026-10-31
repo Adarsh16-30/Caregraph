@@ -1,4 +1,4 @@
-# CareGraph Benchmark Report — Phases 2, 3, and 6
+# CareGraph Benchmark Report — Phases 2–9 and production hardening (P1–P10)
 
 **Status: §§2–7 are CareGraph-only (Phases 2–4). §8 is the Rule 4 three-way
 comparative benchmark** — Neo4j Community + GDS and TerminusDB were both
@@ -6,6 +6,11 @@ brought up live, loaded with the byte-identical trace, and measured against
 CareGraph on the same 2-hop traversal workload. Read §8's own caveats
 (dirty tree, single uncooled run, one of several Section 1 metrics) before
 quoting a cross-system number out of this file.
+
+§9 covers the Phase 9 features. §10 covers the production-hardening work
+(P1–P10), including the concurrent-load comparison against Neo4j and
+TerminusDB in §10.8, which supersedes §8 for throughput comparisons. Every
+figure was measured on one shared laptop, not a dedicated machine.
 
 ---
 
@@ -76,7 +81,7 @@ latency number the way the other five are.
 | Point-in-time node read (p95) | < 20 ms | **0.192 ms** | PASS |
 | Point-in-time edge read (p95) | < 20 ms | **0.240 ms** | PASS |
 | 2-hop bounded traversal (p95) | < 50 ms | **13.026 ms** | PASS |
-| Incremental embedding update (p95), GraphSAGE | < 100 ms | **1548.96 ms** | **MISS** — see §2.3 |
+| Incremental embedding update (p95), GraphSAGE | < 100 ms | **1548.96 ms** (Phase 4; since improved, see the note in §2.3) | **MISS** at Phase 4; ~205-405 ms after P4 (§10.3); **67 ms** with hub deferral on (§10.9) |
 | Incremental embedding update (p95), GAT | < 100 ms | **1531.04 ms** | **MISS** — see §2.4 |
 | Sustained ingestion throughput | 10,000-50,000 edges/sec | **216,865 edges/sec** | PASS — see §2.5 |
 
@@ -155,7 +160,12 @@ file:
 incremental  median 820.27 ms   p95 1548.96 ms
 ```
 
-**p95 1548.96 ms is ~15x over the 100 ms target.** This is the honest number
+> **Superseded.** The figures in this section are the Phase 4 measurement and were never
+> updated. The P4 work (section 10.3) brought the same measurement to a p95 of roughly
+> 205 to 405 ms, depending on machine state, and hub deferral (section 10.9) brings the
+> synchronous p95 to 67 ms. The "~15x" below describes Phase 4, not the current code.
+
+**p95 1548.96 ms was ~15x over the 100 ms target.** This is the honest number
 on the full 174,298-node / 599,497-edge graph the PRD's Phase 4/6 sections
 mean; it is not a contradiction of `scripts/run_demo.sh`'s own live mutations
 landing in 9-57 ms (§Live demo, README) — the demo runs against a ~370-node
@@ -185,12 +195,15 @@ full recompute  median 8209.36 ms   p95 9935.94 ms
 median speedup: 8.1x     target: >= 5.0x     8.1_VERDICT
 ```
 
-**p95 1531.04 ms against the 100 ms target: MISS.** GAT's
-non-associative attention aggregation (§4.3, `gat_incremental.rs`) does
-strictly more work per affected node than GraphSAGE's mean aggregation for
-the same subgraph, so a higher latency here than §2.3's GraphSAGE number,
-run on the same graph and sampling method, is the expected direction, not a
-surprise.
+**p95 1531.04 ms against the 100 ms target: MISS.** This is essentially the
+same p95 as §2.3's GraphSAGE figure (1548.96 ms), and GAT's median (517.36 ms)
+is lower than GraphSAGE's (820.27 ms). That is not the direction one would
+expect, since GAT's attention does more work per affected node on the same
+subgraph. Both runs are 30 samples on a shared laptop, and §3 shows this
+machine's latency drifts with thermal state, so the difference is not
+evidence that GAT is cheaper. What the two runs do show is that neither model's
+forward pass is the dominant cost: the miss comes from the size of the affected
+subgraph around hub nodes (§7.6), which is the same for both models.
 
 ### 2.5 Sustained ingestion throughput
 
@@ -1375,3 +1388,95 @@ containers from `infrastructure/docker-compose/dev-stack.yml`), build
 then `bash scripts/p10_compare.sh <out-dir>` and `python scripts/summarize_compare.py <out-dir>`.
 On a dedicated machine, with the load generator on its own hardware, this is the run
 that should replace the laptop figures above.
+
+### 10.9 Hub deferral and the repair worker (production-hardening P11)
+
+[benchmark: benchmarks/results/gate/prod11_hub_deferral_off.json]
+[benchmark: benchmarks/results/gate/prod11_hub_deferral_on_64.json]
+[benchmark: benchmarks/results/gate/prod11_hub_deferral_off_b2b.json]
+[benchmark: benchmarks/results/gate/prod11_hub_deferral_on_64_b2b.json]
+
+The remaining time in an incremental update (section 10.3) is resolution around hub
+nodes. A mutation on a shared medication, provider or common condition names up to the
+fan-out cap of neighbours as affected, and the resolver then reads their neighbourhoods
+too. Hub deferral (`src/embedding/deferral.rs`) stops doing that on the request path.
+A node with more than `CAREGRAPH_DEFER_HUB_DEGREE` neighbours is read but not
+recomputed, and neither are that hub's neighbours when the hub is an endpoint. Each gets
+a `CF_REPAIR` marker in the mutation's own batch, and the repair worker
+(`src/embedding/repair_worker.rs`) refreshes them shortly after, off the request path.
+
+Same 30 real mutations from the full trace, same graph, GraphSAGE,
+`caregraph-bench-incremental` (release build), one run per cell. There are two
+back-to-back pairs because the first pair was followed by a change to the repair worker
+(below) and by other programs being closed on the laptop, so the machine was in a
+different state for the second:
+
+| | pair 1 off | pair 1 on (degree 64) | pair 2 off | pair 2 on (degree 64) |
+|---|---|---|---|---|
+| incremental median / p95 | 68.1 / 212.5 ms | **11.4 / 67.0 ms** | 50.0 / 180.5 ms | **7.2 / 73.5 ms** |
+| the 18 hub-adjacent samples, median | 136.4 ms | 19.0 ms | 112.3 ms | 12.1 ms |
+| median phase split: resolve / build input / forward | 53.3 / 12.4 / 8.1 | 6.4 / 3.3 / 2.4 | 30.2 / 11.1 / 9.0 | 4.1 / 2.3 / 2.1 |
+| mutations that deferred work | 0 of 30 | 22 of 30 | 0 of 30 | 22 of 30 |
+| full recompute median (a check on machine state) | 452.5 ms | 457.3 ms | 475.2 ms | 492.8 ms |
+
+Within each pair the synchronous p95 falls 2.5 to 3.2 times and the median 6 to 7 times. The
+100 ms p95 target is met in both "on" columns. In the "off" columns p95 is 180 to 212 ms.
+The full-recompute medians agree within 8% across all four runs, which is the only evidence
+offered that the machine was in a comparable state; this is not a controlled experiment.
+Across pairs the absolute numbers differ by up to 30%, which is the size of machine-state
+noise on this laptop (see section 3), so compare within a pair.
+
+**What was moved, not removed.** The deferred work still has to happen. Timed the way the
+worker does it (`--time-repair`), refreshing one mutation's deferred nodes took a median of
+54.9 ms (p95 158.1 ms) over the 22 deferring mutations in pair 2, against 112 ms
+synchronously for the hub-adjacent ones with deferral off. The same measurement in pair 1
+gave a median of 382 ms (p95 440 ms). The difference is a defect this measurement exposed and
+that was then fixed: pair 1 repaired in chunks of 128 nodes, so a mutation deferring about
+500 nodes was resolved four times over overlapping neighbourhoods. The default chunk is now
+twice the fan-out cap, which keeps one mutation's deferred group in a single pass with the
+same receptive-field budget the synchronous update would have had. Pair 1 is kept because
+its "on" column is what that earlier code measured; pair 2 is the code as shipped.
+
+Deferral lowers the latency a writer sees. It does not make the total work disappear, except
+through coalescing: the worker keeps only the newest marker per node, so a burst of N writes
+on one hub is repaired once. `tests/embedding/hub_deferral_repair_test.rs` shows it on a
+40-patient hub: two mutations produced two embedding versions per patient synchronously and
+one with deferral. Writes spread across different hubs get no coalescing. On the repair
+timings above one worker would keep up with roughly 6 (at p95) to 18 (at the median)
+deferring mutations per second, but sustained repair throughput, and its effect on write
+latency when repairs and writes compete for the same model workers, were **not measured**.
+The `repair_pending` gauge and the `CareGraphRepairBacklog` alert exist for that case.
+
+**What it costs in freshness.** Between the commit and the repair, the deferred nodes
+have no embedding at the mutation's timestamp, so a point-in-time read returns their
+previous embedding. The marker says so, and `repair_pending` counts them. The window is
+the worker's interval (200 ms) plus its queue wait plus the repair itself. Intermediate
+timestamps in a coalesced burst never get their own embedding version; a read as of one of
+them returns the earlier version.
+
+**Correctness.** With a real model, the nodes still updated synchronously equal the fully
+synchronous result, the deferred nodes have no embedding until repaired, and after repair
+they equal the synchronous result, within the float32 tolerance of
+`associative_correctness_test.rs` (`tests/embedding/hub_deferral_repair_test.rs`, GraphSAGE
+and GAT). The resolver tests (`tests/unit/hub_deferral_synthetic_test.rs`) check that
+nothing a synchronous update refreshed is lost: it is either refreshed now or deferred. The
+exactness checks use a 45-node fixture in which no cap binds. On the real graph the
+fan-out cap binds for hub-adjacent mutations (about 520 nodes), so the equivalence there is
+"same budget, same truncation", not "exact"; the benchmark does not compare values.
+
+**Limits of this measurement.**
+
+* One model (GraphSAGE), one hub degree (64), 30 samples, one run per cell. A p95 over 30
+  samples is the 29th value, so it is sensitive to a single slow sample; the worst
+  "on" samples (86.7 and 89.9 ms) did not defer anything.
+* The repair timing runs each repair against the graph without its own mutation (the
+  benchmark computes updates but does not commit them), so it is a timing, not an
+  exactness, figure.
+* The tree was dirty at run time (this change was uncommitted), so the results do not
+  trace to a commit.
+* No sampled mutation had an affected set above 2,000 nodes; the hub-adjacent ones were
+  capped at about 520 by the fan-out cap.
+* Deferral is **off by default**. It changes what `affected_nodes` reports in a mutation
+  response (the nodes updated synchronously, not the deferred ones), so it is opt-in:
+  `CAREGRAPH_DEFER_HUB_DEGREE=64`. The repair worker itself is on by default and also
+  consumes the markers a model failure leaves behind, which nothing did before.

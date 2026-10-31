@@ -51,6 +51,11 @@ pub struct ResolvedSubgraph {
     /// immutable through the API), so this is the precise *read set* the
     /// ordered-commit sequencer checks against concurrently committed writes.
     pub fetched: HashSet<NodeId>,
+    /// Nodes whose embedding the mutation changes but which are **not**
+    /// recomputed now (hub deferral, see [`crate::embedding::deferral`]). They
+    /// are disjoint from `affected`; the caller stages a repair marker for each
+    /// in the mutation's own batch. Empty when deferral is off.
+    pub deferred: Vec<NodeId>,
 }
 
 /// Live neighbours of `node` across every edge type, both directions, capped
@@ -133,15 +138,31 @@ pub struct AffectedSubgraphResolver<'a, S: KvStore + ?Sized> {
     /// for the same reason `cap` reuses its sibling — this is the same
     /// "bounded in work, not just in fan-out" property, one layer up.
     max_expanded_nodes: usize,
+    /// A node with more than this many live neighbours is a hub whose update is
+    /// deferred (see [`crate::embedding::deferral`]). `None` disables deferral.
+    hub_degree: Option<usize>,
 }
 
 impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
+    /// Deferral follows the process-wide setting
+    /// ([`crate::embedding::deferral::hub_degree`], off unless configured);
+    /// [`Self::with_hub_degree`] overrides it for one resolver.
     pub fn new(store: &'a S, cap: usize, max_expanded_nodes: usize) -> Self {
         AffectedSubgraphResolver {
             index: TemporalIndex::new(store),
             cap,
             max_expanded_nodes,
+            hub_degree: crate::embedding::deferral::hub_degree(),
         }
+    }
+
+    pub fn with_hub_degree(mut self, hub_degree: Option<usize>) -> Self {
+        self.hub_degree = hub_degree;
+        self
+    }
+
+    fn is_hub(&self, degree: usize) -> bool {
+        self.hub_degree.is_some_and(|h| degree > h)
     }
 
     /// [`capped_neighbors`] for every node, in the order given. The scans are
@@ -181,12 +202,21 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
         })
     }
 
+    /// Resolve the subgraph a mutation needs. With hub deferral on, a hub among
+    /// the endpoints or their neighbours is read (it is an input) but not
+    /// recomputed, and the nodes whose update that postpones are returned in
+    /// [`ResolvedSubgraph::deferred`] instead of `affected`.
     pub fn resolve(&self, mutation: GraphMutation) -> Result<ResolvedSubgraph> {
         let as_of = mutation.timestamp();
         let (src, dst) = mutation.endpoints();
 
         let mut truncation = ResolutionTruncation::default();
         let mut affected: HashSet<NodeId> = HashSet::from([src, dst]);
+        // Hubs: read in full (their neighbours become raw-feature rows) but not
+        // recomputed, and their neighbours are not expanded further on their
+        // account. `deferred` is every node whose update moves to the repair worker.
+        let mut hubs: HashSet<NodeId> = HashSet::new();
+        let mut deferred: HashSet<NodeId> = HashSet::new();
 
         for endpoint in [src, dst] {
             let (neighbors, capped, dropped) =
@@ -195,9 +225,47 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
                 truncation.fanout_capped = true;
                 truncation.neighbors_dropped += dropped;
             }
-            affected.extend(neighbors);
+            if self.is_hub(neighbors.len()) {
+                // Every neighbour of a hub endpoint has a changed embedding, but
+                // recomputing them is exactly the expensive part.
+                hubs.insert(endpoint);
+                deferred.extend(neighbors);
+            } else {
+                affected.extend(neighbors);
+            }
         }
 
+        self.expand_rings(affected, hubs, deferred, truncation, as_of, true)
+    }
+
+    /// Resolve the subgraph needed to recompute exactly `targets` as of `as_of`.
+    /// Used by the repair worker: it never defers (it is the deferred work) and
+    /// reports every target as affected.
+    pub fn resolve_targets(
+        &self,
+        targets: &[NodeId],
+        as_of: Timestamp,
+    ) -> Result<ResolvedSubgraph> {
+        let affected: HashSet<NodeId> = targets.iter().copied().collect();
+        self.expand_rings(
+            affected,
+            HashSet::new(),
+            HashSet::new(),
+            ResolutionTruncation::default(),
+            as_of,
+            false,
+        )
+    }
+
+    fn expand_rings(
+        &self,
+        mut affected: HashSet<NodeId>,
+        mut hubs: HashSet<NodeId>,
+        mut deferred: HashSet<NodeId>,
+        mut truncation: ResolutionTruncation,
+        as_of: Timestamp,
+        defer: bool,
+    ) -> Result<ResolvedSubgraph> {
         // Receptive field. Computing h2(a) for an affected node `a` needs
         // h1(n) for every neighbour n of a — and h1(n) is itself a function of
         // n's *own* edges, not just of n existing as a feature row. So this
@@ -214,6 +282,10 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
         let mut nodes: HashSet<NodeId> = affected.clone();
         let mut edge_set: HashSet<(NodeId, NodeId)> = HashSet::new();
         let mut fetched: HashSet<NodeId> = HashSet::new();
+        // Nodes already queued for the next ring. Tracked apart from `nodes`
+        // because a hub's neighbours enter `nodes` as feature rows without being
+        // queued: if a later expansion finds one of them, it must still queue it.
+        let mut queued: HashSet<NodeId> = HashSet::new();
 
         let mut ring: Vec<NodeId> = affected.iter().copied().collect();
         for ring_number in 0..2 {
@@ -260,8 +332,19 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
                     truncation.fanout_capped = true;
                     truncation.neighbors_dropped += dropped;
                 }
+                // A hub in the affected set is read like any other node, but is
+                // not recomputed now and does not pull its neighbours into the
+                // next ring: nothing computed synchronously depends on their
+                // own edges.
+                let is_hub = ring_number == 0
+                    && defer
+                    && (hubs.contains(&node) || self.is_hub(neighbors.len()));
+                if is_hub {
+                    hubs.insert(node);
+                }
                 for other in neighbors {
-                    if nodes.insert(other) {
+                    nodes.insert(other);
+                    if !is_hub && !fetched.contains(&other) && queued.insert(other) {
                         next_ring.push(other);
                     }
                     let pair = if node.as_u64() <= other.as_u64() {
@@ -274,6 +357,12 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
             }
             ring = next_ring;
         }
+
+        // A hub in the affected set is deferred, not computed. Anything that is
+        // computed now needs no repair, so it leaves `deferred`.
+        affected.retain(|n| !hubs.contains(n));
+        deferred.extend(hubs.iter().copied());
+        deferred.retain(|n| !affected.contains(n));
 
         // Phase 9 (Feature 1): sorted, not left in `HashSet` iteration order.
         // Two reasons, not one: (1) an attribution record is meant to be
@@ -288,6 +377,8 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
         // §7.4) load-bearing against noise this sort removes for free.
         let mut affected: Vec<NodeId> = affected.into_iter().collect();
         affected.sort();
+        let mut deferred: Vec<NodeId> = deferred.into_iter().collect();
+        deferred.sort();
         let mut nodes: Vec<NodeId> = nodes.into_iter().collect();
         nodes.sort();
         let mut edges: Vec<(NodeId, NodeId)> = edge_set.into_iter().collect();
@@ -299,6 +390,7 @@ impl<'a, S: KvStore + ?Sized> AffectedSubgraphResolver<'a, S> {
             edges,
             truncation,
             fetched,
+            deferred,
         })
     }
 }
