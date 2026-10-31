@@ -26,9 +26,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The action's default is --all-features. That pulls in the optional `baselines` feature,
+      # whose Neo4j driver (neo4rs) brings unmaintained crates (backoff, instant, paste) and a
+      # webpki-roots license. It exists only so the benchmark load generator can drive Neo4j; it is
+      # never built into the shipped binaries or images. This checks what ships (default features).
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories licenses bans sources
+          arguments: --locked
 
   image-scan:
     name: build + trivy (${{ matrix.target }})

@@ -70,11 +70,25 @@ USER caregraph
 # ---- writer: Python + torch + deployed models -------------------------------
 FROM runtime-base AS runtime-writer
 
+# Three things here are load-bearing, each learned from a failed build:
+#  * Bookworm's pip (23.0.1) rejects the PyTorch mirror's typing_extensions 4.16 metadata
+#    (the name is spelled with an underscore), falls back to building the source package, and
+#    that needs flit_core, which the PyTorch-only index does not have. Upgrade pip first.
+#  * PyPI is added as a fallback index so such dependencies resolve there.
+#  * torch is pinned to the version the embedding models were trained and measured with,
+#    as "+cpu", a local version that only the PyTorch index has. With PyPI as a second index
+#    this stops pip from ever choosing PyPI's much larger CUDA build. The import at the end
+#    fails the build if a CUDA build gets in anyway.
+ARG TORCH_VERSION=2.15.0
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && /opt/venv/bin/pip install --no-cache-dir torch_geometric numpy
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir "torch==${TORCH_VERSION}+cpu" \
+         --index-url https://download.pytorch.org/whl/cpu \
+         --extra-index-url https://pypi.org/simple \
+    && /opt/venv/bin/pip install --no-cache-dir torch_geometric numpy \
+    && /opt/venv/bin/python -c "import torch, torch_geometric; assert torch.version.cuda is None, 'CUDA build of torch'"
 
 COPY ml/embedding_server.py /opt/caregraph/ml/embedding_server.py
 COPY ml/deployed /opt/caregraph/ml/deployed
