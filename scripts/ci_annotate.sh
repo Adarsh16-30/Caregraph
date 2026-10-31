@@ -20,9 +20,12 @@ if [[ ! -s "$log" ]]; then
 fi
 
 # Compiler, linter, docker and shell diagnostics first, then the tail for context.
+# Scripts that narrate their steps ("== name") and fail with "FAIL: why" or "timed out waiting
+# for what" get those lines first: they say which step died, which the diagnostics below do not.
+steps="$(grep -nE '^(== |FAIL:)|timed out waiting' "$log" | tail -n 12)"
 matches="$(grep -nE '^(error|warning)(\[[A-Za-z0-9_]+\])?:|^ +--> |ERROR|error:|panicked at|failed|Failed|cannot |unresolved|not found|No such file|denied|Killed|exit code' "$log" | head -n 40)"
 tail_part="$(tail -n 40 "$log")"
-body="${matches}"$'\n'"---- end of log ----"$'\n'"${tail_part}"
+body="${steps}"$'\n'"----"$'\n'"${matches}"$'\n'"---- end of log ----"$'\n'"${tail_part}"
 
 # Annotation messages encode these characters; the limit is 64 KB, keep well under it.
 body="${body:0:30000}"

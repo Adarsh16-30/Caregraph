@@ -79,16 +79,21 @@ FROM runtime-base AS runtime-writer
 #    as "+cpu", a local version that only the PyTorch index has. With PyPI as a second index
 #    this stops pip from ever choosing PyPI's much larger CUDA build. The import at the end
 #    fails the build if a CUDA build gets in anyway.
+#  * pip is removed again at the end. The image never installs anything at run time, and pip
+#    vendors its own copies of msgpack and urllib3 (and an old pkg_resources) that Trivy
+#    reports as HIGH, with fixes that exist only in the next pip release. The venv's pip is
+#    the one that carries them (the Debian python3-pip package is not installed at all).
 ARG TORCH_VERSION=2.15.0
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python3-pip \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
-    && /opt/venv/bin/pip install --no-cache-dir "torch==${TORCH_VERSION}+cpu" \
+    && /opt/venv/bin/python -m pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/python -m pip install --no-cache-dir "torch==${TORCH_VERSION}+cpu" \
          --index-url https://download.pytorch.org/whl/cpu \
          --extra-index-url https://pypi.org/simple \
-    && /opt/venv/bin/pip install --no-cache-dir torch_geometric numpy \
-    && /opt/venv/bin/python -c "import torch, torch_geometric; assert torch.version.cuda is None, 'CUDA build of torch'"
+    && /opt/venv/bin/python -m pip install --no-cache-dir torch_geometric numpy \
+    && /opt/venv/bin/python -c "import torch, torch_geometric; assert torch.version.cuda is None, 'CUDA build of torch'" \
+    && /opt/venv/bin/python -m pip uninstall -y pip
 
 COPY ml/embedding_server.py /opt/caregraph/ml/embedding_server.py
 COPY ml/deployed /opt/caregraph/ml/deployed
