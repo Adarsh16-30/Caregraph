@@ -10,6 +10,13 @@
 //!   synchronous-acknowledgement gate;
 //! * [`leader`] / [`follower`] — the two ends of the stream.
 
+// `tonic::Status` is 176 bytes, over clippy's `result_large_err` threshold, and it is
+// the error type tonic requires of every RPC handler, so the generated service traits
+// and the helpers that compose into them all return it. Newer clippy releases also check
+// the generated code in this module's `proto`. Boxing it would only move the same bytes
+// behind a pointer at every call site. Same reasoning, and same choice, as in `crate::api`.
+#![allow(clippy::result_large_err)]
+
 /// Largest replication message either end will encode or decode. A message is
 /// one write batch.
 pub const MAX_BATCH_MESSAGE_BYTES: usize = 64 << 20;
