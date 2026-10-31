@@ -50,7 +50,8 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
       - name: Trivy scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pinned to the commit of v0.36.0 (the old pin, 0.28.0, is not a tag: they all start with v).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: caregraph:${{ matrix.target }}
           severity: HIGH,CRITICAL

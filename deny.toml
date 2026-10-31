@@ -2,6 +2,9 @@
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is archived, not vulnerable: it is a thin wrapper over the PEM parsing now in rustls-pki-types. We use it directly (security/tls.rs, kube_label.rs) and tonic 0.12 pulls it in, so only a tonic upgrade clears it. It parses operator-supplied certificate files at start-up and on reload, never request data. Revisit when moving to a newer tonic." },
+]
 
 [licenses]
 version = 2

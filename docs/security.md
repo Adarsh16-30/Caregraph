@@ -159,8 +159,11 @@ target is the deliberate exception and is treated as sensitive).
   directory read-only; CareGraph ships no uploader, because the destination and its
   credentials are the deployment's. Until one is configured the anchors protect nothing
   an attacker with the volume could not also rewrite.
-- Repairing stale embeddings: `caregraph-admin repair-status` lists the nodes
-  waiting for a fresh embedding; re-embedding them is not implemented.
+- Repair is automatic but not instantaneous: a node whose embedding was left behind
+  (a model failure, or hub deferral if enabled) has a durable marker and is refreshed by
+  the repair worker on the leader (`docs/runbooks/repair-backlog.md`). Until then a
+  point-in-time read returns its previous embedding. `caregraph-admin repair-status`
+  lists the markers still unresolved, on a stopped database.
 
 ## Administration
 
