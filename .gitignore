@@ -49,3 +49,45 @@ __pycache__/
 *.pem
 !/infrastructure/certs/README.md
 .env
+
+# Local code-knowledge graph (regenerate with `graphify update .`); never committed.
+# Not anchored, so a copy made in any subdirectory is ignored too.
+graphify-out/
+.graphify*
+
+# More secret and key material (Rule 8). `.env.example` would be the one to commit.
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.jks
+*.kek
+wrapped_dek*
+
+# Runtime state an operator points the server at (backups, audit logs and their
+# anchors, replica scratch space). Never part of the source tree.
+/backups/
+/audit/
+/checkpoints/
+anchors.jsonl
+
+# Logs. The committed ones under benchmarks/results/gate/ are gate evidence, so
+# that directory is exempt; anything else is scratch.
+*.log
+!/benchmarks/results/gate/**/*.log
+
+# Editor, OS and tool droppings
+.idea/
+.vscode/
+*.swp
+*~
+*.orig
+*.rej
+.DS_Store
+Thumbs.db
+desktop.ini
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+/venv/

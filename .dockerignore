@@ -9,3 +9,8 @@ benchmarks/results
 *.log
 ml/checkpoints
 ml/__pycache__
+graphify-out
+**/__pycache__
+.venv
+venv
+*.pt.bak

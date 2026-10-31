@@ -9,6 +9,15 @@ populates, derives or leaves absent is stated in its own module documentation; t
 "Source table" column below is the PRD's UKPDS naming and does not describe the
 Diabetes 130 columns.
 
+**What the built graph actually contains.** Of the seven node types below, the
+Diabetes 130 graph has six: `Patient`, `Condition`, `Medication`, `Provider`
+(admitting specialty, used as a provider proxy), `LabResult` and `Encounter`.
+There are **no `Procedure` nodes and no `UNDERWENT_PROCEDURE` edges**, because the
+source file carries only a procedure count. The shared reference types are small
+(915 conditions, 21 medications, 72 providers, 6 lab results), so each is a very
+high-degree hub; that is the main driver of the incremental-update latency miss
+in `docs/benchmark_report.md` §2.3.
+
 Nothing in this schema is invented. Where a field is absent from the source, the
 property is simply absent from the node rather than being filled with a
 placeholder (Rule 6).
