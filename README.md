@@ -504,3 +504,6 @@ docs/           Design notes, benchmark reports, API reference, runbooks
 
 Apache-2.0. Clinical data is **not** covered by this license and is never
 committed to this repository.
+
+## Contributions
+Made by Adarsh Tripathi and Saksham Thakur
