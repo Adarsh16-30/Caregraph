@@ -3,14 +3,14 @@
 //! directly against the storage layer the same way `bench_pit.rs` measures
 //! `TemporalIndex` reads, rather than round-tripping through gRPC.
 //!
-//! There is no PRD target for this — Feature 3 is a Phase 9 addition beyond
-//! the PRD's original Section 1 metrics, the same reason
+//! There is no target for this — Feature 3 is a Phase 9 addition beyond
+//! the original headline metrics, the same reason
 //! `caregraph-bench-attribution` reports rather than gates.
 //!
 //! Query nodes are drawn from whichever nodes actually hold an embedding at
 //! `Timestamp::MAX` (i.e. currently) — a similarity delta needs a query
 //! embedding at both ends of the window, so this benchmark refuses to
-//! measure the latency of misses (the same Rule 6 argument `bench_pit.rs`
+//! measure the latency of misses (the same argument `bench_pit.rs`
 //! makes) by requiring a real hit rate before reporting.
 //!
 //! Usage:
@@ -166,7 +166,7 @@ fn git(args: &[&str]) -> Option<String> {
 #[derive(Serialize)]
 struct Report {
     benchmark: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     database_path: String,
     trace_path: String,
@@ -250,14 +250,14 @@ fn main() -> Result<()> {
         );
     }
     notes.push(
-        "no PRD target exists for this query — Feature 3 is a Phase 9 addition beyond \
-         the original PRD's Section 1 metrics"
+        "no target exists for this query — Feature 3 is a Phase 9 addition beyond \
+         the original headline metrics"
             .into(),
     );
 
     let report = Report {
         benchmark: "similarity_delta_latency",
-        prd_target: "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+        reference_target: "none (Phase 9 addition beyond the original headline metrics)",
         provenance,
         database_path: args.db.clone(),
         trace_path: args.trace.display().to_string(),

@@ -1,31 +1,28 @@
-//! Layer 5 — Query & API (PRD 3.1, Phase 6): the tonic gRPC service wrapping
+//! Layer 5 — Query & API (Phase 6): the tonic gRPC service wrapping
 //! the graph-semantics (`graph/`) and embedding (`embedding/`) layers behind
 //! the RPC surface `proto/caregraph.proto` defines.
 //!
-//! # Rule 2 — no fake query endpoints
+//! # No fake query endpoints
 //!
 //! Every RPC below reads or writes through the real layers underneath: the
 //! mutation RPCs are `run_mutation_pipeline`/`AtomicCommitter`'s first live
 //! caller anywhere in this codebase (until now, both were only ever driven
 //! by tests and benchmarks); traversal and snapshot wrap `Traverser` and
 //! `SnapshotReader` unchanged; similarity wraps `api::similarity` unchanged.
-//! None of these build a response from literals — `check_rules.sh`'s Rule 2
-//! gate greps for exactly that pattern.
+//! None of these build a response from literals — `check_invariants.sh`'s
+//! endpoint check greps for exactly that pattern.
 //!
-//! # Auth — reconciling a one-line PRD mention with real code
+//! # Auth
 //!
-//! Section 3.1 names "auth" as a Layer 5 responsibility in a five-word table
-//! cell and never specifies a mechanism anywhere else in the document — no
-//! scheme, no token format, no library. There are two real mechanisms, chosen
-//! by `CAREGRAPH_ENV`:
+//! There are two real mechanisms, chosen by `CAREGRAPH_ENV`:
 //!
 //! * **Development:** [`AuthInterceptor`] requires a bearer token in the
 //!   `authorization` metadata that matches `CAREGRAPH_API_KEY`, checked before
 //!   any handler runs. Every caller is the single principal `api-key`, with no
 //!   role policy. The server refuses to start if that variable is unset — an
-//!   API with auth silently disabled is a fake auth endpoint in exactly the
-//!   sense Rule 2 exists to forbid, even though Rule 2's own grep only checks
-//!   RPC response bodies.
+//!   API with auth silently disabled is a fake auth endpoint — the same kind
+//!   of dishonesty as a fake query endpoint, even though the endpoint check
+//!   only looks at RPC response bodies.
 //! * **Production:** [`MutualTlsInterceptor`] takes the caller's identity from
 //!   the verified client certificate, optionally backed by a hashed bearer
 //!   token that must belong to the same principal, and the RBAC policy
@@ -34,10 +31,9 @@
 //!
 //! # Result limits
 //!
-//! `max_hops`/`max_result_nodes`/`max_result_edges` are the PRD's
-//! `max_hops`/`max_result_size` (Section 7, Phase 3's task list) — already
-//! implemented and enforced server-side by [`TraversalLimits`] since Phase
-//! 3. This layer's job is only to carry a client's requested values through
+//! `max_hops`/`max_result_nodes`/`max_result_edges` are enforced server-side
+//! by [`TraversalLimits`] since Phase 3. This layer's job is only to carry a
+//! client's requested values through
 //! to that existing clamp, never to construct a `TraversalLimits` from
 //! anything the client sends.
 
@@ -1104,7 +1100,7 @@ impl CareGraphService for CareGraphApi {
 
 /// Bearer-token check applied to every RPC before it reaches [`CareGraphApi`]
 /// — see this module's doc for why this, specifically, is the real (not
-/// fake) minimum the PRD's one-line "auth" mention supports.
+/// fake) minimum for authentication.
 #[derive(Clone)]
 pub struct AuthInterceptor {
     expected_token: std::sync::Arc<str>,

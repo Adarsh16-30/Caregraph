@@ -1,8 +1,8 @@
-//! Mutation and pipeline state (PRD Section 4.2).
+//! Mutation and pipeline state.
 //!
-//! The PRD's `MutationContext` carries a live `WriteBatch` because Phase 5
+//! `MutationContext` carries a live `WriteBatch` because Phase 5
 //! commits the structural mutation and the embedding update in one atomic
-//! write (Rule 5). That merge is Phase 5's job. Phase 4 writes embeddings to
+//! write. That merge is Phase 5's job. Phase 4 writes embeddings to
 //! `CF_EMBEDDINGS` in their own batch, separate from the mutation — real, not
 //! atomic yet. `AtomicCommitter` upgrades this in Phase 5; nothing here should
 //! need to change shape when it does.
@@ -117,7 +117,7 @@ pub struct PhaseTimings {
     pub write: std::time::Duration,
 }
 
-/// One mutation's pass through the pipeline (PRD 4.2).
+/// One mutation's pass through the pipeline.
 pub struct MutationContext {
     pub mutation: GraphMutation,
     pub active_model: ModelKind,

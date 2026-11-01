@@ -4,19 +4,19 @@
 Reads the same JSONL mutation trace `caregraph-load` applies to RocksDB, builds
 the graph as it stands at a given instant, and trains an unsupervised GraphSAGE
 encoder over it. The trained weights, a dataset manifest, and a SHA-256 of the
-model are written to `ml/deployed/<name>/`, which is what Rule 3's gate in
-`scripts/check_rules.sh` looks for.
+model are written to `ml/deployed/<name>/`, which is what the provenance check in
+`scripts/check_invariants.sh` looks for.
 
-Rule 3 (PRD Section 0): every node embedding must come from a real forward or
+Every node embedding must come from a real forward or
 incremental pass through a GraphSAGE, GCN, or GAT model implemented in DGL or
 PyTorch Geometric. There is no random-vector path here and no `--synthetic`
 flag; if the trace cannot be read the script exits non-zero.
 
-**Framework note.** The PRD's Phase 4 task text names DGL. DGL 2.x has no
+**Framework note.** The original Phase 4 plan names DGL. DGL 2.x has no
 distribution for the Python version available on this machine (the index offers
-only the 2018-era 0.1.x stubs), so this uses PyTorch Geometric, which Rule 3
-names as an equally acceptable implementation. The deviation is from the task
-wording, not from the rule that gates the phase.
+only the 2018-era 0.1.x stubs), so this uses PyTorch Geometric, an
+equally acceptable implementation. The deviation is from the plan's
+wording, not from the requirement that gates the phase.
 
 Unsupervised objective: link prediction over the graph's own edges. A pair of
 nodes joined by a real clinical relationship should score higher than a random
@@ -58,7 +58,7 @@ class SourceUnavailable(RuntimeError):
 
 
 class GraphSAGEEncoder(torch.nn.Module):
-    """Two-layer GraphSAGE. Two layers because the PRD benchmarks 2-hop
+    """Two-layer GraphSAGE. Two layers because the benchmarks use 2-hop
     traversal, so the embedding's receptive field matches the query shape."""
 
     def __init__(self, in_dim: int, hidden_dim: int, out_dim: int) -> None:
@@ -186,7 +186,7 @@ def train(data: Data, dim: int, epochs: int, lr: float, seed: int) -> tuple[Grap
 
 
 def deploy(model, stats, losses, args, trace_path: Path) -> dict:
-    """Write weights, manifest, and checksum — the Rule 3 gate."""
+    """Write weights, manifest, and checksum — the provenance gate."""
     out_dir = Path("ml/deployed") / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -213,8 +213,8 @@ def deploy(model, stats, losses, args, trace_path: Path) -> dict:
         "architecture": "GraphSAGE",
         "framework": f"pytorch-geometric {__import__('torch_geometric').__version__}",
         "framework_note": (
-            "PRD Phase 4 names DGL; DGL 2.x has no distribution for this Python "
-            "version, and Rule 3 names PyTorch Geometric as equally acceptable."
+            "Phase 4 names DGL; DGL 2.x has no distribution for this Python "
+            "version, and PyTorch Geometric is an equally acceptable implementation."
         ),
         "torch": torch.__version__,
         "trained_at": dt.datetime.now(dt.timezone.utc).isoformat(),

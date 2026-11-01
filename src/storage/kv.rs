@@ -1,12 +1,12 @@
-//! Layer 1 — the key-value abstraction over RocksDB (PRD 3.1, Phase 1).
+//! Layer 1 — the key-value abstraction over RocksDB (Phase 1).
 //!
-//! # Rule 1 boundary
+//! # Storage boundary
 //!
 //! [`KvStore`] exists so the layers above it can be written against a narrow,
 //! documented surface — *not* so that the storage engine can be swapped for a
 //! test double. [`RocksKv`] is the only permissible implementation. An
 //! in-memory `HashMap` implementation of this trait would satisfy the compiler
-//! and violate Rule 1; `scripts/check_rules.sh` greps for exactly that.
+//! and violate that boundary; `scripts/check_invariants.sh` greps for exactly that.
 //!
 //! Synthetic data is confined to `*_synthetic_test.rs`; every other code path,
 //! including integration tests, runs against a real RocksDB instance on disk.
@@ -44,7 +44,7 @@ pub trait KvStore: Send + Sync {
     fn delete(&self, cf: &'static str, key: &[u8]) -> Result<()>;
 
     /// Commit a batch atomically. This is the single write path for
-    /// mutation-plus-embedding commits (Rule 5).
+    /// mutation-plus-embedding commits.
     fn write(&self, batch: WriteBatch) -> Result<()>;
 
     /// Walk entries from `seek_key` forward, stopping at the end of `prefix` or
@@ -114,7 +114,7 @@ pub trait KvStore: Send + Sync {
     ///
     /// With CareGraph's inverted-timestamp encoding this single call *is* the
     /// point-in-time read: seek to `as_of_prefix(prefix, as_of)` and the first
-    /// hit is the newest version at or before `as_of` (Contribution 2).
+    /// hit is the newest version at or before `as_of`.
     fn seek(&self, cf: &'static str, prefix: &[u8], seek_key: &[u8]) -> Result<Option<Entry>> {
         let mut found = None;
         self.scan_from(cf, prefix, seek_key, &mut |key, value| {
@@ -135,7 +135,7 @@ pub trait KvStore: Send + Sync {
     }
 
     /// Flush memtables to SST files. Used by the encryption-at-rest
-    /// verification test, which reads SST files directly (Rule 8).
+    /// verification test, which reads SST files directly.
     fn flush(&self, cf: &'static str) -> Result<()>;
 }
 
@@ -193,7 +193,7 @@ impl RocksKv {
     /// This is what every test, benchmark, and dev-mode invocation uses —
     /// forcing an encryption key onto every `RocksKv::open` call in the
     /// codebase would be a much bigger, unrelated change. Production callers
-    /// that want Rule 8's real encryption at rest use
+    /// that want real encryption at rest use
     /// [`RocksKv::open_encrypted`] instead; see `main.rs`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_with(path, None, WalRetention::default())
@@ -201,7 +201,7 @@ impl RocksKv {
 
     /// Open (creating if absent) a CareGraph database at `path` with every
     /// file RocksDB writes — SST files, WAL, MANIFEST — encrypted on disk
-    /// under AES-256 in CTR mode (PRD Section 0, Rule 8; see
+    /// under AES-256 in CTR mode (see
     /// `src/storage/encryption.rs`).
     pub fn open_encrypted(path: impl AsRef<Path>, key: &[u8]) -> Result<Self> {
         Self::open_with(path, Some(key), WalRetention::default())
@@ -370,7 +370,7 @@ impl RocksKv {
     }
 
     /// Borrow the raw handle. Needed by `atomic_commit`, which builds a
-    /// `WriteBatch` against live CF handles (PRD Section 9.2).
+    /// `WriteBatch` against live CF handles.
     pub fn raw(&self) -> &Db {
         &self.db
     }

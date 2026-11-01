@@ -1,4 +1,4 @@
-//! Layer 3 — Graph Semantics (PRD 3.1).
+//! Layer 3 — Graph Semantics.
 //!
 //! Bounded traversal, snapshot reconstruction, and the server-side limits that
 //! keep both bounded regardless of what a client requests.

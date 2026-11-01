@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TerminusDB baseline runner (PRD Rule 4).
+"""TerminusDB baseline runner.
 
 TerminusDB is the *versioning* comparison baseline: it is the closest existing
 system to CareGraph's temporal model, since it keeps a real commit history and
@@ -14,7 +14,7 @@ Three subcommands:
     bench  time point-in-time traversal and write a timestamped raw-results file
 
 There is no offline mode. If TerminusDB is not reachable, this exits non-zero
-rather than emitting a figure from anywhere else (Rule 4).
+rather than emitting a figure from anywhere else.
 
 Requires: terminusdb-client>=10.2
 """
@@ -300,7 +300,7 @@ def cmd_bench(args) -> int:
     if report["provenance"]["hardware_note"] is None:
         report["notes"].append(
             "CAREGRAPH_HARDWARE was not set, so no hardware spec is recorded; "
-            "Rule 4 requires one before this result is quoted in a report"
+            "a hardware spec is required before this result is quoted in a report"
         )
 
     out_dir = Path(args.out_dir)

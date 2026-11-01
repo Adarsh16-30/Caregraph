@@ -1,4 +1,4 @@
-//! Layer 2 — Temporal Indexing (PRD 3.1).
+//! Layer 2 — Temporal Indexing.
 //!
 //! Versioned key encoding ([`keys`]), tombstone-aware value envelopes
 //! ([`record`]), point-in-time and windowed reads ([`index`]), and batch-staged

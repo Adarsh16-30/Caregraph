@@ -1,10 +1,10 @@
-//! `similar_care_pathways` (PRD Section 5.3, Contribution 5) — care-pathway
+//! `similar_care_pathways` — care-pathway
 //! similarity search evaluated *as of* a historical timestamp, not only on
 //! current state.
 //!
-//! # Reconciling the PRD's pseudocode with the real code
+//! # Shape of the query
 //!
-//! Section 5.3 gives:
+//! In outline:
 //!
 //! ```text
 //! pub async fn similar_care_pathways(node_id, as_of, top_k) -> Result<Vec<(NodeId, f32)>> {
@@ -18,10 +18,10 @@
 //! [`TemporalIndex::embedding_as_of`] (already annotated in `temporal/index.rs`
 //! as "the read `similar_care_pathways` is built on"), and `scan_as_of` is
 //! [`TemporalIndex::all_embeddings_as_of`], added alongside it. Two
-//! departures from the pseudocode's literal shape, both made explicit rather
+//! departures from that outline's literal shape, both made explicit rather
 //! than silently assumed:
 //!
-//! 1. **The query node is excluded from its own results.** The pseudocode's
+//! 1. **The query node is excluded from its own results.** The outline's
 //!    `candidates` includes every node with an embedding, the query node
 //!    included — whose cosine similarity to itself is always exactly 1.0.
 //!    Ranking that first is never the answer a "find similar pathways"
@@ -33,7 +33,7 @@
 //!    similarity score without being one. Only candidates whose
 //!    `model_id` matches the query embedding's own are ranked.
 //!
-//! Not addressed because the PRD does not address it either (see the module
+//! Not covered by the outline above (see the module
 //! this function is called from, `src/api/mod.rs`, for how the gRPC layer
 //! surfaces it instead): what happens when the query node has no embedding
 //! at `as_of` at all. That is not an error — it means the node either did

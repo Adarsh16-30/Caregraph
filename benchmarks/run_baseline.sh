@@ -2,7 +2,7 @@
 #
 # run_baseline.sh — comparative benchmark against real, running baselines.
 #
-# Rule 4: comparative numbers MUST come from a real, running Neo4j Community +
+# Comparative numbers MUST come from a real, running Neo4j Community +
 # GDS instance and a real, running TerminusDB instance. Never published numbers
 # from other papers, never estimates. No result may be reported without the
 # exact command and hardware spec used to produce it.
@@ -12,7 +12,7 @@
 # is not proof; it queries each one.
 #
 # Every run writes a timestamped raw-results file. The exit code is the gate:
-# check_rules.sh will not accept a benchmark number without one.
+# check_invariants.sh will not accept a benchmark number without one.
 #
 # Usage:
 #   export CAREGRAPH_HARDWARE="Ryzen 7 5800X, 32GB DDR4-3600, Samsung 980 Pro NVMe"
@@ -79,12 +79,12 @@ step "Preconditions"
 The trace is produced from the real Diabetes 130-US Hospitals data:
     python data/diabetes130_loader.py --csv data/raw/diabetic_data.csv --out $TRACE
 
-Rule 6 permits no synthetic substitute in an evaluation path."
+No synthetic substitute is permitted in an evaluation path."
 
 if [[ -z "${CAREGRAPH_HARDWARE:-}" ]]; then
     die "CAREGRAPH_HARDWARE is not set.
 
-Rule 4 requires the hardware spec used to produce a benchmark number. Set it to
+The hardware spec used to produce a benchmark number is required. Set it to
 a description of this machine, for example:
 
     export CAREGRAPH_HARDWARE=\"Ryzen 7 5800X, 32GB DDR4-3600, 980 Pro NVMe, Ubuntu 24.04\"
@@ -123,7 +123,7 @@ note "workload:  ${HOPS}-hop traversal, $QUERIES queries per system"
 mkdir -p "$RESULTS_DIR"
 
 # ---------------------------------------------------------------------------
-# Prove the baselines are actually running (Rule 4)
+# Prove the baselines are actually running
 # ---------------------------------------------------------------------------
 
 step "Verifying baselines are live"
@@ -133,8 +133,8 @@ if wants neo4j; then
         --uri "$NEO4J_URI" --user "$NEO4J_USER" --password "$NEO4J_PASSWORD" \
         || die "Neo4j is not reachable at $NEO4J_URI.
 
-Rule 4 forbids substituting published or estimated figures for a baseline that
-is not running. Start the stack first:
+Substituting published or estimated figures for a baseline that
+is not running is forbidden. Start the stack first:
 
     docker compose -f infrastructure/docker-compose/dev-stack.yml up -d neo4j"
     note "${GREEN}Neo4j + GDS reachable${RESET} at $NEO4J_URI"
@@ -218,7 +218,7 @@ fi
 (( WROTE_ANY == 1 )) || die "no system was benchmarked (--only $ONLY matched nothing)"
 
 # ---------------------------------------------------------------------------
-# Run manifest — what Rule 10 citations point at
+# Run manifest — what result citations point at
 # ---------------------------------------------------------------------------
 
 step "Writing run manifest"
@@ -250,4 +250,4 @@ print(f"  manifest: {manifest_path}")
 PY
 
 printf '\n%sBaseline run complete.%s\n' "$GREEN" "$RESET"
-printf 'Cite results as [benchmark: %s] (Rule 10).\n' "$MANIFEST"
+printf 'Cite results as [benchmark: %s].\n' "$MANIFEST"

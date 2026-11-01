@@ -1,5 +1,5 @@
-//! Compiles `proto/caregraph.proto` into Rust at build time (PRD Section 2.4)
-//! and compiles `native/rocksdb_encryption/shim.cc` (PRD Section 0, Rule 8 —
+//! Compiles `proto/caregraph.proto` into Rust at build time
+//! and compiles `native/rocksdb_encryption/shim.cc` (real encryption at rest —
 //! see that directory's module doc for why a C++ shim is necessary at all).
 //!
 //! `tonic_build`'s default output goes to `OUT_DIR` and is pulled in via

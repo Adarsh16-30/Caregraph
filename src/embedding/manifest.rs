@@ -29,8 +29,8 @@ pub struct ModelManifest {
 
 impl ModelManifest {
     /// Load and parse the manifest for `model_id`. A missing file or a file
-    /// that fails to parse is a hard error at spawn time — Rule 7 is about
-    /// silent fallback in the embedding-update path, and a dispatch decision
+    /// that fails to parse is a hard error at spawn time — silent fallback
+    /// in the embedding-update path is never acceptable, and a dispatch decision
     /// built on a manifest that quietly defaulted to `{}` would be exactly
     /// that kind of silent fallback one layer up.
     pub fn load(model_id: &str) -> Result<Self> {

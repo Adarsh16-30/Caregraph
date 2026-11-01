@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# run_demo.sh — PRD Phase 8's end-to-end demo: seed patients, replay
+# run_demo.sh — Phase 8's end-to-end demo: seed patients, replay
 # mutations, show traversal/snapshot/similarity queries live.
 #
 # Runs against a real caregraph server backed by a real RocksDB instance
 # and a real trained GraphSAGE model, on a real slice of the Diabetes 130
-# clinical dataset (Rule 6 — no synthetic patient data anywhere in this
+# clinical dataset (no synthetic patient data anywhere in this
 # path). One command, no manual steps, and safe to re-run: it seeds its own
 # fresh database under data/db/demo/ every time rather than depending on
 # state a previous run left behind.
@@ -13,7 +13,7 @@
 # What "seed patients, replay mutations" means concretely: most of the
 # trace is loaded structurally with `caregraph-load` (fast, no embeddings —
 # see that binary's own module doc for why embeddings are deliberately
-# absent from that path, Rule 3). The final real encounter for the last
+# absent from that path). The final real encounter for the last
 # three patients in the trace is deliberately held back from that bulk
 # load and replayed instead through live gRPC AddEdge calls
 # (src/bin/demo_client.rs) — the same distinction between bulk historical
@@ -61,7 +61,7 @@ if [[ ! -f "$TRACE" ]]; then
 fi
 if [[ ! -f "ml/deployed/diabetes130_graphsage/model.pt" ]]; then
     echo "ml/deployed/diabetes130_graphsage/model.pt is missing — this demo needs a real" >&2
-    echo "trained model (Rule 3). Run ml/train_graphsage.py, or check your checkout." >&2
+    echo "trained model. Run ml/train_graphsage.py, or check your checkout." >&2
     exit 1
 fi
 python3 -c "import torch, torch_geometric" >/dev/null 2>&1 || python -c "import torch, torch_geometric" >/dev/null 2>&1 || {

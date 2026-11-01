@@ -1,6 +1,6 @@
 {
   "benchmark": "similarity_delta_latency",
-  "prd_target": "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+  "reference_target": "none (Phase 9 addition beyond the original headline metrics)",
   "provenance": {
     "generated_at_unix": 1789723900,
     "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",
@@ -27,6 +27,6 @@
   "notes": [
     "query hit rate 100.0%",
     "working tree was dirty at run time; not reproducible from the commit alone",
-    "no PRD target exists for this query — Feature 3 is a Phase 9 addition beyond the original PRD's Section 1 metrics"
+    "no target exists for this query — Feature 3 is a Phase 9 addition beyond the original headline metrics"
   ]
 }

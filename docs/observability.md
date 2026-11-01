@@ -62,11 +62,11 @@ What each one is meant to catch:
   its latency cost.
 * `caregraph_security_audit.json` — certificate lifetime, audit chains and anchoring,
   denials, backup age, memory against the budget, volume use.
-* `caregraph_section1.json` — the original query-path targets.
+* `caregraph_targets.json` — the original query-path targets.
 
 The chart ships them as ConfigMaps for the Grafana sidecar
 (`metrics.grafanaDashboards.enabled`). Every query is checked by
-`check_alert_rules.py`, and `scripts/check_rules.sh` (Rule 9) fails on any placeholder.
+`check_alert_rules.py`, and `scripts/check_invariants.sh` fails on any placeholder.
 
 ## Traces
 

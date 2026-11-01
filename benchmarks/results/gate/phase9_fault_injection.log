@@ -1,4 +1,4 @@
-CareGraph Rule 5 fault-injection suite — Phase 9 re-verification, GraphSAGE dispatch arm
+CareGraph atomic-commit fault-injection suite — Phase 9 re-verification, GraphSAGE dispatch arm
 Command: cargo test --release --test fault_injection -- --test-threads=1 --nocapture
 Commit: 5c2529d7f603c2c686a248eeeab8d129c6a1b60b (dirty — Phase 9 work in
         progress: CF_COMMIT_META, attribution, self-tuning caps, similarity
@@ -9,7 +9,7 @@ Commit: 5c2529d7f603c2c686a248eeeab8d129c6a1b60b (dirty — Phase 9 work in
 Run started (UTC): 2026-09-18 (session-local clock; see git commit above for
         exact code state)
 Test: atomic_commit_survives_a_kill::atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime
-Model: ml/deployed/diabetes130_graphsage (real trained GraphSAGE, Rule 3)
+Model: ml/deployed/diabetes130_graphsage (real trained GraphSAGE)
 
 Why this run exists: Phase 9 added a third entry to AtomicCommitter's single
 WriteBatch (CF_COMMIT_META — dispatch decision, effective caps, and

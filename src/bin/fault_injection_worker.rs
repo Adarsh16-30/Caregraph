@@ -1,4 +1,4 @@
-//! `caregraph-fault-injection-worker` — the child process the Rule 5 fault
+//! `caregraph-fault-injection-worker` — the child process the atomic-commit fault
 //! injection suite (`tests/fault_injection/`) spawns and kills.
 //!
 //! Deliberately minimal: open a database the parent has already seeded with

@@ -3,8 +3,8 @@
 
 Mirrors `ml/train_graphsage.py` in every way that isn't the model itself:
 same trace format, same unsupervised link-prediction objective, same
-deploy-to-`ml/deployed/<name>/` contract that Rule 3's gate in
-`scripts/check_rules.sh` looks for. The only thing that changes is the
+deploy-to-`ml/deployed/<name>/` contract that the provenance check in
+`scripts/check_invariants.sh` looks for. The only thing that changes is the
 encoder architecture — see `GATEncoder`'s docstring for why GAT gets its own
 Rust-side incremental path (`src/embedding/gat_incremental.rs`) even though
 the forward-pass mechanics here are otherwise identical to GraphSAGE's.
@@ -44,7 +44,7 @@ class SourceUnavailable(RuntimeError):
 
 class GATEncoder(torch.nn.Module):
     """Two-layer GAT (Velickovic et al.). Two layers for the same reason as
-    GraphSAGE: the PRD benchmarks 2-hop traversal, and each `GATConv` layer's
+    GraphSAGE: the benchmarks use 2-hop traversal, and each `GATConv` layer's
     attention only ever aggregates a node's own immediate neighbours, so the
     receptive field is exactly 2 hops here too — resolving a bounded 2-hop
     subgraph (`resolver.rs`) and recomputing the forward pass over it is
@@ -62,7 +62,7 @@ class GATEncoder(torch.nn.Module):
     `gat_incremental.rs::GATUpdatePath` rather than
     `associative.rs::IncrementalAggregator` on the Rust side, with embeddings
     tagged `ComputationPath::GatConstrained` instead of `Associative` so
-    Rule 7's audit trail can tell the two apart. Both paths still do the same
+    the audit trail can tell the two apart. Both paths still do the same
     *kind* of computation underneath (forward pass over a resolved subgraph,
     not a literal streaming delta-update) — see gat_incremental.rs's module
     doc for exactly what "constrained" means for the Rust-side fallback
@@ -84,7 +84,7 @@ def read_graph(trace_path: Path, as_of: int | None, spec: dict | None = None) ->
     """Identical to train_graphsage.py's read_graph — same trace, same
     retraction-aware reconstruction. Duplicated rather than imported so this
     script has no import-time dependency on the sibling trainer; the two are
-    independent PRD deliverables (Phase 4 vs Phase 5) that happen to share a
+    independent deliverables (Phase 4 vs Phase 5) that happen to share a
     data format, not one script's private helper.
     """
     if not trace_path.exists():

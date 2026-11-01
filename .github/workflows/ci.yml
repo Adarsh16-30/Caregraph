@@ -1,6 +1,6 @@
-# CareGraph CI — rule enforcement, real-storage tests, benchmark regression.
+# CareGraph CI — invariant checks, real-storage tests, benchmark regression.
 #
-# The build is gated on scripts/check_rules.sh (PRD Section 0). Tests run against
+# The build is gated on scripts/check_invariants.sh. Tests run against
 # a real RocksDB instance compiled from source; there is no mocked-storage path
 # to fall back to, by design.
 
@@ -15,14 +15,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # Raise this as each phase completes. check_rules.sh turns a PENDING rule into
+  # Raise this as each phase completes. check_invariants.sh turns a PENDING check into
   # a hard failure once the gating phase reaches the phase that introduces it.
   #
   # At 4: Phase 4's success criteria are met — a real trained GraphSAGE deployed
-  # with manifest + checksum (Rule 3), incremental correctness verified against
+  # with manifest + checksum, incremental correctness verified against
   # full recompute on 50 randomised mutation sequences, median 6.15x speedup
-  # against the 5x target (docs/benchmark_report.md §7). Rules 3 and 7 are
-  # therefore live and enforced from here on.
+  # against the 5x target (docs/benchmark_report.md §7). The model-provenance and no-silent-fallback
+  # checks are therefore live and enforced from here on.
   #
   # At 5: atomic_commit.rs lands the structural mutation and its embedding
   # update in one WriteBatch, verified by a 100-run fault-injection suite
@@ -31,25 +31,25 @@ env:
   # (gat_incremental.rs) is implemented and its own 50-sequence
   # incremental-vs-full-recompute exactness check passes — the same claim
   # Phase 4 makes for GraphSAGE, extended to GAT's non-associative attention
-  # aggregation. Rule 5 is fully satisfied by the static checks in
-  # check_rules.sh regardless of this value; raising it to 5 here records
+  # aggregation. The atomic-commit check is fully satisfied by the static checks in
+  # check_invariants.sh regardless of this value; raising it to 5 here records
   # that both halves of Phase 5's scope are done, not just checked.
   #
   # At 6: the full gRPC API (mutation, traversal, snapshot,
   # similar_care_pathways — proto/caregraph.proto, src/api/) is implemented,
   # real bearer-token auth is enforced, and 5 RPCs are covered by
   # real-server endpoint tests (tests/integration/api_endpoint_test.rs) —
-  # Rule 2 passes unconditionally now, the same way Rule 5 does. Neo4j and
+  # The endpoint check passes unconditionally now, the same way the atomic-commit check does. Neo4j and
   # TerminusDB were also brought up live and benchmarks/run_baseline.sh run
   # against both end to end, not just health-checked (docs/benchmark_report.md
   # §8): 2-hop bounded traversal is now a real three-way comparison. That
   # is narrower than Phase 6's original success criteria, which named all
-  # five Section 1 metrics across all three systems — point-in-time read
+  # five headline metrics across all three systems — point-in-time read
   # latency and incremental-embedding speedup are still CareGraph-only, a
   # disclosed gap, not a silently dropped one (see docs/benchmark_report.md).
   #
   # At 7: all three of Phase 7's pieces are real and verified. Encryption at
-  # rest (Rule 8) — the rocksdb crate exposes no encryption API at all, so
+  # rest — the rocksdb crate exposes no encryption API at all, so
   # native/rocksdb_encryption/shim.cc bridges directly to RocksDB's real
   # EncryptionProvider/NewEncryptedEnv C++ API with a from-scratch AES-256
   # (verified against two independent FIPS-197 test vectors); proven by an
@@ -58,37 +58,37 @@ env:
   # control case proving the search itself is valid. mTLS on the gRPC
   # listener — real TLS handshakes over a real ephemeral TCP port with
   # rcgen-generated certificates: a trusted client cert completes an RPC, no
-  # cert and an untrusted-CA cert are both rejected. Live dashboards (Rule
-  # 9) — GET /metrics (src/metrics_server.rs) finally serves the Prometheus
+  # cert and an untrusted-CA cert are both rejected. Live dashboards
+  # — GET /metrics (src/metrics_server.rs) finally serves the Prometheus
   # registry dev-stack.yml/prometheus.yml have pointed at since Phase 1;
   # point_in_time_query_seconds/traversal_latency_seconds (src/api/metrics.rs)
   # are new query-path series wired into the real RPC handlers, verified to
   # record real nonzero values from a live gRPC call, not just exist as
-  # empty histograms; observability/grafana/dashboards/caregraph_section1.json
+  # empty histograms; observability/grafana/dashboards/caregraph_targets.json
   # is a real dashboard bound to the CareGraph-Prometheus datasource.
   #
   # At 8: scripts/run_demo.sh (src/bin/demo_client.rs) is a real, runnable
   # end-to-end demo — verified by actually running it twice against a real
   # built server, including catching and fixing a real teardown bug (Git
   # Bash/MSYS's `$!` is not the real Windows PID `taskkill` needs) between
-  # the two runs. A newly-run 100-iteration Rule 5 fault-injection result
+  # the two runs. A newly-run 100-iteration atomic-commit fault-injection result
   # (benchmarks/results/gate/phase5_fault_injection.log: 37 kills landed,
   # 0 non-atomic states) was captured as a citable artifact in this phase too.
   #
-  # At 9: four additions beyond the original PRD, gated by the same rules
-  # (no new rule was added — Rule 5's "exactly one batch write" applies
+  # At 9: four additions beyond the original scope, gated by the same checks
+  # (no new check was added — the "exactly one batch write" check applies
   # unchanged to the new code). Integrated-gradients edge attribution is committed into a new
   # CF_COMMIT_META column family, staged into the same WriteBatch as the
   # structural mutation and the embedding it explains — verified by a real
   # completeness identity on both deployed architectures
   # (tests/embedding/attribution_completeness_test.rs) and, separately, by
-  # re-running the Rule 5 fault-injection suite against the new three-way
+  # re-running the atomic-commit fault-injection suite against the new three-way
   # write (benchmarks/results/gate/phase9_fault_injection.log,
   # phase9_fault_injection_gat.log). A discrete self-tuning cap controller
   # (src/embedding/caps.rs) replaces the fixed FANOUT_CAP/MAX_EXPANDED_NODES
   # constants, measuring a real 1.46x p95 reduction
   # (docs/benchmark_report.md §2.7). A SimilarityDelta RPC adds a
-  # point-in-time similarity-change query Contribution 5 did not offer.
+  # point-in-time similarity-change query that single-timestamp similarity did not offer.
   # Manifest-driven dispatch (src/embedding/manifest.rs) replaces the
   # hardcoded ModelKind match in atomic_commit.rs, closing a previously-
   # disclosed, unchecked model/manifest mismatch footgun. Two severe
@@ -100,13 +100,13 @@ env:
   CAREGRAPH_PHASE: "9"
 
 jobs:
-  rules:
-    name: Section 0 rule enforcement
+  invariants:
+    name: Invariant checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Enforce non-negotiable rules
-        run: bash scripts/check_rules.sh --phase "$CAREGRAPH_PHASE"
+      - name: Enforce project invariants
+        run: bash scripts/check_invariants.sh --phase "$CAREGRAPH_PHASE"
 
   lint:
     name: fmt + clippy
@@ -160,7 +160,7 @@ jobs:
       - name: Property-based correctness (Phase 2)
         run: cargo test --test unit
 
-      - name: Integration tests (real on-disk RocksDB, Rule 1)
+      - name: Integration tests (real on-disk RocksDB)
         run: cargo test --test integration
 
       # Guards against the failure mode where the integration suite silently
@@ -196,7 +196,7 @@ jobs:
   # that the gap is visible in the workflow rather than forgotten.
 
   embedding:
-    name: embedding correctness (Rules 3, 7)
+    name: embedding correctness
     # GraphSAGE (Phase 4) and GAT (Phase 5) incremental-vs-full-recompute
     # exactness — both spawn ml/embedding_server.py, which needs a real
     # Python + torch + torch_geometric interpreter, hence the setup below.
@@ -226,7 +226,7 @@ jobs:
       - run: cargo test --test embedding -- --test-threads=1
 
   fault-injection:
-    name: fault injection (Rule 5)
+    name: fault injection
     # tests/fault_injection/ now runs two suites, one per `AtomicCommitter`
     # dispatch arm — a GraphSAGE run (`aggregate_over_subgraph`) and a GAT
     # run (`gat_incremental_update`), each 100 kills, 0 non-atomic states
@@ -267,7 +267,7 @@ jobs:
   # regression smoke check that the harness still runs end to end against
   # live baselines, not a source of citable numbers; cite §8 instead.
   benchmarks:
-    name: baseline benchmarks (Rule 4) — smoke regression, see docs/benchmark_report.md §8 for real numbers
+    name: baseline benchmarks — smoke regression, see docs/benchmark_report.md §8 for real numbers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -292,7 +292,7 @@ jobs:
       # containers are created, not once they're actually serving.
       - run: docker compose -f infrastructure/docker-compose/dev-stack.yml up -d --wait neo4j terminusdb
       - run: |
-          # Rule 10 requires a hardware spec for any benchmark number; run_baseline.sh
+          # A hardware spec is required for any benchmark number; run_baseline.sh
           # hard-stops without one. GitHub-hosted runner specs vary by run and aren't
           # published precisely, so this is disclosed as what it is rather than a
           # fabricated number — this job is a regression smoke check anyway (see the

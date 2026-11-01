@@ -1,4 +1,4 @@
-//! Layer 1 — Storage (PRD 3.1): RocksDB, column families, WAL-backed durability.
+//! Layer 1 — Storage: RocksDB, column families, WAL-backed durability.
 
 pub mod backup;
 pub mod cf;

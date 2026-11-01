@@ -1,6 +1,6 @@
-//! `BenchmarkLogger` stage (PRD 4.1) — the Prometheus series
+//! `BenchmarkLogger` stage — the Prometheus series
 //! `observability/prometheus/recording-rules.yaml` has been waiting on since
-//! Phase 1. Rule 7's enforcement is this counter existing and being real:
+//! Phase 1. The no-silent-fallback guarantee is this counter existing and being real:
 //! `incremental_fallback_total` must go up exactly when a fallback happens,
 //! never as an estimate.
 
@@ -33,7 +33,7 @@ impl EmbeddingMetrics {
         let mutations_total = IntCounter::new("mutations_total", "Structural mutations processed")?;
         let incremental_fallback_total = IntCounter::new(
             "incremental_fallback_total",
-            "Mutations whose embedding update fell back to full recompute (Rule 7)",
+            "Mutations whose embedding update fell back to full recompute",
         )?;
         let mutation_latency_seconds = Histogram::with_opts(HistogramOpts::new(
             "mutation_latency_seconds",

@@ -1,9 +1,8 @@
-//! Point-in-time reads over the versioned column families (PRD Phase 2).
+//! Point-in-time reads over the versioned column families (Phase 2).
 //!
 //! # What the key layout gives, and what it costs
 //!
-//! Edge keys are `[src_id | edge_type | timestamp_desc | dst_id]` (PRD 3.3,
-//! provided). The timestamp sorts *before* `dst_id`, so within one adjacency
+//! Edge keys are `[src_id | edge_type | timestamp_desc | dst_id]`. The timestamp sorts *before* `dst_id`, so within one adjacency
 //! list the versions of **different** destination nodes are interleaved in time
 //! rather than grouped per destination.
 //!
@@ -23,8 +22,8 @@
 //!
 //! Single-node reads (`CF_NODES`, `CF_EMBEDDINGS`) have no such issue: their
 //! keys are `[node_id | timestamp_desc]` with nothing after the timestamp, so
-//! one seek lands exactly on the answer. That is the O(log n) retrieval of
-//! Contribution 2, and it is the path the point-in-time embedding queries take.
+//! one seek lands exactly on the answer. That is the O(log n) retrieval,
+//! and it is the path the point-in-time embedding queries take.
 
 use std::collections::HashSet;
 use std::ops::ControlFlow;
@@ -118,7 +117,7 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
     /// The node's embedding as it stood at `as_of` — read directly from
     /// `CF_EMBEDDINGS`, never recomputed.
     ///
-    /// This is the read that `similar_care_pathways` (PRD 5.3) is built on.
+    /// This is the read that `similar_care_pathways` is built on.
     pub fn embedding_as_of(&self, node: NodeId, as_of: Timestamp) -> Result<Option<Embedding>> {
         let prefix = node_prefix(node);
         let seek = as_of_prefix(&prefix, as_of);
@@ -156,8 +155,8 @@ impl<'a, S: KvStore + ?Sized> TemporalIndex<'a, S> {
     }
 
     /// Every node's embedding at `as_of` — the candidate pool
-    /// `similar_care_pathways` (PRD 5.3, Contribution 5) ranks by cosine
-    /// similarity. PRD names this `embeddings::scan_as_of`.
+    /// `similar_care_pathways` ranks by cosine
+    /// similarity.
     ///
     /// # Why this can't be one seek per node, or one seek at all
     ///

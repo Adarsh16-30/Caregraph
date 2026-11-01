@@ -1,17 +1,16 @@
-//! `caregraph-bench-pit` — point-in-time read latency (PRD Phase 2).
+//! `caregraph-bench-pit` — point-in-time read latency (Phase 2).
 //!
-//! Measures p50/p95/p99 for `node_as_of` and `edges_as_of` against the Section 1
+//! Measures p50/p95/p99 for `node_as_of` and `edges_as_of` against the headline
 //! target of **p95 < 20 ms**, and writes a timestamped raw-results file
 //! recording the exact command, commit, and machine that produced the numbers.
-//! No number may enter a report without that record (Rules 4 and 10).
+//! No number may enter a report without that record.
 //!
 //! Query selection is driven by a seeded PRNG so a run is reproducible: the same
 //! `--seed` against the same database issues the same queries. A benchmark
 //! whose workload cannot be reproduced cannot be regression-tested.
 //!
 //! The database must already hold a real clinical graph — the benchmark refuses
-//! to run against an empty one rather than reporting the latency of misses
-//! (Rule 6).
+//! to run against an empty one rather than reporting the latency of misses.
 //!
 //! Usage:
 //!     caregraph-bench-pit --db data/db/caregraph \
@@ -31,7 +30,7 @@ use caregraph::temporal::TemporalIndex;
 use caregraph::types::{EdgeType, NodeId, Timestamp};
 use serde::Serialize;
 
-/// PRD Section 1: point-in-time snapshot query latency (p95) < 20 ms.
+/// Target: point-in-time snapshot query latency (p95) < 20 ms.
 const DEFAULT_P95_TARGET_MS: f64 = 20.0;
 
 /// Queries run before measurement starts, so the numbers reflect steady state
@@ -227,7 +226,7 @@ struct Provenance {
     arch: String,
     available_parallelism: usize,
     /// Present only if the runner exported it. Recorded rather than guessed —
-    /// Rule 4 requires the hardware spec, and an invented one is worse than an
+    /// The hardware spec is required, and an invented one is worse than an
     /// absent one.
     hardware_note: Option<String>,
 }
@@ -283,7 +282,7 @@ fn format_unix_iso(secs: u64) -> String {
 #[derive(Serialize)]
 struct Report {
     benchmark: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     database_path: String,
     trace_path: String,
@@ -379,7 +378,7 @@ fn main() -> Result<()> {
     if provenance.hardware_note.is_none() {
         notes.push(
             "CAREGRAPH_HARDWARE was not set, so no hardware spec is recorded; \
-             Rule 4 requires one before this result is quoted in a report"
+             a hardware spec is required before this result is quoted in a report"
                 .into(),
         );
     }
@@ -391,7 +390,7 @@ fn main() -> Result<()> {
 
     let report = Report {
         benchmark: "point_in_time_read_latency",
-        prd_target: "Section 1: point-in-time snapshot query latency (p95) < 20 ms",
+        reference_target: "point-in-time snapshot query latency (p95) < 20 ms",
         provenance,
         database_path: args.db.clone(),
         trace_path: args.trace.display().to_string(),

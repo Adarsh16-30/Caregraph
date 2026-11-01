@@ -1,6 +1,6 @@
 {
   "benchmark": "cap_controller_ab",
-  "prd_target": "informational: does the Feature 2 controller reduce p95 vs. the Phase 4/5 pinned default",
+  "reference_target": "informational: does the Feature 2 controller reduce p95 vs. the Phase 4/5 pinned default",
   "provenance": {
     "generated_at_unix": 1789723733,
     "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",

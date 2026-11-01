@@ -1,17 +1,17 @@
-//! `caregraph-demo-client` — the live half of `scripts/run_demo.sh` (PRD
-//! Phase 8's "seed patients, replay mutations, show traversal/snapshot/
+//! `caregraph-demo-client` — the live half of `scripts/run_demo.sh` (Phase 8:
+//! "seed patients, replay mutations, show traversal/snapshot/
 //! similarity queries live").
 //!
 //! Every call in this file is a real gRPC request against a real running
 //! `caregraph` server backed by a real RocksDB instance — no canned
-//! response, no in-process shortcut (Rule 2). It does not invent any data:
+//! response, no in-process shortcut. It does not invent any data:
 //! the mutations it replays are read verbatim from a slice of the real
 //! Diabetes 130 trace (`benchmarks/traces/diabetes130_smoke_100.jsonl`)
 //! that `scripts/run_demo.sh` deliberately holds out of the bulk
 //! `caregraph-load` pass so this binary can apply them live instead — the
 //! same distinction `load_trace.rs`'s own module doc draws: "Loading a
 //! graph without embeddings is honest; loading it with placeholder
-//! embedding vectors would violate Rule 3. From Phase 6 the same records
+//! embedding vectors would be fabrication. From Phase 6 the same records
 //! arrive over gRPC instead." This binary is that Phase 6 arrival path,
 //! exercised for real.
 //!
@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
     // ------------------------------------------------------------------
     // Part 1 — Mutation: replay real, previously-unloaded encounters live.
     // ------------------------------------------------------------------
-    section("Part 1/4 — Live mutation + atomic embedding commit (Rule 5)");
+    section("Part 1/4 — Live mutation + atomic embedding commit");
     println!(
         "These {} edges exist in the real Diabetes 130 trace but were held out of \
          the bulk `caregraph-load` pass on purpose — this is the first time they \
@@ -266,7 +266,7 @@ async fn main() -> Result<()> {
     // ------------------------------------------------------------------
     // Part 3 — Point-in-time snapshot, before vs. after the live mutation.
     // ------------------------------------------------------------------
-    section("Part 3/4 — Point-in-time snapshot (Layer 2/3, Contribution 2)");
+    section("Part 3/4 — Point-in-time snapshot (Layer 2/3)");
     let before = client
         .snapshot(authed(
             SnapshotRequest {
@@ -308,7 +308,7 @@ async fn main() -> Result<()> {
     println!(
         "  Same subject, same code path, two different real answers ({} -> {} related \
          entities) purely because `as_of` moved across the mutations just committed \
-         above — no separate recompute, no export/reimport (Contribution 2).",
+         above — no separate recompute, no export/reimport.",
         before.related.len(),
         after.related.len()
     );
@@ -316,7 +316,7 @@ async fn main() -> Result<()> {
     // ------------------------------------------------------------------
     // Part 4 — Point-in-time similarity search.
     // ------------------------------------------------------------------
-    section("Part 4/4 — Point-in-time care-pathway similarity (Contribution 5)");
+    section("Part 4/4 — Point-in-time care-pathway similarity");
     let sim = client
         .similar_care_pathways(authed(
             SimilarCarePathwaysRequest {
@@ -348,7 +348,7 @@ async fn main() -> Result<()> {
         if sim.matches.is_empty() {
             println!(
                 "    (no candidates yet — only nodes touched by a live mutation's affected \
-                 subgraph have an embedding at all, per Rule 3's ban on placeholder vectors)"
+                 subgraph have an embedding at all, placeholder vectors are never used)"
             );
         }
     }

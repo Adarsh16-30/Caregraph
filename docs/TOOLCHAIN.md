@@ -2,7 +2,7 @@
 
 CareGraph needs three things beyond a normal Rust project: a Rust toolchain, a
 C++ toolchain (RocksDB compiles from source), and Docker for the baseline
-systems that Rule 4 benchmarks run against.
+systems that the benchmarks run against.
 
 ## Windows
 
@@ -109,7 +109,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ## Known dependency risk: the RocksDB crate version
 
-**PRD 2.1 specifies "rust-rocksdb 0.43+".** That version does not correspond to
+**An earlier spec called for "rust-rocksdb 0.43+".** That version does not correspond to
 the crate this project depends on, and the discrepancy needs resolving before
 the version is treated as settled.
 
@@ -126,30 +126,24 @@ rocksdb = { version = "0.23", features = ["multi-threaded-cf", "lz4"] }
 ```
 
 **Action required at first build:** run `cargo build` and confirm the resolved
-version. If the PRD meant a specific fork rather than the canonical crate,
+version. If a specific fork was intended rather than the canonical crate,
 switch the dependency and re-check the API surface used in `src/storage/kv.rs`
 — particularly `DBWithThreadMode`, `BoundColumnFamily`, and the
 `iterator_cf_opt` signature, which differ between forks.
 
 This is flagged rather than silently resolved because the choice affects the
 encryption-at-rest work in Phase 7: RocksDB's native encryption support is not
-exposed identically across forks, and Rule 8 depends on reaching it.
+exposed identically across forks, and real encryption at rest depends on reaching it.
 
 ## Other version notes
 
-| Dependency | PRD says | Pinned | Note |
+| Dependency | Originally specified | Pinned | Note |
 |-----------|----------|--------|------|
 | RocksDB crate | 0.43+ | `0.23` | See above |
 | tokio | 1.x | `1` | Matches |
 | tonic | 0.11+ | — | Added at Phase 6 |
 | Neo4j | 5.x | `5.26-community` | GDS plugin loaded via `NEO4J_PLUGINS` |
-| TerminusDB | latest | `v11.1.14` | Pinned, not `latest` — a moving baseline makes benchmark numbers untraceable (Rule 10) |
+| TerminusDB | latest | `v11.1.14` | Pinned, not `latest` — a moving baseline makes benchmark numbers untraceable |
 | Prometheus | 2.5x | `v2.55.1` | Matches |
 | Grafana | 10.x | `10.4.14` | Matches |
 
-## Path discrepancy in the PRD
-
-Section 5.2 and Rule 4 refer to `bench/run_baseline.sh`; Section 10's directory
-structure specifies `benchmarks/run_baseline.sh`. This project uses
-**`benchmarks/`**, following the Section 10 layout, and `scripts/check_rules.sh`
-checks that path. Worth correcting in the PRD so the two sections agree.

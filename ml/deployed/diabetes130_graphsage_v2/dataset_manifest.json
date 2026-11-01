@@ -2,7 +2,7 @@
   "model_id": "diabetes130_graphsage_v2",
   "architecture": "GraphSAGE",
   "framework": "pytorch-geometric 2.8.1",
-  "framework_note": "PRD Phase 4 names DGL; DGL 2.x has no distribution for this Python version, and Rule 3 names PyTorch Geometric as equally acceptable.",
+  "framework_note": "Phase 4 names DGL; DGL 2.x has no distribution for this Python version, and PyTorch Geometric is an equally acceptable implementation.",
   "torch": "2.15.0+cpu",
   "trained_at": "2026-11-01T04:17:17.077196+00:00",
   "objective": "unsupervised link prediction (positive edges vs negative sampling)",

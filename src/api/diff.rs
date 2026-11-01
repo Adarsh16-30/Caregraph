@@ -1,15 +1,14 @@
 //! `similarity_delta` (Phase 9, Feature 3) — point-in-time similarity *diff*,
 //! not a second single-timestamp lookup.
 //!
-//! # Why this is a different query shape from Contribution 5
+//! # Why this is a different query shape from similarity search
 //!
 //! [`crate::api::similarity::similar_care_pathways`] answers "who is close to
 //! this care pathway right now (or as of one chosen instant)." This answers a
 //! materially different question: "whose similarity to this care pathway
 //! *changed*, and by how much, between two chosen instants" — a delta over
 //! two versioned snapshots of the same relationship, not a ranking of one
-//! snapshot. Nothing in the PRD's own Contribution 5 or its prior-art
-//! comparison (`docs/novelty_analysis.md`) computes this; a vector index
+//! snapshot. Similarity search alone does not compute this; a vector index
 //! answering "most similar now" has no notion of "now" changing under it at
 //! all, since it holds only current state.
 //!
@@ -161,9 +160,9 @@ pub fn similarity_delta<S: KvStore + ?Sized>(
 
 // `similarity_delta`'s ranking and one-sided-candidate handling are exercised
 // end to end against a real RocksDB fixture in
-// tests/integration/api_endpoint_test.rs (Rule 2's response-variation proof:
-// `(t1, t1)` yields no deltas, `(t1, t2)` yields real ones). Rule 1 forbids a
-// second `KvStore` implementation anywhere in `src/` — including inside a
+// tests/integration/api_endpoint_test.rs (the response-variation proof:
+// `(t1, t1)` yields no deltas, `(t1, t2)` yields real ones). A second
+// `KvStore` implementation is forbidden anywhere in `src/` — including inside a
 // `#[cfg(test)]` module — so this function is not unit-tested against a fake
 // store; `cosine_similarity` and the ranking-comparator logic it reuses are
 // already covered by `similarity.rs`'s own in-file tests.

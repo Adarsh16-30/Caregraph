@@ -1,4 +1,4 @@
-//! Column family definitions — the versioned schema itself (PRD 3.3).
+//! Column family definitions — the versioned schema itself.
 //!
 //! | CF                | Key                                              | Value |
 //! |-------------------|--------------------------------------------------|-------|
@@ -11,7 +11,7 @@
 //! | `CF_META`         | byte-string key (`hwm`, `req:<id>`)               | commit high-water mark, idempotency records |
 //! | `CF_AUDIT`        | chain sequence number (u64 BE)                    | hash-chained audit record of a committed mutation |
 //!
-//! `CF_COMMIT_META` is a Phase 9 addition beyond PRD 3.3's four families. It
+//! `CF_COMMIT_META` is a Phase 9 addition beyond the original four families. It
 //! carries the per-mutation provenance that makes an embedding *explainable*
 //! rather than merely retrievable: which aggregation path ran and why, which
 //! receptive-field caps were in force at that instant, and which edges drove the
@@ -20,7 +20,7 @@
 //!
 //! Each family gets a fixed-length prefix extractor matching the *non-temporal*
 //! portion of its key. That lets RocksDB use prefix bloom filters to skip whole
-//! SST files during a point-in-time seek, which is what keeps Contribution 2's
+//! SST files during a point-in-time seek, which is what keeps
 //! retrieval at O(log n) rather than degrading as version history accumulates.
 
 use rocksdb::{
@@ -130,7 +130,7 @@ pub fn db_options() -> Options {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
-    // Durability is the point of the system (Rule 5); never disable the WAL.
+    // Durability is the point of the system; never disable the WAL.
     opts.set_use_fsync(false);
     let plan = crate::memory::current();
     opts.increase_parallelism((plan.background_jobs as i32).min(num_cpus()));

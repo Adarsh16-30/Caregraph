@@ -1,4 +1,4 @@
-//! Rule 2 ("No Fake Query Endpoints") gate: every RPC must read or write
+//! "No fake query endpoints" gate: every RPC must read or write
 //! through a real layer underneath, and its response must vary with its
 //! input — never a fixed shape regardless of what was asked. This suite
 //! proves that against a real tonic server bound to a real, ephemeral local
@@ -238,7 +238,7 @@ async fn traverse_response_varies_with_max_hops() {
 
     // 1 hop from PATIENT_A reaches only HUB; 2 hops also reaches PATIENT_B
     // through it. A fixed-response endpoint would return the same node set
-    // for both — this is the real variation Rule 2 requires.
+    // for both — this is the real variation required.
     assert!(
         two_hops.nodes.len() > one_hop.nodes.len(),
         "1-hop nodes={:?} 2-hop nodes={:?} — response did not vary with max_hops",

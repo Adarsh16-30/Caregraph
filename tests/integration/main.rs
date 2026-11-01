@@ -2,7 +2,7 @@
 //!
 //! Every test here opens a real RocksDB instance in a temporary directory. There
 //! is no in-memory substitute anywhere in this suite — that is the Phase 1
-//! success criterion and the Rule 1 boundary.
+//! success criterion and the storage boundary.
 
 mod admin_endpoint_test;
 mod api_endpoint_test;

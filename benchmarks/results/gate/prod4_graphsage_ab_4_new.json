@@ -1,6 +1,6 @@
 {
   "benchmark": "incremental_vs_full_recompute",
-  "prd_target": "Phase 4: incremental embedding update at least 5x faster than full recompute",
+  "reference_target": "Phase 4: incremental embedding update at least 5x faster than full recompute",
   "provenance": {
     "generated_at_unix": 1793249906,
     "git_commit": "b213da83150fd3c38cf9c05e935fdc9b3f40c618",

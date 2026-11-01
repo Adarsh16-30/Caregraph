@@ -1,8 +1,8 @@
-//! `caregraph-bench-traversal` — 2-hop bounded traversal latency (PRD Phase 3).
+//! `caregraph-bench-traversal` — 2-hop bounded traversal latency (Phase 3).
 //!
-//! Measures p50/p95/p99 for hop-bounded traversal against the Section 1 target
+//! Measures p50/p95/p99 for hop-bounded traversal against the headline target
 //! of **p95 < 50 ms**, and writes a timestamped raw-results file recording the
-//! commit, command, and machine (Rules 4 and 10).
+//! commit, command, and machine.
 //!
 //! The result file also records the truncation profile of the run — how many
 //! traversals hit a bound. A latency number produced entirely by traversals
@@ -27,7 +27,7 @@ use caregraph::storage::RocksKv;
 use caregraph::types::{NodeId, Timestamp};
 use serde::Serialize;
 
-/// PRD Section 1: 2-hop bounded traversal latency (p95) < 50 ms.
+/// Target: 2-hop bounded traversal latency (p95) < 50 ms.
 const DEFAULT_P95_TARGET_MS: f64 = 50.0;
 const WARMUP_QUERIES: usize = 200;
 
@@ -253,7 +253,7 @@ fn provenance() -> Provenance {
 struct Report {
     benchmark: &'static str,
     system: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     database_path: String,
     trace_path: String,
@@ -455,7 +455,7 @@ fn main() -> Result<()> {
     if provenance.hardware_note.is_none() {
         notes.push(
             "CAREGRAPH_HARDWARE was not set, so no hardware spec is recorded; \
-             Rule 4 requires one before this result is quoted in a report"
+             a hardware spec is required before this result is quoted in a report"
                 .into(),
         );
     }
@@ -463,7 +463,7 @@ fn main() -> Result<()> {
     let report = Report {
         benchmark: "bounded_traversal_latency",
         system: "caregraph",
-        prd_target: "Section 1: 2-hop bounded traversal latency (p95) < 50 ms",
+        reference_target: "2-hop bounded traversal latency (p95) < 50 ms",
         provenance,
         database_path: args.db.clone(),
         trace_path: args.trace.display().to_string(),

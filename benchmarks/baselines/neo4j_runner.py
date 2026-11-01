@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Neo4j Community + GDS baseline runner (PRD Rule 4).
+"""Neo4j Community + GDS baseline runner.
 
 Loads the *identical* mutation trace that CareGraph is loaded from, then times
 the same bounded traversal workload. Same graph, same query shape, same machine
@@ -12,7 +12,7 @@ Three subcommands:
     bench  time bounded traversal and write a timestamped raw-results file
 
 There is no offline mode. If Neo4j is not reachable, this exits non-zero rather
-than emitting a figure from anywhere else (Rule 4).
+than emitting a figure from anywhere else.
 
 Requires: neo4j>=5.0
 """
@@ -84,7 +84,7 @@ def read_trace(path: Path):
             # remove_edge is skipped: Neo4j has no native version timeline, so
             # the baseline graph is the *current* state. This asymmetry is
             # recorded in the results file rather than papered over — it is
-            # precisely the capability gap the PRD is about.
+            # precisely the capability gap this project exists to close.
     if not nodes:
         raise BaselineUnavailable(
             f"{path} contains no nodes; refusing to benchmark an empty graph"
@@ -103,7 +103,7 @@ def cmd_ping(args) -> int:
             "RETURN name AS name, versions[0] AS version"
         ).single()
 
-        # GDS must be present: Rule 4 names "Neo4j Community + Neo4j GDS" as the
+        # GDS must be present: "Neo4j Community + Neo4j GDS" is the
         # baseline, and a plain Neo4j without GDS cannot produce the embedding
         # comparison the later phases need.
         try:
@@ -228,7 +228,7 @@ def cmd_bench(args) -> int:
     if report["provenance"]["hardware_note"] is None:
         report["notes"].append(
             "CAREGRAPH_HARDWARE was not set, so no hardware spec is recorded; "
-            "Rule 4 requires one before this result is quoted in a report"
+            "a hardware spec is required before this result is quoted in a report"
         )
 
     out_dir = Path(args.out_dir)

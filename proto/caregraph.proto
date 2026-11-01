@@ -1,10 +1,10 @@
-// CareGraph gRPC schema (PRD Section 2.4, Phase 6).
+// CareGraph gRPC schema (Phase 6).
 //
 // One service, four capability groups: mutation, traversal, snapshot,
 // similarity — the "full gRPC API surface" Phase 6's Goals name explicitly.
 // Every RPC reads or writes through the real Rust layers underneath
-// (src/api/mod.rs) — Rule 2 forbids a response built from literals rather
-// than a real graph read.
+// (src/api/mod.rs) — a response built from literals rather
+// than a real graph read is forbidden.
 
 syntax = "proto3";
 
@@ -12,25 +12,25 @@ package caregraph.v1;
 
 service CareGraphService {
   // --- Mutation --------------------------------------------------------------
-  // Rule 5: the structural change and its embedding update commit atomically
+  // the structural change and its embedding update commit atomically
   // (AtomicCommitter, src/embedding/atomic_commit.rs) — this is that path's
   // first live caller anywhere in the system.
   rpc AddEdge(AddEdgeRequest) returns (MutationResponse);
   rpc RemoveEdge(RemoveEdgeRequest) returns (MutationResponse);
 
-  // --- Traversal (PRD Phase 3) -------------------------------------------------
+  // --- Traversal (Phase 3) -------------------------------------------------
   rpc Traverse(TraverseRequest) returns (TraverseResponse);
 
-  // --- Snapshot (PRD Phase 3) --------------------------------------------------
+  // --- Snapshot (Phase 3) --------------------------------------------------
   rpc Snapshot(SnapshotRequest) returns (SnapshotResponse);
 
-  // --- Similarity (Contribution 5, Section 5.3) ------------------------------
+  // --- Similarity -------------------------------------------------------------
   rpc SimilarCarePathways(SimilarCarePathwaysRequest) returns (SimilarCarePathwaysResponse);
 
   // --- Similarity delta (Phase 9, Feature 3) ---------------------------------
   // Not a second single-timestamp lookup: this ranks by *change* in
   // similarity between two versioned snapshots of the same pair, a query
-  // shape Contribution 5 does not offer — "who drifted away from this
+  // shape single-timestamp similarity does not offer — "who drifted away from this
   // patient's care pathway between these two dates," not "who is close to it
   // right now." See src/api/diff.rs's module doc.
   rpc SimilarityDelta(SimilarityDeltaRequest) returns (SimilarityDeltaResponse);
@@ -97,7 +97,7 @@ message MutationResponse {
   // Node ids the resolver named as affected — see
   // AffectedSubgraphResolver::resolve.
   repeated uint64 affected_nodes = 1;
-  // Rule 7: true if the embedding update fell back rather than completing
+  // true if the embedding update fell back rather than completing
   // incrementally. Never silently absorbed into "succeeded".
   bool fallback = 2;
   bool fanout_capped = 3;
@@ -232,7 +232,7 @@ message SimilarPathwayMatch {
 message SimilarCarePathwaysResponse {
   // Ranked descending by similarity. The query node itself is excluded —
   // see src/api/similarity.rs's module doc for why that's a deliberate
-  // departure from the PRD's literal pseudocode, not an oversight.
+  // departure from the naive query shape, not an oversight.
   repeated SimilarPathwayMatch matches = 1;
   // The query node had no embedding recorded at or before as_of — it either
   // did not exist yet, or has never been through the mutation pipeline.

@@ -1,4 +1,4 @@
-//! "Kill the process mid-write, verify no partial state" — Rule 5's actual
+//! "Kill the process mid-write, verify no partial state" — the atomicity
 //! claim, tested against the actual failure mode rather than assumed from
 //! `atomic_commit.rs`'s single `store.write(batch)` call reading correctly.
 //!
@@ -23,14 +23,14 @@
 //!
 //! Each iteration seeds a fresh database with two bare nodes and no edge, no
 //! embedding. After the worker is killed (or finishes and exits on its own),
-//! the only two states that are not a Rule 5 violation:
+//! the only two states that are not an atomicity violation:
 //!   - **fully uncommitted**: the edge does not exist as of `ts`, and neither
 //!     node has an embedding as of `ts`.
 //!   - **fully committed**: the edge exists as of `ts`, and both nodes have
 //!     an embedding as of `ts`.
 //!
 //! Anything else — the edge landed without embeddings, or an embedding
-//! landed without the edge — is exactly the non-atomic state Rule 5
+//! landed without the edge — is exactly the non-atomic state the design
 //! forbids, and fails the test.
 //!
 //! # Killing fast, cleaning up separately
@@ -402,7 +402,7 @@ fn atomic_commit_survives_a_kill_at_any_point_in_the_workers_lifetime() {
     run_suite("diabetes130_graphsage", "graphsage", 0xFA07_1E5EC0FFEEu64);
 }
 
-/// Rule 5's "one WriteBatch, regardless of which model is active" claim,
+/// The "one WriteBatch, regardless of which model is active" claim,
 /// exercised against `atomic_commit.rs`'s other dispatch arm
 /// (`staged_incremental_update`) — the associative-model suite above only ever
 /// runs the `aggregate_over_subgraph` arm, so it proves nothing about GAT's

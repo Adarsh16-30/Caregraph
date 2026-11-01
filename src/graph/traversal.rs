@@ -1,4 +1,4 @@
-//! Layer 3 — bounded, hop-limited point-in-time traversal (PRD Phase 3).
+//! Layer 3 — bounded, hop-limited point-in-time traversal (Phase 3).
 //!
 //! Breadth-first expansion over the graph *as it stood at a timestamp*. Every
 //! adjacency read goes through [`TemporalIndex`], so a traversal at `as_of`

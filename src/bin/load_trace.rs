@@ -7,16 +7,16 @@
 //! Structural writes only. Embeddings are *not* written here — they become part
 //! of the commit at Phase 4/5, at which point every mutation goes through
 //! `run_mutation_pipeline` and lands in the same WriteBatch as its embedding
-//! update (Rule 5). Loading a graph without embeddings is honest; loading it
-//! with placeholder embedding vectors would violate Rule 3.
+//! update. Loading a graph without embeddings is honest; loading it
+//! with placeholder embedding vectors would be fabrication.
 //!
 //! Usage:
 //!     caregraph-load --trace benchmarks/traces/diabetes130_smoke_100.jsonl \
 //!                    --db data/db/caregraph
 //!
 //! `--out-dir <DIR>` additionally times the read-plus-batch-write loop below
-//! (Section 1's "sustained ingestion throughput" metric) and writes a
-//! timestamped raw-results JSON there (Rules 4, 10) — this *is* the real
+//! ("sustained ingestion throughput" metric) and writes a
+//! timestamped raw-results JSON there — this *is* the real
 //! Phase 1 ingestion path, not a separate synthetic ingest benchmark, so the
 //! number it produces is the actual bulk-load throughput this binary
 //! delivers, structural writes only (no embedding computation is on this
@@ -141,7 +141,7 @@ struct Provenance {
 #[derive(Serialize)]
 struct IngestReport {
     benchmark: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     trace: String,
     nodes: u64,
@@ -216,7 +216,7 @@ fn main() -> Result<()> {
             } => {
                 let edge_type = decode_edge_type(edge_type, &trace_path, lineno)?;
                 // put_edge mirrors into CF_REVERSE in the same batch, so forward
-                // and reverse adjacency can never disagree (PRD 3.3).
+                // and reverse adjacency can never disagree.
                 writer.put_edge(
                     &mut batch,
                     NodeId(src),
@@ -284,7 +284,7 @@ fn main() -> Result<()> {
 
         let report = IngestReport {
             benchmark: "sustained_ingestion_throughput",
-            prd_target: "Section 1: sustained ingestion throughput 10,000-50,000 edges/sec",
+            reference_target: "sustained ingestion throughput 10,000-50,000 edges/sec",
             provenance: Provenance {
                 generated_at_unix: SystemTime::now()
                     .duration_since(UNIX_EPOCH)

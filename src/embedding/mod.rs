@@ -1,4 +1,4 @@
-//! Layer 4 — Incremental Embedding (PRD 3.1). Phase 4 shipped the associative
+//! Layer 4 — Incremental Embedding. Phase 4 shipped the associative
 //! (GraphSAGE/GCN) path. Phase 5 added `atomic_commit.rs`, wired into
 //! `pipeline.rs` below, and the non-associative GAT path (originally
 //! `gat_incremental.rs`). Phase 9 renamed that module to `staged_incremental.rs`

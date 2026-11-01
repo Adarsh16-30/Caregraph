@@ -1,4 +1,4 @@
-//! Real RocksDB encryption at rest (PRD Section 0, Rule 8).
+//! Real RocksDB encryption at rest.
 //!
 //! The `rocksdb` crate exposes no encryption API at all — its C bindings
 //! (`librocksdb-sys`) never wrap `rocksdb/env_encryption.h`, even though the
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn open_encrypted_env_accepts_a_real_key() {
-        // Real call into the shim — this is Rule 8's actual bar: a live call
+        // Real call into the shim — this is the actual bar: a live call
         // into RocksDB's own encryption API, not just a type that compiles.
         let key = [0x42u8; KEY_LEN];
         open_encrypted_env(&key).expect("a valid 32-byte key must succeed");

@@ -1,7 +1,7 @@
 # Prometheus scrape configuration for the CareGraph dev stack.
 #
-# The caregraph job feeds every Grafana panel. Rule 9 forbids panels backed by a
-# null or unreachable datasource, so a panel may only be added once its series
+# The caregraph job feeds every Grafana panel. Panels backed by a
+# null or unreachable datasource are forbidden, so a panel may only be added once its series
 # actually appear here.
 
 global:

@@ -1,4 +1,4 @@
-//! Server-side query limits (PRD Phase 3).
+//! Server-side query limits (Phase 3).
 //!
 //! These caps are enforced *regardless of what the client asks for*. A request
 //! may lower a bound but never raise one — `clamp` takes the minimum, never the
@@ -15,13 +15,13 @@
 //! A 2-hop traversal from a patient therefore expands
 //! `Patient → Condition → every other patient with that condition`. Without a
 //! per-node fan-out cap, one hop through a common comorbidity pulls in a large
-//! fraction of the cohort, and the Section 1 target of p95 < 50 ms for a 2-hop
+//! fraction of the cohort, and the target of p95 < 50 ms for a 2-hop
 //! traversal is not reachable on the full UKPDS graph at any constant factor.
 //!
 //! When the cap binds, the result says so — see
 //! [`Truncation`](crate::graph::traversal::Truncation). A truncated result
 //! reported as complete would be a silent correctness failure of exactly the
-//! kind Rule 7 exists to prevent.
+//! kind the no-silent-fallback guarantee exists to prevent.
 //!
 //! # How the cap bounds work, not just the result
 //!
@@ -47,7 +47,7 @@
 /// Hard server-side ceilings on traversal work and result size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TraversalLimits {
-    /// Maximum hop depth. The PRD benchmarks 2-hop; 4 leaves headroom for
+    /// Maximum hop depth. The benchmarks use 2-hop; 4 leaves headroom for
     /// exploratory queries without permitting unbounded expansion.
     pub max_hops: u8,
     /// Maximum distinct nodes returned.
@@ -75,7 +75,7 @@ impl Default for TraversalLimits {
 }
 
 impl TraversalLimits {
-    /// Limits for the Section 1 benchmark workload: 2-hop bounded traversal.
+    /// Limits for the headline benchmark workload: 2-hop bounded traversal.
     pub fn benchmark() -> Self {
         TraversalLimits {
             max_hops: 2,

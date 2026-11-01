@@ -2,7 +2,7 @@
 //!
 //! Opens a real RocksDB instance, spawns whichever trained embedding models
 //! are actually deployed under the ML directory, and serves the tonic gRPC API
-//! (PRD Layer 5) — mutation, traversal, snapshot, and similarity, all wired to
+//! — mutation, traversal, snapshot, and similarity, all wired to
 //! real reads and writes (`src/api/mod.rs`). All settings come from the typed,
 //! validated [`caregraph::config::Config`].
 
@@ -119,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("creating database directory {}", parent.display()))?;
     }
 
-    // Rule 8: real encryption at rest. Production refuses to start without a
+    // real encryption at rest. Production refuses to start without a
     // key (Config::validate); in development an unset key warns and runs
     // unencrypted, while a malformed key is always a hard error.
     // The key is either given directly or unwrapped from a stored, wrapped data
@@ -147,13 +147,13 @@ async fn main() -> anyhow::Result<()> {
     };
     let store = match &dek {
         Some(key) => {
-            tracing::info!("encryption at rest enabled (AES-256-CTR, Rule 8)");
+            tracing::info!("encryption at rest enabled (AES-256-CTR)");
             RocksKv::open_with(&path, Some(&key[..]), retention)
                 .with_context(|| format!("opening encrypted RocksDB at {path}"))?
         }
         None => {
             tracing::warn!(
-                "no encryption key is configured — database at {path} is unencrypted.                  Set CAREGRAPH_ENCRYPTION_KEY to a real AES-256 key to enable Rule 8's                  encryption at rest:
+                "no encryption key is configured — database at {path} is unencrypted.                  Set CAREGRAPH_ENCRYPTION_KEY to a real AES-256 key to enable                  encryption at rest:
 
                      export CAREGRAPH_ENCRYPTION_KEY=\"$(openssl rand -hex 32)\"
 "
@@ -169,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("column family {name} is missing"))?;
     }
 
-    // Rule 2's own honesty standard applied to auth: a server that "has auth"
+    // The same honesty standard applied to auth: a server that "has auth"
     // but defaults it to open when unconfigured is a fake auth endpoint. With
     // mTLS the client certificate is the credential; without it the shared key
     // is, and it must be set.

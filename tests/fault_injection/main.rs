@@ -1,4 +1,4 @@
-//! Rule 5 fault injection suite.
+//! Atomic-commit fault injection suite.
 //!
 //! Needs a real trained model (`ml/deployed/diabetes130_graphsage/`) and a
 //! real Python + torch interpreter, same preconditions as

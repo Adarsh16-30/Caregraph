@@ -1,7 +1,7 @@
 {
   "benchmark": "bounded_traversal_latency",
   "system": "caregraph",
-  "prd_target": "Section 1: 2-hop bounded traversal latency (p95) < 50 ms",
+  "reference_target": "2-hop bounded traversal latency (p95) < 50 ms",
   "provenance": {
     "generated_at_unix": 1787582361,
     "git_commit": "d1757bd14a674d5a0cee18f51f99d4b1b9256602",

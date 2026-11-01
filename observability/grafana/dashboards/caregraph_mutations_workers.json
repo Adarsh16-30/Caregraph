@@ -261,7 +261,7 @@
           "refId": "A"
         }
       ],
-      "description": "Must stay under 5% (Rule 7)."
+      "description": "Must stay under 5%."
     },
     {
       "id": 7,

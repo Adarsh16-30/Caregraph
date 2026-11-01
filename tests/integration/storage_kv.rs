@@ -20,7 +20,7 @@ fn all_column_families_are_open() {
             .cf_handle(name)
             .unwrap_or_else(|e| panic!("column family {name} should be open: {e}"));
     }
-    // PRD 3.3 defines exactly four. Two are deliberate, documented additions,
+    // The original design had exactly four. Two are deliberate, documented additions,
     // not drift: Phase 9's `CF_COMMIT_META` (per-mutation dispatch / cap /
     // attribution provenance), and production hardening's `CF_REPAIR` (durable
     // stale-embedding markers) and `CF_META` (commit high-water mark and
@@ -28,7 +28,7 @@ fn all_column_families_are_open() {
     assert_eq!(
         cf::ALL.len(),
         8,
-        "PRD 3.3's four families plus CF_COMMIT_META, CF_REPAIR, CF_META and CF_AUDIT"
+        "the original four families plus CF_COMMIT_META, CF_REPAIR, CF_META and CF_AUDIT"
     );
 }
 
@@ -89,7 +89,7 @@ fn a_write_batch_commits_every_entry_or_none() {
     batch.put_cf(&embeddings, b"n1", b"embedding-state");
     store.write(batch).unwrap();
 
-    // Cross-family batch write is the mechanism Rule 5 depends on; if either
+    // Cross-family batch write is the mechanism the atomic-commit guarantee depends on; if either
     // half were missing here, the atomic-commit guarantee could not hold.
     assert_eq!(
         store.get(cf::CF_NODES, b"n1").unwrap().as_deref(),

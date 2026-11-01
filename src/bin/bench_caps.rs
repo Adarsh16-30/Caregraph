@@ -230,7 +230,7 @@ fn git(args: &[&str]) -> Option<String> {
 #[derive(Serialize)]
 struct Report {
     benchmark: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     model: String,
     model_kind: &'static str,
@@ -375,7 +375,7 @@ fn main() -> Result<()> {
     let n_adaptive = adaptive_p.samples as f64;
     let report = Report {
         benchmark: "cap_controller_ab",
-        prd_target: "informational: does the Feature 2 controller reduce p95 vs. the Phase 4/5 pinned default",
+        reference_target: "informational: does the Feature 2 controller reduce p95 vs. the Phase 4/5 pinned default",
         provenance,
         model: args.model.clone(),
         model_kind: model_kind_str,

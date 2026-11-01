@@ -1,12 +1,12 @@
 # CareGraph Clinical Graph Schema
 
-The graph schema (PRD 2.6, 6.1) was written for the IDPIP UKPDS pipeline: 5,102
+The graph schema was written for the IDPIP UKPDS pipeline: 5,102
 type-2 diabetes patients with 20-year follow-up. That source is not reachable
 from this repository, so the graph actually built and benchmarked here comes from
 the public Diabetes 130-US Hospitals dataset through `data/diabetes130_loader.py`,
 using the **node types and ID namespaces below**. Which properties that loader
 populates, derives or leaves absent is stated in its own module documentation; the
-"Source table" column below is the PRD's UKPDS naming and does not describe the
+"Source table" column below is the original UKPDS naming and does not describe the
 Diabetes 130 columns.
 
 **What the built graph actually contains.** Of the seven node types below, the
@@ -20,14 +20,14 @@ in `docs/benchmark_report.md` §2.3.
 
 Nothing in this schema is invented. Where a field is absent from the source, the
 property is simply absent from the node rather than being filled with a
-placeholder (Rule 6).
+placeholder.
 
 ## Node types
 
 Node IDs are assigned by the loader from a stable, deterministic namespace so
 that reloading the same source produces the same graph.
 
-| Type | ID range | PRD source table (UKPDS) | Key properties |
+| Type | ID range | Original source table (UKPDS) | Key properties |
 |------|----------|--------------|----------------|
 | `Patient` | `1 .. 99_999` | `ukpds.patients` | `sex`, `birth_year`, `enrollment_date`, `treatment_arm` |
 | `Condition` | `100_000 .. 199_999` | `ukpds.conditions` (ICD-coded) | `icd10_code`, `label`, `category` |
@@ -80,7 +80,7 @@ events on one day retain their recorded order rather than colliding.
 ## Value encoding
 
 Node and edge properties are JSON objects. Patient-identifying fields are listed
-explicitly here because Phase 7 encrypts exactly this set at rest (Rule 8):
+explicitly here because Phase 7 encrypts exactly this set at rest:
 
 - `Patient.birth_year`
 - `Patient.enrollment_date`
@@ -94,4 +94,4 @@ and are stored in the clear so that they remain scannable.
 
 The loader records, for every run, the source database, the query used, the row
 counts, and a content hash of the emitted trace. That record is what lets a
-benchmark number be traced back to the exact graph it was measured on (Rule 10).
+benchmark number be traced back to the exact graph it was measured on.

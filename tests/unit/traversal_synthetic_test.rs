@@ -1,4 +1,4 @@
-//! Bounded point-in-time traversal (PRD Phase 3).
+//! Bounded point-in-time traversal (Phase 3).
 //!
 //! Graph shapes are synthetic; the storage engine is a real on-disk RocksDB.
 

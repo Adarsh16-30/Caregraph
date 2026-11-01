@@ -1,6 +1,6 @@
 {
   "benchmark": "sustained_ingestion_throughput",
-  "prd_target": "Section 1: sustained ingestion throughput 10,000-50,000 edges/sec",
+  "reference_target": "sustained ingestion throughput 10,000-50,000 edges/sec",
   "provenance": {
     "generated_at_unix": 1788374319,
     "git_commit": "256dc0d3360224be01cbca12c7e60c5e50cd3366",

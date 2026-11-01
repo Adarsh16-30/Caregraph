@@ -2,7 +2,7 @@
 #
 # Dashboards are added as the metrics that feed them come online (Phase 7), not
 # before. A panel whose query has no series is exactly the "Coming Soon" panel
-# Rule 9 prohibits.
+# this project refuses to ship.
 
 apiVersion: 1
 

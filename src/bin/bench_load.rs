@@ -17,7 +17,7 @@
 //! as `dropped`, never silently skipped.
 //!
 //! **Real workload.** Node ids and mutations are sampled from the real
-//! Diabetes 130 trace (Rule 6) — nothing is generated.
+//! Diabetes 130 trace — nothing is generated.
 //!
 //! **Comparing systems.** `--target neo4j|terminusdb` (feature `baselines`) drives the
 //! same open-loop generator against Neo4j over Bolt or TerminusDB over HTTP, so the

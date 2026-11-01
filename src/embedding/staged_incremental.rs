@@ -1,5 +1,4 @@
-//! Staged incremental update path for non-associative aggregations (PRD 4.1,
-//! Contribution 4). Originally written as `gat_incremental.rs`, hardcoded to
+//! Staged incremental update path for non-associative aggregations. Originally written as `gat_incremental.rs`, hardcoded to
 //! `ModelKind::GAT` — renamed and generalized for Phase 9's manifest-driven
 //! dispatch (see [`crate::embedding::manifest`]), which decides associative
 //! vs. staged from a model's own declared `is_associative` flag rather than a
@@ -25,9 +24,8 @@
 //! recomputing the forward pass over
 //! [`AffectedSubgraphResolver`](crate::embedding::resolver::AffectedSubgraphResolver)'s
 //! resolved subgraph is exact for either aggregation function. "Staged" is
-//! reinterpreted here the same way `atomic_commit.rs` reinterprets PRD 9.2's
-//! pseudocode: not a literal multi-phase algorithm, but the real property
-//! Rule 7 cares about — every embedding this path produces is tagged with
+//! a loose name here, not a literal multi-phase algorithm: the real property
+//! that matters is that every embedding this path produces is tagged with
 //! whichever non-associative [`ComputationPath`] the caller passes in, never
 //! [`ComputationPath::Associative`], so the audit trail can always tell which
 //! aggregation actually produced a given vector.
@@ -94,7 +92,7 @@ pub fn staged_incremental_update<S: KvStore + ?Sized>(
             if !crate::embedding::repair::should_degrade(&e) {
                 return Err(e);
             }
-            // Rule 7: a failure here is logged and counted by the caller
+            // a failure here is logged and counted by the caller
             // (`pipeline.rs` increments `incremental_fallback_total`), never
             // silently treated as "no update needed". Every node left stale
             // is recorded durably (CF_REPAIR) in the same batch as the change.

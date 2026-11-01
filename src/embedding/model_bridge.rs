@@ -1,9 +1,9 @@
-//! Rust side of the boundary to `ml/embedding_server.py` (PRD 2.3's "direct
-//! Rust<->Python boundary", Phase 4's actual deliverable of it).
+//! Rust side of the boundary to `ml/embedding_server.py` (Phase 4's direct
+//! Rust<->Python boundary).
 //!
 //! # Why a subprocess and not PyO3
 //!
-//! PyO3 is what the PRD names. It was tried first, against this machine's
+//! PyO3 is the obvious candidate. It was tried first, against this machine's
 //! real Python 3.14 install, and rejected for a reproducible reason rather
 //! than a guess: `pyo3 0.24`'s build script refuses CPython 3.14 outright
 //! ("the configured Python interpreter version (3.14) is newer than PyO3's
@@ -16,7 +16,7 @@
 //! running it, not a configuration problem to route around.
 //!
 //! A long-lived worker process is the alternative that stays real: an actual
-//! trained PyTorch Geometric model runs an actual forward pass (Rule 3), the
+//! trained PyTorch Geometric model runs an actual forward pass, the
 //! process just lives across the process boundary instead of in it. Workers
 //! are spawned once and kept alive, so PyTorch's import cost is paid once per
 //! worker, not once per mutation.
@@ -144,7 +144,7 @@ impl EmbeddingModel {
     }
 
     /// One real forward pass over `(node_features, edge_index)`, returning the
-    /// rows at `target_indices`. This is the Rule 3 boundary: everything past
+    /// rows at `target_indices`. This is the model boundary: everything past
     /// this call is the trained model's own math, not a stand-in for it.
     pub fn forward(
         &self,

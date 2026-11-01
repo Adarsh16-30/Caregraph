@@ -1,6 +1,6 @@
 {
   "benchmark": "gat_incremental_vs_full_recompute",
-  "prd_target": "Phase 5: GAT incremental embedding update at least 5x faster than full recompute, p95 latency under 100ms",
+  "reference_target": "Phase 5: GAT incremental embedding update at least 5x faster than full recompute, p95 latency under 100ms",
   "provenance": {
     "generated_at_unix": 1793221023,
     "git_commit": "03744dbd285dd0e3ef8f450fb2d871731c7a7402",

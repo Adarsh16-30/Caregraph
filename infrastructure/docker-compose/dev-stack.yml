@@ -1,14 +1,13 @@
-# CareGraph local development stack (PRD Phase 1).
+# CareGraph local development stack (Phase 1).
 #
-# Brings up the CareGraph service alongside the two baseline systems that Rule 4
-# requires benchmarks to run against — real, running Neo4j + GDS and TerminusDB
-# instances, never published numbers — plus the Prometheus/Grafana pair that
-# Rules 7 and 9 depend on.
+# Brings up the CareGraph service alongside the two baseline systems that
+# benchmarks run against — real, running Neo4j + GDS and TerminusDB
+# instances, never published numbers — plus the Prometheus/Grafana pair.
 #
 #   docker compose -f infrastructure/docker-compose/dev-stack.yml up --build
 #       just CareGraph (the default)
 #   ... --profile observability up      adds Prometheus and Grafana
-#   ... --profile baselines up          adds Neo4j and TerminusDB (Rule 4 runs)
+#   ... --profile baselines up          adds Neo4j and TerminusDB (baseline runs)
 #   ... up -d neo4j terminusdb          naming a service starts it without the profile
 #
 # Only CareGraph runs by default: it does not need the baselines, and the two
@@ -41,7 +40,7 @@ services:
       - "9100:9100"     # Prometheus scrape endpoint (Phase 7)
     restart: unless-stopped
 
-  # --- Baseline: traversal + GDS embedding comparison (Rule 4) ---------------
+  # --- Baseline: traversal + GDS embedding comparison ---------------
   neo4j:
     image: neo4j:5.26-community
     container_name: caregraph-neo4j
@@ -69,7 +68,7 @@ services:
       retries: 30
       start_period: 40s
 
-  # --- Baseline: versioning comparison (Rule 4) -----------------------------
+  # --- Baseline: versioning comparison -----------------------------
   terminusdb:
     image: terminusdb/terminusdb-server:v11.1.14
     container_name: caregraph-terminusdb
@@ -84,7 +83,7 @@ services:
     volumes:
       - terminusdb_data:/app/terminusdb/storage
 
-  # --- Observability (Rules 7 and 9) ----------------------------------------
+  # --- Observability ----------------------------------------
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: caregraph-prometheus

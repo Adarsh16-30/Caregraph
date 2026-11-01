@@ -1,4 +1,4 @@
-//! Temporal key encoding — implements Contribution 2: O(log n) point-in-time retrieval.
+//! Temporal key encoding — O(log n) point-in-time retrieval.
 //!
 //! # Why inverted timestamps
 //!
@@ -7,13 +7,12 @@
 //! byte sequence and therefore sorts first within its prefix. A point-in-time
 //! read becomes a single forward seek to `as_of_prefix(..)`, landing directly on
 //! the first version at or before `as_of` — no reverse iterator, no secondary
-//! index. That is the whole of Contribution 2.
+//! index. That is the whole trick.
 //!
-//! # Provenance
+//! # Do not modify
 //!
-//! `encode_edge_key` and `as_of_prefix` are reproduced verbatim from PRD
-//! Section 9.1 ("Critical Code — Provided, Do Not Modify"). Do not substitute,
-//! simplify, or reorder their field layout: the on-disk format and the
+//! `encode_edge_key` and `as_of_prefix` define the on-disk key layout. Do not
+//! substitute, simplify, or reorder their field layout: the on-disk format and the
 //! O(log n) seek property both depend on it.
 
 use crate::types::{EdgeType, NodeId, Timestamp};
@@ -28,7 +27,7 @@ pub const NODE_PREFIX_LEN: usize = NodeId::WIDTH;
 pub const NODE_KEY_LEN: usize = NODE_PREFIX_LEN + Timestamp::WIDTH;
 
 // ---------------------------------------------------------------------------
-// PRD Section 9.1 — provided verbatim. Do not modify.
+// Key encoding — do not modify (on-disk format).
 // ---------------------------------------------------------------------------
 
 pub fn encode_edge_key(src: NodeId, edge_type: EdgeType, ts: Timestamp, dst: NodeId) -> Vec<u8> {
@@ -52,7 +51,7 @@ pub fn as_of_prefix(node_or_edge_prefix: &[u8], as_of: Timestamp) -> Vec<u8> {
 // Supporting encoders, consistent with the layout above.
 // ---------------------------------------------------------------------------
 
-/// Node state key for `CF_NODES`: `[node_id | timestamp_desc]` (PRD 3.3).
+/// Node state key for `CF_NODES`: `[node_id | timestamp_desc]`.
 pub fn encode_node_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
     let mut key = Vec::with_capacity(NODE_KEY_LEN);
     key.extend_from_slice(&node.to_be_bytes());
@@ -62,7 +61,7 @@ pub fn encode_node_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
 
 /// Versioned embedding key for `CF_EMBEDDINGS`: `[node_id | timestamp_desc]`.
 ///
-/// Called by `atomic_commit` (PRD Section 9.2). Shares the node-key layout so
+/// Called by `atomic_commit`. Shares the node-key layout so
 /// that a snapshot read of a node and of its embedding are the same seek.
 pub fn encode_embedding_key(node: NodeId, ts: Timestamp) -> Vec<u8> {
     encode_node_key(node, ts)

@@ -1,6 +1,6 @@
 //! Point-in-time retrieval over a real RocksDB instance.
 //!
-//! Verifies Contribution 2 end to end: with the inverted-timestamp encoding, a
+//! Verifies point-in-time retrieval end to end: with the inverted-timestamp encoding, a
 //! single forward seek lands on the newest version at or before `as_of`. No
 //! reverse iterator, no secondary index, no scan-and-filter.
 //!

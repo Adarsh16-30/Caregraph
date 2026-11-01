@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Persistent GraphSAGE forward-pass worker, called from Rust over stdio.
 
-Rule 3 requires embeddings to come from a real forward pass through a model
+Embeddings must come from a real forward pass through a model
 implemented in DGL or PyTorch Geometric. PyO3 was tried first as the calling
-mechanism the PRD names — verified against this machine's Python 3.14 install
+mechanism originally planned — verified against this machine's Python 3.14 install
 and rejected for a concrete, reproducible reason, not a guess: PyO3 0.24 has no
 support for CPython 3.14 (its own build script refuses to compile), and its
 documented forward-compatibility escape hatch (PYO3_USE_ABI3_FORWARD_COMPATIBILITY,

@@ -1,8 +1,8 @@
 //! The admin gRPC service against a real in-process server and database.
 //!
 //! Each RPC's response is derived from the database it is asked about, so the
-//! tests assert that responses *change* when the underlying state changes
-//! (Rule 2), not just that they have the right shape.
+//! tests assert that responses *change* when the underlying state changes, not just
+//! that they have the right shape.
 
 use std::net::SocketAddr;
 use std::time::Duration;

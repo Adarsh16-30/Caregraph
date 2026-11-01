@@ -4,11 +4,10 @@
 //! the full clinical graph (as opposed to `tests/embedding/attribution_completeness_test.rs`'s
 //! small synthetic fixture).
 //!
-//! There is no PRD target for this — attribution is a Phase 9 addition, not
-//! one of the PRD's original Section 1 metrics — so this binary reports
-//! measured overhead rather than asserting a pass/fail threshold that was
-//! never actually specified (Rule 10 is about not inventing numbers, and an
-//! invented target would be exactly that).
+//! There is no target for this — attribution is a Phase 9 addition, not one
+//! of the original headline metrics — so this binary reports measured
+//! overhead rather than asserting a pass/fail threshold that was never
+//! actually specified (an invented target would be a made-up number).
 //!
 //! Usage:
 //!     caregraph-bench-attribution --db data/db/diabetes130 \
@@ -204,7 +203,7 @@ fn git(args: &[&str]) -> Option<String> {
 #[derive(Serialize)]
 struct Report {
     benchmark: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     model: String,
     model_kind: &'static str,
@@ -399,7 +398,7 @@ fn main() -> Result<()> {
     };
 
     let mut notes = vec![
-        "no PRD target exists for attribution overhead — this is a Phase 9 addition; \
+        "no target exists for attribution overhead — this is a Phase 9 addition; \
          reported as a measurement, not a pass/fail gate"
             .to_string(),
         "attribution computed for the mutation's two endpoints only, not every affected node \
@@ -425,7 +424,7 @@ fn main() -> Result<()> {
 
     let report = Report {
         benchmark: "attribution_overhead",
-        prd_target: "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+        reference_target: "none (Phase 9 addition beyond the original headline metrics)",
         provenance,
         model: args.model.clone(),
         model_kind: model_kind_str,

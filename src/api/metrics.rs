@@ -2,8 +2,8 @@
 //! `observability/prometheus/recording-rules.yaml` has been waiting on since
 //! Phase 1 alongside `embedding::metrics::EmbeddingMetrics`'s mutation-path
 //! series (that module's doc explains the shared history). These two back
-//! the read side: `point_in_time_query_seconds` (Section 1's `as_of` reads)
-//! and `traversal_latency_seconds` (Section 1's bounded traversal), labeled
+//! the read side: `point_in_time_query_seconds` (`as_of` reads)
+//! and `traversal_latency_seconds` (bounded traversal), labeled
 //! by `max_hops` so the recording rule's `{max_hops="2"}` selector has a
 //! real dimension to filter on rather than matching every traversal ever
 //! served regardless of hop count.
@@ -23,12 +23,12 @@ impl ApiMetrics {
     pub fn new(registry: &Registry) -> prometheus::Result<Self> {
         let point_in_time_query_seconds = Histogram::with_opts(HistogramOpts::new(
             "point_in_time_query_seconds",
-            "Point-in-time snapshot read latency (Section 1)",
+            "Point-in-time snapshot read latency ",
         ))?;
         let traversal_latency_seconds = HistogramVec::new(
             HistogramOpts::new(
                 "traversal_latency_seconds",
-                "Bounded traversal latency (Section 1), labeled by requested max_hops",
+                "Bounded traversal latency , labeled by requested max_hops",
             ),
             &["max_hops"],
         )?;

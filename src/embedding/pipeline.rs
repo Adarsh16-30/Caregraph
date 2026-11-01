@@ -1,4 +1,4 @@
-//! `run_mutation_pipeline` (PRD 4.3) — resolve, aggregate, persist, count.
+//! `run_mutation_pipeline` — resolve, aggregate, persist, count.
 //!
 //! "Persist" is `AtomicCommitter::commit` (`atomic_commit.rs`): the
 //! structural mutation and its embedding update land in one `WriteBatch`,
@@ -7,7 +7,7 @@
 //! (GraphSAGE/GCN) and staged aggregations (`staged_incremental.rs`) based on
 //! the active model's own manifest (Phase 9), not a hardcoded model list.
 //! This module owns orchestration and metrics only — timing the call,
-//! counting mutations and fallbacks (Rule 7) — not the write path itself.
+//! counting mutations and fallbacks — not the write path itself.
 //!
 //! # Feeding the cap controller (Phase 9, Feature 2)
 //!

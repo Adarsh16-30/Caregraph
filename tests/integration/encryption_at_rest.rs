@@ -1,4 +1,4 @@
-//! Rule 8 — real encryption at rest, proven by reading the raw on-disk files
+//! Real encryption at rest, proven by reading the raw on-disk files
 //! RocksDB writes, not just by calling the API and trusting it worked.
 //!
 //! Every assertion here is against actual bytes on disk after a real
@@ -67,7 +67,7 @@ fn encrypted_database_hides_plaintext_from_the_raw_files() {
     let raw = read_all_files(dir.path());
     assert!(
         !raw.windows(MARKER.len()).any(|w| w == MARKER),
-        "Rule 8 violation: the plaintext marker is readable in the raw on-disk \
+        "encryption violation: the plaintext marker is readable in the raw on-disk \
          files of an \"encrypted\" database"
     );
 }
@@ -124,7 +124,7 @@ fn encrypted_database_refuses_the_wrong_key() {
                 Ok(value) => assert_ne!(
                     value.as_deref(),
                     Some(MARKER),
-                    "Rule 8 violation: the wrong key decrypted the correct plaintext — \
+                    "encryption violation: the wrong key decrypted the correct plaintext — \
                      encryption is not actually keyed on CAREGRAPH_ENCRYPTION_KEY"
                 ),
             }

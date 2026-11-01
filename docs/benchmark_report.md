@@ -1,10 +1,10 @@
 # CareGraph Benchmark Report — Phases 2–9 and production hardening (P1–P10)
 
-**Status: §§2–7 are CareGraph-only (Phases 2–4). §8 is the Rule 4 three-way
+**Status: §§2–7 are CareGraph-only (Phases 2–4). §8 is the three-way
 comparative benchmark** — Neo4j Community + GDS and TerminusDB were both
 brought up live, loaded with the byte-identical trace, and measured against
 CareGraph on the same 2-hop traversal workload. Read §8's own caveats
-(dirty tree, single uncooled run, one of several Section 1 metrics) before
+(dirty tree, single uncooled run, one of several headline metrics) before
 quoting a cross-system number out of this file.
 
 §9 covers the Phase 9 features. §10 covers the production-hardening work
@@ -43,10 +43,10 @@ Repository, dataset 296. Real, de-identified inpatient records.
 | Graph records | 784,784 (174,298 nodes, 599,497 edges, 10,989 retractions) |
 | Load time | 3.83 s into a real RocksDB instance (39 MB on disk) |
 
-**This is not the UKPDS graph the PRD specifies.** IDPIP's TimescaleDB was not
+**This is not the UKPDS graph the project was originally specified against.** IDPIP's TimescaleDB was not
 reachable, so `IDPIP_DATABASE_URL` could not be set and no UKPDS extract exists
-locally. This dataset was substituted under Rule 6's "another named, cited
-public dataset" clause. It is diabetes-focused inpatient data and structurally
+locally. This dataset was substituted as another named, cited
+public dataset. It is diabetes-focused inpatient data and structurally
 comparable, but it is a substitution and every number here inherits that.
 
 ### What is derived rather than read
@@ -66,9 +66,9 @@ comparable, but it is a substitution and every number here inherits that.
 
 ---
 
-## 2. Results against Section 1 targets
+## 2. Results against the headline targets
 
-Section 1 names six metrics. All six now have a real, measured number below —
+The project names six headline metrics. All six now have a real, measured number below —
 three pass with wide margin, one (incremental update latency, GraphSAGE) is a
 genuine miss on this graph size, and two (GAT incremental latency, sustained
 ingestion throughput) are newly measured in this pass and were not
@@ -102,7 +102,7 @@ An earlier run recorded 0.007/0.015 ms
 thermal state, not the code change (see §3) — both are far enough inside the
 target that the distinction does not matter for the verdict.
 
-The descending-timestamp key encoding (PRD Section 9.1, Contribution 2)
+The descending-timestamp key encoding
 resolves a point-in-time read as a single seek, with no secondary index. The
 margin is large enough that the target is not a meaningful constraint on this
 graph size.
@@ -122,7 +122,7 @@ mean result: 1366.9 nodes, 1564.8 edges
 ```
 
 Measured on a **clean working tree** at commit `d1757bd`, so this figure traces
-to a specific tree state (Rule 10). An earlier identical run on a dirty tree
+to a specific tree state. An earlier identical run on a dirty tree
 recorded p95 8.144 ms; the 8.1 vs 13.0 ms spread across two runs of the same
 code, same seed, same graph is thermal (see §3), not a code difference. The
 slower of the two is quoted here because it is the reproducible one.
@@ -151,8 +151,8 @@ changed — see the semantic caveat in §5.
 [benchmark: benchmarks/results/gate/phase4_incremental_speedup.json]
 
 §7.8 measures this same run's **speedup ratio** against full recompute
-(7.79x median, passing Rule 7's 5x bar) but never checks the absolute
-number against Section 1's separate `< 100 ms` p95 latency target — an
+(7.79x median, passing the 5x bar) but never checks the absolute
+number against the separate `< 100 ms` p95 latency target — an
 omission this report previously left uncorrected. Read directly from that
 file:
 
@@ -166,7 +166,7 @@ incremental  median 820.27 ms   p95 1548.96 ms
 > synchronous p95 to 67 ms. The "~15x" below describes Phase 4, not the current code.
 
 **p95 1548.96 ms was ~15x over the 100 ms target.** This is the honest number
-on the full 174,298-node / 599,497-edge graph the PRD's Phase 4/6 sections
+on the full 174,298-node / 599,497-edge graph the Phase 4/6 targets
 mean; it is not a contradiction of `scripts/run_demo.sh`'s own live mutations
 landing in 9-57 ms (§Live demo, README) — the demo runs against a ~370-node
 seeded graph, where the same bounded-subgraph forward pass has far less to
@@ -226,7 +226,7 @@ embedded RocksDB instance with no network hop and no embedding computation
 in the loop (that computation is what makes the Phase 4/5/6 live-mutation
 path, measured in §2.3/§2.4 and in `scripts/run_demo.sh`, orders of
 magnitude slower per edge) — bulk-loading bare structure was always going to
-be the fastest path this system has, and Section 1's range appears written
+be the fastest path this system has, and the target range appears written
 with a mixed live-mutation workload in mind, not this specific bulk-load
 case. Single machine, single run — §3's thermal-variance finding applies
 here as much as it does to §2.1/§2.2's numbers.
@@ -236,7 +236,7 @@ here as much as it does to §2.1/§2.2's numbers.
 [benchmark: benchmarks/results/gate/phase9_attribution_overhead_graphsage.json]
 [benchmark: benchmarks/results/gate/phase9_attribution_overhead_gat.json]
 
-No PRD target exists for this — attribution is a Phase 9 addition. It is
+No target exists for this — attribution is a Phase 9 addition. It is
 reported here because the number that came back is dramatically worse than
 an earlier back-of-envelope estimate, and that gap is itself the finding
 worth recording plainly.
@@ -304,7 +304,7 @@ p95 reduction: 1.46x
 ```
 
 A real, modest improvement — not the claim that adaptive caps eliminate
-§2.3/§2.4's ~15x latency miss. 799.55 ms remains roughly 8x over the PRD's
+§2.3/§2.4's ~15x latency miss. 799.55 ms remains roughly 8x over the
 100 ms target. The identical 63.3% `expansion_capped_rate` on both arms is
 worth noting explicitly: the pinned default was *already* truncating the
 receptive field on the majority of these real mutations before the
@@ -321,7 +321,7 @@ how often the answer is already an approximation.
 p50 0.056 ms   p95 0.065 ms   p99 0.077 ms   (50 queries, 100% hit rate)
 ```
 
-No PRD target exists for this query either. The population for this run was
+No target exists for this query either. The population for this run was
 6 nodes — real embeddings, seeded via genuine `AtomicCommitter::commit`
 calls through `caregraph-fault-injection-worker`, not a synthetic stand-in —
 so this number characterizes the query mechanism's own cost (two versioned
@@ -354,7 +354,7 @@ this report should be read as upper bounds contaminated by throttling. The
 *relative* comparison in Section 4 is the reliable part, because every
 configuration there was measured under the same cooldown protocol.
 
-Any Rule 4 number intended for publication must come from a thermally
+Any comparative number intended for publication must come from a thermally
 controlled machine, or from a documented cooldown protocol with repeated runs.
 This is a hardware limitation, not a CareGraph one.
 
@@ -422,7 +422,7 @@ scale well beyond what that comment anticipated ("thousands"; actual 54,383).
 
 Note the provider proxy is *less* extreme than insulin or the top conditions, so
 the skew is a property of the clinical data, not an artifact of the
-Section 1 modelling substitution.
+dataset substitution.
 
 ---
 
@@ -434,7 +434,7 @@ away.
 `src/temporal/index.rs` already noted that walking forward from the `as_of` seek
 walks *backward through time* — adjacency arrives newest-first. So the scan can
 stop once it has collected N live neighbours, making a hub cost O(N) instead of
-O(degree). **No change to the key encoding**: Contribution 2's descending
+O(degree). **No change to the key encoding**: the descending
 timestamp layout is precisely what makes early termination correct, since each
 destination's first sighting is already its newest version at or before `as_of`.
 
@@ -472,7 +472,7 @@ dropped.
 
 ---
 
-## 6. Outstanding before any Rule 4 claim
+## 6. Outstanding before any comparative claim
 
 - [x] Neo4j Community + GDS running, identical graph loaded, traversal measured — §8
 - [x] TerminusDB running, identical graph loaded, traversal measured — §8 (load
@@ -485,11 +485,11 @@ dropped.
 - [ ] Real UKPDS graph, or an explicit decision to publish on this substitution
 - [x] Bounded-selection fix, then re-measure the traversal target — §5, p95 13.026 ms
 
-Both Section 1 latency targets in scope for Phases 2 and 3 are now met on real
+Both headline latency targets in scope for Phases 2 and 3 are now met on real
 data, and §8 now gives CareGraph's first real comparative numbers against both
 baselines. What still remains: a thermally controlled protocol, the real
 UKPDS graph, and extending the harness beyond 2-hop traversal to the rest of
-Section 1's metrics three-way.
+the headline metrics three-way.
 
 ---
 
@@ -497,17 +497,17 @@ Section 1's metrics three-way.
 
 ### 7.1 Framework substitution
 
-The PRD's Phase 4 task text names DGL. DGL 2.x is not installable on this
+The original Phase 4 plan names DGL. DGL 2.x is not installable on this
 machine — the package index offers only the 2018-era 0.1.x line for the
-available Python version. PyTorch Geometric is used instead, which Rule 3
-names as an equally acceptable implementation; the deviation is from task
-wording, not from the rule that gates the phase. `torch 2.11.0+cpu`,
+available Python version. PyTorch Geometric is used instead, an equally
+acceptable implementation; the deviation is from the plan's wording, not
+from the requirement that gates the phase. `torch 2.11.0+cpu`,
 `torch_geometric 2.7.0`.
 
 Two smaller Section 2 stack entries are affected by the same substitution
 and were not previously called out:
 
-- **ONNX Runtime (§2.3)** is not used anywhere in this build. The PRD names
+- **ONNX Runtime (§2.3)** is not used anywhere in this build. The original plan names
   it for "serving the trained embedding model at low latency from the Rust
   query path" — that role is filled instead by `ml/embedding_server.py`, a
   persistent subprocess worker (§7.2 explains why a subprocess and not a
@@ -517,7 +517,7 @@ and were not previously called out:
 - **Directory layout**: Section 10 names `ml/embedding/gat_incremental.py`
   and `ml/ripple_plus_reference/`. Neither exists as a separate path — the
   GAT incremental logic lives in `src/embedding/gat_incremental.rs` (Rust,
-  not the PyO3-called Python the PRD's Section 6.2 code sample sketches;
+  not the PyO3-called Python the original plan sketched;
   see §7.2 for why PyO3 itself was dropped) and there is no vendored
   RIPPLE++ reference checkout, only the operator-decoupling *technique*
   RIPPLE++ describes, reimplemented directly in Rust and Python across
@@ -529,7 +529,7 @@ and were not previously called out:
 
 ### 7.2 Calling mechanism substitution
 
-The PRD names PyO3 as the Rust↔Python boundary. Tried first, against this
+The original plan named PyO3 as the Rust↔Python boundary. Tried first, against this
 machine's real Python 3.14 install, and rejected for a reproducible reason:
 
 - `pyo3 0.24`'s build script refuses CPython 3.14 outright — its own maximum
@@ -548,14 +548,14 @@ mutation), real forward passes through the real trained model, communicating
 over newline-delimited JSON on stdio. Warm round-trip: ~2-4 ms for a small
 subgraph.
 
-### 7.3 Trained model (Rule 3)
+### 7.3 Trained model
 
 `ml/train_graphsage.py` trains a 2-layer GraphSAGE (mean aggregation, 32-dim
 output) on the full Diabetes 130 graph via unsupervised link prediction — no
 labels, because the derived timeline (§Dataset) would make any temporal label
 leaky. Loss 0.804 → 0.432 over 60 epochs. Deployed to
 `ml/deployed/diabetes130_graphsage/` with `model.pt`, `model.sha256`, and
-`dataset_manifest.json` — the manifest and checksum Rule 3's gate checks for.
+`dataset_manifest.json` — the manifest and checksum the provenance check looks for.
 
 ### 7.4 A real bug the correctness test caught
 
@@ -692,14 +692,14 @@ figures.
 
 `incremental_fallback_total` was 0 across all 30 real samples and all 400
 correctness-test mutations both before and after these fixes — the fallback
-path exists and is counted (Rule 7) but was never exercised by anything in
+path exists and is counted but was never exercised by anything in
 this session's real workload.
 
 ---
 
-## 8. Phase 6 — three-way comparative benchmark (Rule 4)
+## 8. Phase 6 — three-way comparative benchmark
 
-**Status: complete for 2-hop bounded traversal, CareGraph's own Section 1
+**Status: complete for 2-hop bounded traversal, CareGraph's own headline
 target the harness has covered since Phase 3.** This is the project's first
 run where Neo4j Community + GDS and TerminusDB were both live, loaded with
 the byte-identical trace, and queried — not merely health-checked.
@@ -757,7 +757,7 @@ artifact of the fix, disclosed here rather than smoothed over.
 
 On this machine, this run: CareGraph is **~3.7x faster than Neo4j+GDS** and
 **~11.9x faster than TerminusDB** at p95, on the identical graph and query
-set. Only p95 < 50 ms is a Section 1 target; p50/p99/max are reported for
+set. Only p95 < 50 ms is a headline target; p50/p99/max are reported for
 completeness. Neo4j clears the target with only ~6% headroom — closer to the
 line than CareGraph's ~2.8x margin — and TerminusDB misses it outright.
 
@@ -789,7 +789,7 @@ contaminated.
   A re-run from a clean tree would take another load-plus-measure pass
   (TerminusDB's load alone runs 20–25+ minutes on this dataset); not repeated
   here for that reason.
-- Only 2-hop bounded traversal is compared three-way. Section 1 also names
+- Only 2-hop bounded traversal is compared three-way. The headline metrics also include
   point-in-time node/edge read latency (§2.1, CareGraph-only so far) and
   incremental-embedding speedup (§7, a CareGraph-specific capability neither
   baseline has an equivalent for). Extending `run_baseline.sh` to run
@@ -812,9 +812,9 @@ restating here rather than leaving buried in §2.6:
    per-request opt-in (`explain: bool`), not a default.
 2. **`CF_COMMIT_META`, the new column family carrying attribution/dispatch/
    cap provenance, is written into the same `WriteBatch` as the structural
-   mutation and the embedding** (Rule 5) — `atomic_commit.rs` still issues
-   exactly one batch write, verified statically by `scripts/check_rules.sh`'s
-   Rule 5 gate and now dynamically as well: the fault-injection suite was
+   mutation and the embedding** — `atomic_commit.rs` still issues
+   exactly one batch write, verified statically by `scripts/check_invariants.sh`'s
+   atomic-commit check and now dynamically as well: the fault-injection suite was
    re-run against the real three-way commit, 100 iterations per dispatch
    arm. GraphSAGE landed 57 actual kills (56 fully committed, 44 fully
    uncommitted); GAT landed 94 (6 fully committed, 94 fully uncommitted) —

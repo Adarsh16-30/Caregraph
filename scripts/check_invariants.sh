@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 #
-# check_rules.sh — enforces the ten AI non-negotiable rules of PRD Section 0.
+# check_invariants.sh — enforces CareGraph's project invariants: real storage, real
+# endpoints, real embeddings, real baselines, atomic commits, real clinical data,
+# no silent fallbacks, real encryption and no placeholder dashboards.
 #
-# Every rule reports exactly one of:
+# Every check reports exactly one of:
 #
-#   PASS     the rule is enforced and the check succeeded
-#   FAIL     the rule is violated — always exits non-zero
-#   PENDING  the rule's subject matter does not exist yet (the phase that
+#   PASS     the invariant is enforced and the check succeeded
+#   FAIL     the invariant is violated — always exits non-zero
+#   PENDING  the check's subject matter does not exist yet (the phase that
 #            introduces it has not started)
 #
-# PENDING is deliberately loud and never silent: Rule 0 requires stopping and
-# asking rather than skipping. Pass --phase N at a phase gate and every rule that
-# should be live by phase N is upgraded from PENDING to FAIL.
-#
-# Rule 10 has been retired for this project (it always reports RETIRED, a
-# fourth state counted toward neither PASS, FAIL, nor PENDING) so the list
-# stays numbered 1-10 without renumbering everything below it.
+# PENDING is deliberately loud and never silent. Pass --phase N at a phase gate
+# and every check that should be live by phase N is upgraded from PENDING to FAIL.
 #
 # Usage:
-#   scripts/check_rules.sh                 # report everything, fail on violations
-#   scripts/check_rules.sh --phase 1       # gate: phase-1 rules must be live
-#   scripts/check_rules.sh --rule 5        # run one rule
+#   scripts/check_invariants.sh                      # report everything, fail on violations
+#   scripts/check_invariants.sh --phase 1            # gate: phase-1 checks must be live
+#   scripts/check_invariants.sh --check atomic-commit  # run one check
+#
+# Checks: storage endpoints embeddings baselines atomic-commit clinical-data
+#         fallback encryption dashboards
 
 set -uo pipefail
 
@@ -28,20 +28,21 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 TARGET_PHASE=0
-ONLY_RULE=""
+ONLY_CHECK=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --phase) TARGET_PHASE="$2"; shift 2 ;;
-        --rule)  ONLY_RULE="$2";    shift 2 ;;
-        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+        --check) ONLY_CHECK="$2";   shift 2 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
-# The phase at which each rule becomes enforceable (PRD Section 7).
-declare -A RULE_LIVE_FROM=(
-    [1]=1  [2]=6  [3]=4  [4]=3  [5]=5
-    [6]=1  [7]=4  [8]=7  [9]=7
+# The phase at which each check becomes enforceable.
+declare -A LIVE_FROM=(
+    [storage]=1        [endpoints]=6      [embeddings]=4
+    [baselines]=3      [atomic-commit]=5  [clinical-data]=1
+    [fallback]=4       [encryption]=7     [dashboards]=7
 )
 
 FAILURES=0
@@ -53,7 +54,7 @@ RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BOLD=$'\033[1m'; RESET=$
 pass()    { printf '  %sPASS%s    %s\n' "$GREEN" "$RESET" "$1"; }
 fail()    { printf '  %sFAIL%s    %s\n' "$RED" "$RESET" "$1"; FAILURES=$((FAILURES + 1)); }
 pending() {
-    local rule="$1" msg="$2" live_from="${RULE_LIVE_FROM[$1]}"
+    local check="$1" msg="$2" live_from="${LIVE_FROM[$1]}"
     if (( TARGET_PHASE >= live_from )); then
         fail "$msg (must be live from phase $live_from; gating phase $TARGET_PHASE)"
     else
@@ -61,11 +62,10 @@ pending() {
         PENDINGS=$((PENDINGS + 1))
     fi
 }
-retired() { printf '  %sRETIRED%s  %s\n' "$YELLOW" "$RESET" "$1"; }
 
-header() { printf '\n%sRULE %s — %s%s\n' "$BOLD" "$1" "$2" "$RESET"; }
+header() { printf '\n%s%s — %s%s\n' "$BOLD" "$1" "$2" "$RESET"; }
 
-should_run() { [[ -z "$ONLY_RULE" || "$ONLY_RULE" == "$1" ]]; }
+should_run() { [[ -z "$ONLY_CHECK" || "$ONLY_CHECK" == "$1" ]]; }
 
 # Search non-test Rust sources. Test files (tests/unit/*_synthetic_test.rs and
 # #[cfg(test)] modules) are the only place synthetic stand-ins are permitted.
@@ -79,12 +79,12 @@ python_prod_files() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 1 — No mocked storage or fake persistence
+# storage — no mocked storage or fake persistence
 # ---------------------------------------------------------------------------
-rule_1() {
-    header 1 "NO MOCKED STORAGE OR FAKE PERSISTENCE"
+check_storage() {
+    header storage "NO MOCKED STORAGE OR FAKE PERSISTENCE"
     local files; files="$(rust_prod_files)"
-    if [[ -z "$files" ]]; then pending 1 "no Rust sources to scan"; return; fi
+    if [[ -z "$files" ]]; then pending storage "no Rust sources to scan"; return; fi
 
     # An in-memory map standing in for the storage engine.
     local hits
@@ -114,12 +114,12 @@ rule_1() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 2 — No fake query endpoints
+# endpoints — no fake query endpoints
 # ---------------------------------------------------------------------------
-rule_2() {
-    header 2 "NO FAKE QUERY ENDPOINTS"
+check_endpoints() {
+    header endpoints "NO FAKE QUERY ENDPOINTS"
     if [[ ! -d src/api ]] || ! ls proto/*.proto >/dev/null 2>&1; then
-        pending 2 "no gRPC surface exists yet"; return
+        pending endpoints "no gRPC surface exists yet"; return
     fi
 
     local rpcs endpoint_tests
@@ -132,7 +132,7 @@ rule_2() {
     endpoint_tests="$(find tests/integration -name '*endpoint*' -o -name '*api*' 2>/dev/null | wc -l)"
 
     if (( rpcs == 0 )); then
-        pending 2 "no rpc methods declared in proto/"
+        pending endpoints "no rpc methods declared in proto/"
     elif (( endpoint_tests == 0 )); then
         fail "$rpcs rpc methods declared but no integration test asserts response variation"
     else
@@ -148,10 +148,10 @@ rule_2() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 3 — Embeddings from a real GNN, never random vectors
+# embeddings — computed by a real GNN, never random vectors
 # ---------------------------------------------------------------------------
-rule_3() {
-    header 3 "EMBEDDINGS COMPUTED BY A REAL GNN"
+check_embeddings() {
+    header embeddings "EMBEDDINGS COMPUTED BY A REAL GNN"
     local files; files="$(python_prod_files)"
 
     if [[ -n "$files" ]]; then
@@ -175,22 +175,22 @@ rule_3() {
     done < <(find ml/deployed -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
     if (( tables == 0 )); then
-        pending 3 "no deployed embedding tables to verify"
+        pending embeddings "no deployed embedding tables to verify"
     elif (( missing == 0 )); then
         pass "$tables deployed embedding table(s), each with manifest + checksum"
     fi
 }
 
 # ---------------------------------------------------------------------------
-# RULE 4 — Benchmarks run against real, running baselines
+# baselines — benchmarks run against real, running baselines
 # ---------------------------------------------------------------------------
-rule_4() {
-    header 4 "BENCHMARKS RUN AGAINST REAL BASELINES"
+check_baselines() {
+    header baselines "BENCHMARKS RUN AGAINST REAL BASELINES"
     if [[ ! -x benchmarks/run_baseline.sh ]]; then
         if [[ -f benchmarks/run_baseline.sh ]]; then
             fail "benchmarks/run_baseline.sh is not executable"
         else
-            pending 4 "benchmarks/run_baseline.sh does not exist"
+            pending baselines "benchmarks/run_baseline.sh does not exist"
         fi
         return
     fi
@@ -199,7 +199,7 @@ rule_4() {
     local raw
     raw="$(find benchmarks/results results -name '*_[0-9]*.json' 2>/dev/null | head -1)"
     if [[ -z "$raw" ]]; then
-        pending 4 "no timestamped raw-results file has been produced"
+        pending baselines "no timestamped raw-results file has been produced"
     else
         pass "timestamped raw-results present (e.g. $raw)"
     fi
@@ -217,18 +217,18 @@ rule_4() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 5 — Mutation and embedding update commit atomically
+# atomic-commit — mutation and embedding update commit atomically
 # ---------------------------------------------------------------------------
-rule_5() {
-    header 5 "ATOMIC MUTATION + EMBEDDING COMMIT"
+check_atomic_commit() {
+    header atomic-commit "ATOMIC MUTATION + EMBEDDING COMMIT"
     local commit=src/embedding/atomic_commit.rs
-    if [[ ! -f "$commit" ]]; then pending 5 "src/embedding/atomic_commit.rs does not exist"; return; fi
+    if [[ ! -f "$commit" ]]; then pending atomic-commit "src/embedding/atomic_commit.rs does not exist"; return; fi
 
     # The whole guarantee is that the commit path issues exactly one write.
     local writes
     writes="$(grep -cE '\bdb\.write\(|\.write\(batch\)' "$commit")"
     if (( writes != 1 )); then
-        fail "atomic_commit.rs issues $writes writes; Rule 5 permits exactly 1"
+        fail "atomic_commit.rs issues $writes writes; exactly 1 is permitted"
     else
         pass "atomic_commit.rs issues exactly one batch write"
     fi
@@ -245,15 +245,15 @@ rule_5() {
     if [[ -d tests/fault_injection ]] && find tests/fault_injection -name '*.rs' | grep -q .; then
         pass "fault-injection suite present"
     else
-        pending 5 "no fault-injection suite in tests/fault_injection/"
+        pending atomic-commit "no fault-injection suite in tests/fault_injection/"
     fi
 }
 
 # ---------------------------------------------------------------------------
-# RULE 6 — Real clinical data only for evaluation
+# clinical-data — real clinical data only for evaluation
 # ---------------------------------------------------------------------------
-rule_6() {
-    header 6 "REAL CLINICAL DATA ONLY"
+check_clinical_data() {
+    header clinical-data "REAL CLINICAL DATA ONLY"
     local files; files="$(rust_prod_files) $(python_prod_files)"
     local hits
     hits="$(grep -rnEi 'faker|from faker|lorem|fake_patient|random_patient|generate_(patient|condition|lab)' \
@@ -264,7 +264,7 @@ rule_6() {
         pass "no placeholder-data generators in evaluation paths"
     fi
 
-    # Synthetic fixtures live only where the PRD permits.
+    # Synthetic fixtures live only under tests/unit/.
     hits="$(find src benchmarks data ml -name '*_synthetic_test.*' 2>/dev/null)"
     if [[ -n "$hits" ]]; then
         fail "synthetic test files outside tests/unit/:"; echo "$hits" | sed 's/^/          /'
@@ -274,18 +274,18 @@ rule_6() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 7 — No silent fallback to full recompute
+# fallback — no silent fallback to full recompute
 # ---------------------------------------------------------------------------
-rule_7() {
-    header 7 "NO SILENT FALLBACK TO FULL RECOMPUTE"
-    if [[ ! -d src/embedding ]]; then pending 7 "src/embedding/ does not exist"; return; fi
+check_fallback() {
+    header fallback "NO SILENT FALLBACK TO FULL RECOMPUTE"
+    if [[ ! -d src/embedding ]]; then pending fallback "src/embedding/ does not exist"; return; fi
 
     local fallbacks counter
     fallbacks="$(grep -rn 'ComputationPath::Fallback' src/embedding 2>/dev/null | wc -l)"
     counter="$(grep -rn 'incremental_fallback_total' src 2>/dev/null | wc -l)"
 
     if (( fallbacks == 0 )); then
-        pending 7 "no fallback path implemented yet"
+        pending fallback "no fallback path implemented yet"
     elif (( counter == 0 )); then
         fail "fallback path exists but incremental_fallback_total is never incremented"
     else
@@ -294,10 +294,10 @@ rule_7() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 8 — All encryption is real encryption
+# encryption — all encryption is real encryption
 # ---------------------------------------------------------------------------
-rule_8() {
-    header 8 "REAL ENCRYPTION AT REST"
+check_encryption() {
+    header encryption "REAL ENCRYPTION AT REST"
     local files; files="$(rust_prod_files)"
     local hits
 
@@ -324,18 +324,18 @@ rule_8() {
     then
         pass "storage layer configures RocksDB encryption"
     else
-        pending 8 "at-rest encryption not yet enabled in src/storage/"
+        pending encryption "at-rest encryption not yet enabled in src/storage/"
     fi
 }
 
 # ---------------------------------------------------------------------------
-# RULE 9 — No placeholder dashboards
+# dashboards — no placeholder dashboards
 # ---------------------------------------------------------------------------
-rule_9() {
-    header 9 "NO PLACEHOLDER DASHBOARDS"
+check_dashboards() {
+    header dashboards "NO PLACEHOLDER DASHBOARDS"
     local dashboards
     dashboards="$(find observability/grafana/dashboards -name '*.json' 2>/dev/null)"
-    if [[ -z "$dashboards" ]]; then pending 9 "no Grafana dashboards defined"; return; fi
+    if [[ -z "$dashboards" ]]; then pending dashboards "no Grafana dashboards defined"; return; fi
 
     local bad=0 hits
     hits="$(grep -ln '"datasource"\s*:\s*null' $dashboards 2>/dev/null)"
@@ -350,35 +350,27 @@ rule_9() {
 }
 
 # ---------------------------------------------------------------------------
-# RULE 10 — Retired
-# ---------------------------------------------------------------------------
-rule_10() {
-    header 10 "RETIRED"
-    retired "no claims-document citation check is maintained for this project"
-}
 
-# ---------------------------------------------------------------------------
-
-printf '%sCareGraph — Section 0 rule enforcement%s\n' "$BOLD" "$RESET"
+printf '%sCareGraph — invariant checks%s\n' "$BOLD" "$RESET"
 printf 'repo: %s\n' "$REPO_ROOT"
 (( TARGET_PHASE > 0 )) && printf 'gating at phase %s\n' "$TARGET_PHASE"
 
-for n in 1 2 3 4 5 6 7 8 9 10; do
-    should_run "$n" && "rule_$n"
+for name in storage endpoints embeddings baselines atomic-commit clinical-data fallback encryption dashboards; do
+    should_run "$name" && "check_${name//-/_}"
 done
 
 printf '\n%s────────────────────────────────────────%s\n' "$BOLD" "$RESET"
 if (( FAILURES > 0 )); then
-    printf '%s%s rule violation(s)%s' "$RED" "$FAILURES" "$RESET"
+    printf '%s%s violation(s)%s' "$RED" "$FAILURES" "$RESET"
     (( PENDINGS > 0 )) && printf ', %s pending' "$PENDINGS"
     printf '\n'
     exit 1
 fi
 
 if (( PENDINGS > 0 )); then
-    printf '%sno violations, %s rule(s) pending%s\n' "$GREEN" "$PENDINGS" "$RESET"
-    printf 'Pending rules are not yet enforceable. Re-run with --phase N at each\n'
-    printf 'phase gate; a rule that should be live by then will fail instead.\n'
+    printf '%sno violations, %s check(s) pending%s\n' "$GREEN" "$PENDINGS" "$RESET"
+    printf 'Pending checks are not yet enforceable. Re-run with --phase N at each\n'
+    printf 'phase gate; a check that should be live by then will fail instead.\n'
 else
-    printf '%sall rules enforced and passing%s\n' "$GREEN" "$RESET"
+    printf '%sall checks enforced and passing%s\n' "$GREEN" "$RESET"
 fi

@@ -1,4 +1,4 @@
-//! `IncrementalAggregator` (PRD 4.1) — the associative-model update path for
+//! `IncrementalAggregator` — the associative-model update path for
 //! GraphSAGE and GCN.
 //!
 //! "Incremental" here means bounded-subgraph recompute, not a literal delta
@@ -23,7 +23,7 @@ use crate::types::{ComputationPath, Embedding, ModelKind, Timestamp};
 /// Mutates `ctx.affected`, `ctx.truncation`, and `ctx.embeddings_after`.
 /// Sets `ctx.fallback` and leaves `embeddings_after` empty on any failure —
 /// callers must check it, and the caller is `pipeline::run_mutation_pipeline`,
-/// which counts every fallback (Rule 7) rather than treating an empty result
+/// which counts every fallback rather than treating an empty result
 /// as "nothing to do".
 ///
 /// Thin wrapper over [`aggregate_over_subgraph`]: resolves against whatever
@@ -89,7 +89,7 @@ pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
             if !crate::embedding::repair::should_degrade(&e) {
                 return Err(e);
             }
-            // Rule 7: a failure here is logged and counted by the caller
+            // a failure here is logged and counted by the caller
             // (`pipeline.rs` increments `incremental_fallback_total`), never
             // silently treated as "no update needed". Every node left stale
             // is recorded durably (CF_REPAIR) in the same batch as the change.
@@ -107,7 +107,7 @@ pub fn aggregate_over_subgraph<S: KvStore + ?Sized>(
 }
 
 /// Run the model over a resolved subgraph and label the outputs with their
-/// model identity and computation path (Rule 3's per-embedding provenance).
+/// model identity and computation path (per-embedding provenance).
 fn run_forward_pass<S: KvStore + ?Sized>(
     store: &S,
     model: &EmbeddingModel,

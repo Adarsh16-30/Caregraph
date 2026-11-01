@@ -20,7 +20,7 @@
 # git will not descend into an excluded directory to re-include anything.)
 !/benchmarks/results/gate/
 
-# Real clinical data must never be committed (Rule 6 / PRD 2.7)
+# Real clinical data must never be committed
 /data/raw/
 *.csv
 *.parquet
@@ -34,8 +34,8 @@
 !/benchmarks/traces/*.manifest.json
 
 # ML artifacts. Training checkpoints stay ignored (bulky, reproducible from
-# the trace + the trainer script); the small deployed model that Rule 3's
-# gate checks for is committed, same reasoning as benchmarks/results/gate/.
+# the trace + the trainer script); the small deployed model that the
+# provenance check looks for is committed, same reasoning as benchmarks/results/gate/.
 /ml/checkpoints/
 *.onnx
 *.pt
@@ -44,7 +44,7 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# Secrets — encryption keys are never committed (Rule 8)
+# Secrets — encryption keys are never committed
 *.key
 *.pem
 !/infrastructure/certs/README.md
@@ -55,7 +55,7 @@ __pycache__/
 graphify-out/
 .graphify*
 
-# More secret and key material (Rule 8). `.env.example` would be the one to commit.
+# More secret and key material. `.env.example` would be the one to commit.
 .env.*
 !.env.example
 *.p12

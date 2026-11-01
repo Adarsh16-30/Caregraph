@@ -1,8 +1,8 @@
 //! Per-mutation commit provenance (Phase 9).
 //!
 //! [`CommitMeta`] is the answer to "what did the model know, and when, and
-//! *why did it change*" — the regulator-facing question the PRD's five original
-//! claims never had to answer. It is committed into `CF_COMMIT_META` in the
+//! *why did it change*" — the regulator-facing question the question plain
+//! versioned storage never had to answer. It is committed into `CF_COMMIT_META` in the
 //! same `WriteBatch` as the structural mutation and the embedding it explains
 //! (`atomic_commit.rs`), so it is exactly as durable as the embedding itself.
 //!

@@ -1,4 +1,4 @@
-//! Care-graph snapshot reconstruction (PRD Phase 3).
+//! Care-graph snapshot reconstruction (Phase 3).
 //!
 //! Graph shapes are synthetic; the storage engine is a real on-disk RocksDB.
 

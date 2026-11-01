@@ -58,10 +58,10 @@ name = "caregraph-bench-diff"
 path = "src/bin/bench_diff.rs"
 
 [dependencies]
-# --- Storage & persistence (PRD 2.1) -----------------------------------------
-# NOTE: the PRD specifies "rust-rocksdb 0.43+". `rust-rocksdb` is the name of the
-# GitHub repository; the crate it publishes to crates.io is `rocksdb`, whose own
-# version line is 0.2x. Pinned to the canonical crate here so the build resolves.
+# --- Storage & persistence -----------------------------------------
+# NOTE: `rust-rocksdb` is the name of the GitHub repository; the crate it
+# publishes to crates.io is `rocksdb`, whose own version line is 0.2x. Pinned
+# to the canonical crate here so the build resolves.
 # Confirm against the intended fork at first `cargo build` (see docs/TOOLCHAIN.md).
 rocksdb = { version = "0.23", features = ["multi-threaded-cf", "lz4"] }
 # Needed directly (not just transitively via `rocksdb`) because `rocksdb::ffi`
@@ -72,7 +72,7 @@ rocksdb = { version = "0.23", features = ["multi-threaded-cf", "lz4"] }
 # instance rather than building RocksDB's C++ core twice.
 librocksdb-sys = { version = "0.17.1", default-features = false, features = ["static"] }
 
-# --- Async runtime (PRD 2.2) -------------------------------------------------
+# --- Async runtime -------------------------------------------------
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "fs", "io-util", "net", "time"] }
 
 # --- Serialization -----------------------------------------------------------
@@ -93,15 +93,15 @@ opentelemetry_sdk = { version = "0.27", optional = true, features = ["rt-tokio"]
 opentelemetry-otlp = { version = "0.27", optional = true, default-features = false, features = ["grpc-tonic", "trace"] }
 tracing-opentelemetry = { version = "0.28", optional = true }
 
-# --- Observability (PRD 2.8) -------------------------------------------------
+# --- Observability -------------------------------------------------
 prometheus = "0.14"
 # Serves GET /metrics (Phase 7) — already in the dependency tree transitively
 # via tonic's "router" feature; declared directly here (matching tonic's own
 # "0.7" pin) so src/metrics_server.rs can use its handler/Router API.
 axum = "0.7"
 
-# --- Query & API (PRD 2.4) ----------------------------------------------------
-# PRD names "tonic 0.11+"; pinned to the 0.12 line, the first that builds
+# --- Query & API ----------------------------------------------------
+# tonic is pinned to the 0.12 line, the first that builds
 # cleanly against this toolchain's prost/protobuf transitive versions.
 # "tls" enables rustls-backed mTLS (ServerTlsConfig/ClientTlsConfig, Phase 7) —
 # on both the server (src/main.rs) and, via this same shared dependency, the
@@ -151,7 +151,7 @@ otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", 
 
 [build-dependencies]
 tonic-build = "0.12"
-# --- Real RocksDB encryption at rest (Rule 8) --------------------------------
+# --- Real RocksDB encryption at rest --------------------------------
 # The `rocksdb` crate exposes no encryption API at all — its C API
 # (librocksdb-sys) never wraps rocksdb/env_encryption.h, even though the C++
 # core it statically links already compiles that file in. native/rocksdb_encryption/
@@ -175,8 +175,8 @@ rcgen = "0.13"
 # The OTLP wire types, to run a stand-in collector in the tracing export test.
 opentelemetry-proto = { version = "0.27", default-features = false, features = ["gen-tonic", "trace"] }
 
-# Cargo only auto-discovers test crates at the top level of tests/. The PRD's
-# Section 10 layout puts them in subdirectories, so each suite is declared here.
+# Cargo only auto-discovers test crates at the top level of tests/. The suites
+# live in subdirectories, so each one is declared here.
 [[test]]
 name = "integration"
 path = "tests/integration/main.rs"
@@ -185,15 +185,15 @@ path = "tests/integration/main.rs"
 name = "unit"
 path = "tests/unit/main.rs"
 
-# Needs a real trained model on disk and a real Python + torch interpreter
-# (Rule 3); not run by the default `cargo test` sweep of --lib/--test unit/
-# --test integration, same reason the Rule 4 baselines are not in CI yet.
+# Needs a real trained model on disk and a real Python + torch interpreter;
+# not run by the default `cargo test` sweep of --lib/--test unit/
+# --test integration, same reason the baselines are not in CI yet.
 [[test]]
 name = "embedding"
 path = "tests/embedding/main.rs"
 
-# Spawns and kills the caregraph-fault-injection-worker binary in a loop
-# (Rule 5); needs the worker built first and a real trained model on disk,
+# Spawns and kills the caregraph-fault-injection-worker binary in a loop;
+# needs the worker built first and a real trained model on disk,
 # same preconditions as `embedding` above — not run by the default sweep.
 # One test, one process: it installs the global tracing subscriber.
 [[test]]

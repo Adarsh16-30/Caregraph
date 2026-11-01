@@ -1,24 +1,19 @@
-//! `AtomicCommitter` (PRD Section 9.2, Contribution 1) — the structural
+//! `AtomicCommitter` — the structural
 //! mutation and its embedding update land in one `WriteBatch`, committed with
 //! a single call into the storage engine's own atomic-batch write path.
-//! Rule 5: commit atomically, or not at all.
+//! Commit atomically, or not at all.
 //!
-//! # Reconciling PRD 9.2 with the real code
+//! # How it is built
 //!
-//! The PRD's own atomic-commit sketch is written against names this crate
-//! doesn't have — a `write_mutation` free function, a `cf_embeddings(db)`
-//! accessor, `MutationEvent::committed()`, `ctx.audit_trail` — none of which
-//! exist on the real `MutationContext` (`state.rs`) or anywhere else in this
-//! codebase. Rather than inventing types to match unused pseudocode, this
-//! module is built on the primitives every other layer already anticipated
-//! needing it: [`TemporalWriter`], whose own doc says its staged writes are
+//! Rather than inventing new types, this module is built on the primitives
+//! every other layer already anticipated needing it: [`TemporalWriter`], whose
+//! own doc says its staged writes are
 //! how `write_mutation` "is implemented on top of these primitives at
 //! Phase 5"; [`RocksKv::raw`], documented as "needed by atomic_commit, which
 //! builds a `WriteBatch` against live CF handles"; and
 //! [`encode_embedding_key`]/[`Embedding::serialize`][ser], both already
-//! annotated "called by atomic_commit". What Rule 5 actually requires — one
-//! write, all or nothing — is what this module delivers; the PRD's specific
-//! identifier names were never load-bearing.
+//! annotated "called by atomic_commit". What the design requires — one
+//! write, all or nothing — is what this module delivers.
 //!
 //! [ser]: crate::types::Embedding::serialize
 //!
@@ -309,7 +304,7 @@ impl<'a> AtomicCommitter<'a> {
         // The whole point of building one shared batch above instead of
         // issuing separate writes: this single call either lands every entry
         // staged into it or none of them — the storage engine's own
-        // guarantee for one batch, and the entirety of what Rule 5 requires.
+        // guarantee for one batch, and the entirety of the atomicity requirement.
         let write_started = std::time::Instant::now();
         tracing::info_span!("write").in_scope(|| self.store.write(batch))?;
         ctx.timings.write = write_started.elapsed();
@@ -383,7 +378,7 @@ impl<'a> AtomicCommitter<'a> {
 
     /// Stage one `CommitMeta` record per node whose embedding this mutation
     /// updated, into the same batch `stage_mutation`/`stage_embeddings` wrote
-    /// into — Rule 5 requires the whole commit to reach the store through a
+    /// into — the whole commit must reach the store through a
     /// single write call, so provenance has to ride in this same batch or not
     /// be atomic with the change it explains.
     ///

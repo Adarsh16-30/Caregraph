@@ -1,4 +1,4 @@
-//! Property-based point-in-time correctness (PRD Phase 2).
+//! Property-based point-in-time correctness (Phase 2).
 //!
 //! Phase 2's success criterion: for any sequence of mutations, `as_of(T)` must
 //! match an independently reconstructed reference state, at 20 or more distinct

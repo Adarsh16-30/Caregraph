@@ -1,8 +1,8 @@
-//! Full care-graph snapshot reconstruction (PRD Phase 3).
+//! Full care-graph snapshot reconstruction (Phase 3).
 //!
 //! Answers the question the whole system exists for: *what did this patient's
 //! care graph look like at time T?* — reading directly from the versioned
-//! column families, with no recompute (PRD 3.2, step 10).
+//! column families, with no recompute.
 //!
 //! A snapshot is the patient's own state at `as_of`, plus every live edge from
 //! them at `as_of`, plus the state of each node those edges point at. It is

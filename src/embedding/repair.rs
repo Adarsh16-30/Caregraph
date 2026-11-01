@@ -12,7 +12,7 @@
 //!   `CAREGRAPH_COMMIT_WITHOUT_EMBEDDING=true`; the mutation then commits and
 //!   takes the counted fallback path below.
 //! * **The model itself failed** on this input. The structural change commits,
-//!   the fallback counter (`incremental_fallback_total`, Rule 7) increments, the
+//!   the fallback counter (`incremental_fallback_total`) increments, the
 //!   error is logged, and — new — every node left with a stale embedding gets a
 //!   durable marker in `CF_REPAIR`, written in the *same* batch as the change.
 //!

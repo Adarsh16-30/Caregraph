@@ -1,7 +1,7 @@
 //! CareGraph — a temporally-versioned graph database with incrementally-maintained
 //! GNN embeddings.
 //!
-//! # Layering (PRD 3.1)
+//! # Layering
 //!
 //! | Layer | Module | Status |
 //! |-------|--------|--------|
@@ -14,7 +14,7 @@
 //!
 //! Modules for later phases are deliberately absent rather than stubbed. A stub
 //! that compiles is indistinguishable from an implementation to anything except
-//! a reader, which is precisely the failure mode Section 0 exists to prevent.
+//! a reader, which is precisely the failure mode this project's invariants exist to prevent.
 
 pub mod api;
 pub mod config;

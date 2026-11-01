@@ -1,6 +1,6 @@
 {
   "benchmark": "point_in_time_read_latency",
-  "prd_target": "Section 1: point-in-time snapshot query latency (p95) < 20 ms",
+  "reference_target": "point-in-time snapshot query latency (p95) < 20 ms",
   "provenance": {
     "generated_at_unix": 1787570007,
     "generated_at_iso": "2026-08-24T11:13:27Z",

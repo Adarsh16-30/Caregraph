@@ -3,10 +3,10 @@
 
 Reads the real, de-identified inpatient records published by the UCI Machine
 Learning Repository and emits the same timestamped JSONL mutation trace format
-that `caregraph-load` applies to RocksDB, so the Rule 4 comparison against Neo4j
+that `caregraph-load` applies to RocksDB, so the comparison against Neo4j
 and TerminusDB replays identical input into all three systems.
 
-Dataset (Rule 6 — named, cited public dataset):
+Dataset (named, cited public dataset):
     Strack B, DeShazo JP, Gennings C, et al. "Impact of HbA1c Measurement on
     Hospital Readmission Rates: Analysis of 70,000 Clinical Database Patient
     Records." BioMed Research International, 2014. Article ID 781670.
@@ -94,7 +94,7 @@ EDGE_TYPES = {
     "HAS_ENCOUNTER": 6,
 }
 
-# Quasi-identifying demographics; Phase 7 encrypts exactly these at rest (Rule 8).
+# Quasi-identifying demographics; Phase 7 encrypts exactly these at rest.
 PATIENT_IDENTIFYING = {"race", "gender", "age", "weight"}
 
 # The 23 drug columns. Each holds No / Steady / Up / Down for that encounter.
@@ -172,7 +172,7 @@ def read_encounters(csv_path: Path) -> list[dict[str, str]]:
             "diabetes+130-us+hospitals+for+years+1999-2008.zip\n"
             "    unzip -o data/raw/diabetes130.zip -d data/raw/\n"
             "\n"
-            "Rule 6 prohibits substituting generated patient data, so this\n"
+            "Generated patient data is never substituted, so this\n"
             "loader has no offline mode."
         )
 
@@ -457,7 +457,7 @@ def main() -> int:
         return 1
 
     # The provenance record is what lets a benchmark number be traced back to
-    # the exact graph it was measured on (Rule 10).
+    # the exact graph it was measured on.
     manifest = args.out.with_suffix(args.out.suffix + ".manifest.json")
     manifest.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
 

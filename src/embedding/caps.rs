@@ -77,7 +77,7 @@ pub const LADDER: [CapRung; 5] = [
     },
 ];
 
-/// PRD Phase 5's own success criterion: p95 incremental-update latency under
+/// Phase 5's own success criterion: p95 incremental-update latency under
 /// this is what the controller hill-climbs toward.
 pub const TARGET_P95_MS: f64 = 100.0;
 

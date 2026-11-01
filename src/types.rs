@@ -1,7 +1,7 @@
 //! Core value types shared by every layer of CareGraph.
 //!
 //! The byte-level representations here are load-bearing: `src/temporal/keys.rs`
-//! (PRD Section 9.1, provided verbatim) depends on `NodeId::to_be_bytes`,
+//! depends on `NodeId::to_be_bytes`,
 //! `EdgeType::to_be_bytes`, and `Timestamp::as_u64` existing with exactly these
 //! signatures. Changing a width here changes the on-disk key format.
 
@@ -47,7 +47,7 @@ impl fmt::Display for NodeId {
     }
 }
 
-/// Relationship kinds in the IDPIP/UKPDS-derived care-pathway graph (PRD 2.6).
+/// Relationship kinds in the IDPIP/UKPDS-derived care-pathway graph.
 ///
 /// Discriminants are part of the on-disk key format and must never be
 /// renumbered — only appended to.
@@ -96,7 +96,7 @@ impl EdgeType {
 
 /// A point on the version timeline: microseconds since the Unix epoch.
 ///
-/// Microsecond resolution keeps a full 20-year UKPDS follow-up (PRD 6.1)
+/// Microsecond resolution keeps a full 20-year UKPDS follow-up
 /// well inside u64 while still separating mutations that land in the same
 /// millisecond during a high-throughput ingest replay.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -137,7 +137,7 @@ impl fmt::Debug for Timestamp {
     }
 }
 
-/// Which GNN produced an embedding (PRD 2.3 / Section 4.2).
+/// Which GNN produced an embedding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum ModelKind {
@@ -149,7 +149,7 @@ pub enum ModelKind {
 impl ModelKind {
     /// Whether this model's neighbourhood aggregation is associative, which is
     /// what decides between the `IncrementalAggregator` and `GATUpdatePath`
-    /// branches of the pipeline (PRD 4.1).
+    /// branches of the pipeline.
     pub fn is_associative(self) -> bool {
         matches!(self, ModelKind::GraphSAGE | ModelKind::GCN)
     }
@@ -158,7 +158,7 @@ impl ModelKind {
 /// Which code path actually produced an embedding update.
 ///
 /// Persisted alongside every embedding so that a `Fallback` can never be
-/// silently reported as incremental (Rule 7). `#[repr(u8)]` discriminants are
+/// silently reported as incremental. `#[repr(u8)]` discriminants are
 /// part of this on-disk format and must never be renumbered — only appended
 /// to, exactly like [`EdgeType`]'s own discriminants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,16 +187,16 @@ impl ComputationPath {
     }
 }
 
-/// A versioned node embedding as stored in `CF_EMBEDDINGS` (PRD 3.3).
+/// A versioned node embedding as stored in `CF_EMBEDDINGS`.
 ///
 /// The stored value carries its provenance — model identity and computation
-/// path — so Rule 3 and Rule 7 are auditable directly from the database rather
+/// path — so model provenance and fallback behaviour are auditable directly from the database rather
 /// than from application logs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Embedding {
     pub vector: Vec<f32>,
     /// Identifies the exact trained model, matching the `model_id` recorded in
-    /// the embedding store's `dataset_manifest.json` (Rule 3).
+    /// the embedding store's `dataset_manifest.json`.
     pub model_id: String,
     pub model_kind: ModelKind,
     pub computation_path: ComputationPath,
@@ -225,8 +225,7 @@ impl Embedding {
         self.vector.len()
     }
 
-    /// Value encoding for `CF_EMBEDDINGS`. Called by `atomic_commit`
-    /// (PRD Section 9.2).
+    /// Value encoding for `CF_EMBEDDINGS`. Called by `atomic_commit`.
     ///
     /// Binary format v2: `0x01 | model_kind u8 | computation_path u8 |
     /// model_id_len u16 LE | model_id | dim u32 LE | dim × f32 LE`. A JSON

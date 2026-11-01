@@ -20,7 +20,7 @@ not a batch-computed side artifact.
   - [Mutation lifecycle](#mutation-lifecycle)
   - [Column families](#column-families)
   - [Deletions are tombstones](#deletions-are-tombstones)
-- [The ten non-negotiable rules](#the-ten-non-negotiable-rules)
+- [Project invariants](#project-invariants)
 - [Repository layout](#repository-layout)
 - [License](#license)
 
@@ -120,7 +120,7 @@ docker compose -f infrastructure/docker-compose/dev-stack.yml up --build   # Car
 
 This starts CareGraph alone, which is all a development session needs and keeps the
 stack small. Add `--profile observability` for Prometheus and Grafana, and
-`--profile baselines` for the two systems that Rule 4 requires benchmarks to run
+`--profile baselines` for the two systems the benchmarks are run
 against, Neo4j Community + GDS and TerminusDB; each service has a memory ceiling you
 can set in `.env` (see [docs/memory.md](docs/memory.md)). No environment variables
 are required.
@@ -132,7 +132,7 @@ To work outside Docker you need Rust, and a C++ toolchain for RocksDB. See
 cargo build
 cargo test --lib              # unit tests
 cargo test --test integration # against a real on-disk RocksDB
-bash scripts/check_rules.sh   # Section 0 rule enforcement
+bash scripts/check_invariants.sh   # project invariant checks
 bash scripts/run_demo.sh      # live end-to-end demo, see below
 ```
 
@@ -151,7 +151,7 @@ EOF
 
 | Variable | Why it's required |
 |----------|--------------------|
-| `CAREGRAPH_API_KEY` | Bearer token checked on every gRPC call by the auth interceptor. Unset means the server **refuses to start** rather than serving with auth silently disabled (Rule 2). |
+| `CAREGRAPH_API_KEY` | Bearer token checked on every gRPC call by the auth interceptor. Unset means the server **refuses to start** rather than serving with auth silently disabled. |
 
 Everything else — listener addresses, which model to load, encryption,
 mTLS, attribution step count — has a working default and only needs to be
@@ -274,8 +274,8 @@ has a default: `CAREGRAPH_PYTHON`, if the Python that has `torch` +
 
 ### Loading the clinical graph
 
-The PRD names the IDPIP UKPDS-derived clinical graph (5,102 T2DM patients,
-20-year follow-up) as the evaluation dataset; that source isn't reachable in
+The project was originally specified against the IDPIP UKPDS-derived clinical
+graph (5,102 T2DM patients, 20-year follow-up); that source isn't reachable in
 this environment, so every trace, benchmark, and demo in this repository
 actually runs on the **Diabetes 130-US Hospitals** dataset (UCI id 296)
 instead — a real, cited, public substitute, not synthetic data. Use this
@@ -294,10 +294,10 @@ cargo run --release --bin caregraph-load -- \
 
 `data/diabetes130_loader.py`'s own module doc lists exactly what is derived
 rather than read verbatim from the source file (encounter dates, provider
-identity) — read it before citing a number from this data (Rule 6).
+identity) — read it before citing a number from this data.
 
 **The loader has no synthetic mode.** It exits non-zero if it cannot read the
-real source file (Rule 6). A benchmark measured on invented data is not a
+real source file. A benchmark measured on invented data is not a
 measurement.
 
 ### Live demo
@@ -310,7 +310,7 @@ One command, no manual steps, safe to re-run. It seeds a fresh database from
 a real slice of the Diabetes 130 trace, then replays that slice's final three
 patient encounters live over gRPC instead of through the bulk loader — each
 one committing its structural edge and its GraphSAGE embedding update
-atomically (Rule 5) — and walks through bounded traversal, a before/after
+atomically — and walks through bounded traversal, a before/after
 point-in-time snapshot across those live mutations, and point-in-time
 similarity search against the embeddings they just produced. See
 [docs/api_reference.md](docs/api_reference.md) for what each RPC does, and
@@ -388,7 +388,7 @@ graph TB
 ### Mutation lifecycle
 
 What actually happens inside one `AddEdge`/`RemoveEdge` call — the path that
-Rule 5 (atomicity) and Rule 7 (no silent fallback) are enforced against.
+the atomicity and no-silent-fallback guarantees are enforced against.
 
 ```mermaid
 sequenceDiagram
@@ -419,7 +419,7 @@ sequenceDiagram
     end
     D->>W: embeddings, dispatch decision, effective caps, attribution
     W->>W: single WriteBatch: edge + embedding + CF_COMMIT_META
-    Note over W: all three writes commit together or not at all —<br/>verified by killing the process mid-commit (Rule 5)
+    Note over W: all three writes commit together or not at all —<br/>verified by killing the process mid-commit
     W-->>A: MutationResponse
     A-->>C: response
 ```
@@ -468,23 +468,22 @@ Erasing the key would erase the history that point-in-time reconstruction
 reads, making `as_of(T)` for a `T` before the removal wrongly report that the
 edge never existed. The timeline is append-only.
 
-## The ten non-negotiable rules
+## Project invariants
 
-`scripts/check_rules.sh` continuously enforces ten invariants — real storage
-(no mocks), real trained models (no random vectors), atomic commits, no
-silent fallback to full recompute, real encryption, no placeholder
-dashboards, and benchmark-cited claims among them. Every rule reports
-`PASS`, `FAIL`, or `PENDING`; `PENDING` means the feature it covers hasn't
-been built yet in a from-scratch build.
+`scripts/check_invariants.sh` continuously enforces nine invariants — real storage
+(no mocks), real query endpoints, real trained models (no random vectors),
+benchmarks against real baselines, atomic commits, real clinical data, no
+silent fallback to full recompute, real encryption, and no placeholder
+dashboards. Every check reports `PASS`, `FAIL`, or `PENDING`; `PENDING` means
+the feature it covers hasn't been built yet in a from-scratch build.
 
 ```bash
-bash scripts/check_rules.sh            # report everything
-bash scripts/check_rules.sh --phase 3  # gate: phase-3 rules must be live
-bash scripts/check_rules.sh --rule 5   # one rule
+bash scripts/check_invariants.sh            # report everything
+bash scripts/check_invariants.sh --phase 3  # gate: phase-3 checks must be live
+bash scripts/check_invariants.sh --check atomic-commit   # one check
 ```
 
-`PENDING` is deliberately loud and never silent. Rule 10 has been retired for
-this project and always reports `RETIRED`; rules 1-9 remain fully enforced.
+`PENDING` is deliberately loud and never silent.
 
 ## Repository layout
 
@@ -496,7 +495,7 @@ ml/             GNN training and incremental-update reference
 benchmarks/     Baseline harness and mutation traces
 observability/  Prometheus rules, Grafana provisioning
 infrastructure/ Docker Compose dev stack, Helm chart (helm/caregraph)
-scripts/        check_rules.sh, run_demo.sh
+scripts/        check_invariants.sh, run_demo.sh
 tests/          integration/, unit/, fault_injection/
 docs/           Design notes, benchmark reports, API reference, runbooks
 ```

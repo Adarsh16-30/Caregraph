@@ -1,4 +1,4 @@
-//! `AffectedSubgraphResolver` (PRD 4.1) — which nodes' embeddings a mutation
+//! `AffectedSubgraphResolver` — which nodes' embeddings a mutation
 //! touches, and what a 2-layer model needs to recompute them correctly.
 //!
 //! # Why a mutation on a hub is expensive, honestly

@@ -1,4 +1,4 @@
-# Baseline runner dependencies (PRD Rule 4).
+# Baseline runner dependencies.
 #
 #     pip install -r benchmarks/requirements.txt
 #

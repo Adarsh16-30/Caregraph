@@ -124,7 +124,7 @@ groups:
           runbook: docs/runbooks/worker-crashloop.md
 
       - alert: CareGraphIncrementalFallbackHigh
-        # Rule 7 of the project: full-recompute fallbacks must stay under 5% of writes.
+        # Full-recompute fallbacks must stay under 5% of writes.
         expr: |
           rate(incremental_fallback_total[30m])
             / clamp_min(rate(mutations_total[30m]), 1e-9) > 0.05

@@ -1,6 +1,6 @@
 {
   "benchmark": "attribution_overhead",
-  "prd_target": "none (Phase 9 addition beyond the original PRD's Section 1 metrics)",
+  "reference_target": "none (Phase 9 addition beyond the original headline metrics)",
   "provenance": {
     "generated_at_unix": 1789723658,
     "git_commit": "5c2529d7f603c2c686a248eeeab8d129c6a1b60b",
@@ -91,7 +91,7 @@
     }
   ],
   "notes": [
-    "no PRD target exists for attribution overhead — this is a Phase 9 addition; reported as a measurement, not a pass/fail gate",
+    "no target exists for attribution overhead — this is a Phase 9 addition; reported as a measurement, not a pass/fail gate",
     "attribution computed for the mutation's two endpoints only, not every affected node — see src/embedding/attribution.rs's module doc for the cost this bounds",
     "this run wrote real removal tombstones ahead of each sampled edge (one microsecond earlier) so replaying it as AddEdge was a genuine topology change rather than a structural no-op against the already-fully-loaded trace — run against a scratch copy of the database, not one relied on by other benchmarks",
     "working tree was dirty at run time; not reproducible from the commit alone"

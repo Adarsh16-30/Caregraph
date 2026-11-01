@@ -1,11 +1,11 @@
 //! `caregraph-bench-incremental` — incremental vs. full-recompute embedding
-//! latency (PRD Phase 4).
+//! latency (Phase 4).
 //!
 //! Measures the speedup the bounded-subgraph forward pass
 //! ([`associative::incremental_aggregate`]) gets over the deliberately
 //! unbounded reference ([`associative::full_recompute`]) on real mutations
 //! sampled from the real clinical graph's own trace, and writes a timestamped
-//! raw-results file (Rules 4, 10). Phase 4's success criterion is **at least
+//! raw-results file. Phase 4's success criterion is **at least
 //! 5x** median speedup; this binary asserts it rather than reporting it as a
 //! hope.
 //!
@@ -56,7 +56,7 @@ use caregraph::temporal::TemporalIndex;
 use caregraph::types::{ComputationPath, EdgeType, ModelKind, NodeId, Timestamp};
 use serde::Serialize;
 
-/// PRD Phase 4 success criterion: incremental at least this much faster than
+/// Phase 4 success criterion: incremental at least this much faster than
 /// full recompute, median over sampled mutations.
 const DEFAULT_MIN_SPEEDUP: f64 = 5.0;
 
@@ -328,7 +328,7 @@ fn median(mut v: Vec<f64>) -> f64 {
 #[derive(Serialize)]
 struct Report {
     benchmark: &'static str,
-    prd_target: &'static str,
+    reference_target: &'static str,
     provenance: Provenance,
     model: String,
     model_kind: &'static str,
@@ -585,7 +585,7 @@ fn main() -> Result<()> {
         );
     }
 
-    let (benchmark, prd_target, file_prefix, model_kind_str) = match args.model_kind {
+    let (benchmark, reference_target, file_prefix, model_kind_str) = match args.model_kind {
         ModelKind::GAT => (
             "gat_incremental_vs_full_recompute",
             "Phase 5: GAT incremental embedding update at least 5x faster than full \
@@ -609,7 +609,7 @@ fn main() -> Result<()> {
 
     let report = Report {
         benchmark,
-        prd_target,
+        reference_target,
         provenance,
         model: args.model.clone(),
         model_kind: model_kind_str,
