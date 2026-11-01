@@ -431,8 +431,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let env = open_encrypted_env_with(&[0x42u8; KEY_LEN], failing_random).unwrap();
         let err = open_db(dir.path(), &env)
-            .err()
-            .expect("creating encrypted files must fail without random bytes");
+            .expect_err("creating encrypted files must fail without random bytes");
         assert!(
             err.to_string().contains("random number generator"),
             "unexpected error: {err}"
