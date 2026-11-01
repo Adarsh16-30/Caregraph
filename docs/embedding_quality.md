@@ -5,9 +5,10 @@ Until now the only quality number for the deployed models was their training los
 ones. It does not say the embeddings are useful. This page measures it, on the real
 Diabetes 130 graph, with the deployed models, using a downstream task.
 
-`ml/eval_readmission.py` is the harness. Results are in
-`benchmarks/results/gate/prod11_readmission_eval_graphsage.json` and
-`..._gat.json`.
+`ml/eval_readmission.py` is the harness. Results for the deployed models are in
+`benchmarks/results/gate/prod11_readmission_eval_graphsage.json` and `..._gat.json`; results
+for the richer-feature retrain described below (not deployed) are in the `..._v2.json` files
+beside them.
 
 ## The test
 
@@ -107,15 +108,69 @@ than "this patient has a lot of encounters", the models need more input than nod
 
 Give the models something to learn from beyond node type: the identity of conditions,
 medications and lab results (their codes), and an encounter's own recorded fields as node
-features. That is a change to `build_model_input` in `resolver.rs` (the interface contract
-with the trainers' `NODE_TYPES`), to the trainers and manifests, and a retrain, and it has to
-keep the incremental path exact. It has not been done.
+features.
 
-The bar to apply when it is: re-run this harness with `--model <new model>` and require the
-embedding to beat **clinical + structural** with a paired interval that excludes zero. Until
-then, an embedding that merely rebuilds degree counts has not earned its storage.
+The bar to apply: re-run this harness with `--model <new model>` and require the embedding to
+beat **clinical + structural** with a paired interval that excludes zero. An embedding that
+merely rebuilds degree counts has not earned its storage.
 
 ```
 python ml/eval_readmission.py --trace benchmarks/traces/diabetes130_full.jsonl \
     --model diabetes130_graphsage --samples 20000
 ```
+
+## Attempt 1: richer node features (done; did not clear the bar)
+
+`ml/feature_spec.json` (built by `ml/build_feature_spec.py` from the trace's own value
+vocabularies, derivation reviewable, label and encrypted fields refused by construction —
+see `ml/features.py`'s module doc) replaces the one-hot node type with a 108-dimensional
+vector: the type one-hot, plus, per type, the fields that were sitting unused in the trace —
+an encounter's admission/discharge/source codes and its numeric fields (stay length, counts
+of procedures/medications/diagnoses/lab procedures), a medication's drug identity, a
+provider's specialty, a lab result's assay and result, and a condition's ICD-9 chapter (its
+numbered chapter, V, E, or other — not the raw code, which has 915 distinct values on this
+graph and would mostly be memorised rather than generalised from). `readmitted` and the
+patient's encrypted fields (`age`, `gender`, `race`, `weight`) are on the forbidden list
+`check_spec` enforces.
+
+`train_graphsage.py --features v2` and `train_gat.py --features v2` retrain on it; both
+converge (loss improves, the trainer's own gate that refuses to deploy otherwise). Results:
+`ml/deployed/diabetes130_graphsage_v2/`, `ml/deployed/diabetes130_gat_v2/`,
+`benchmarks/results/gate/prod11_readmission_eval_{graphsage,gat}_v2.json`.
+
+| comparison | GraphSAGE v2 | GAT v2 |
+|---|---|---|
+| embedding (both) vs structural | -0.002 (-0.025 to +0.025) | +0.002 (-0.020 to +0.028) |
+| clinical + structural + embedding vs clinical + structural | +0.005 (-0.003 to +0.013) | +0.005 (+0.0002 to +0.011) |
+
+Neither clears the pre-registered bar. GraphSAGE's interval includes zero outright. GAT's
+excludes it, but only just — the lower bound is +0.0002, not a result to lean on. Read both
+as **no clear win**, not as "GAT passed and GraphSAGE didn't": the two point estimates
+(+0.005, +0.005) are themselves indistinguishable.
+
+**What did change:** how much of the embedding's own variance the neighbourhood's type mix
+alone explains dropped sharply — GraphSAGE's patient embedding from 0.996 (linear fit) to
+0.457; GAT's from 0.989 to 0.616. The embeddings are demonstrably no longer just a
+reconstruction of neighbour-type counts; richer inputs changed what they represent. That
+change did not show up as better 30-day-readmission prediction beyond clinical + structural.
+
+**Reading this result.** Three explanations are consistent with it, and this page does not
+distinguish between them: the signal this task needs may not be reachable from a two-hop
+neighbourhood of this particular derived dataset at all (the loader drops
+`number_inpatient` and the other fields known to carry most of the real predictive power —
+see "What this does not say" above, which still applies); an unsupervised link-prediction
+objective may not be the right pressure to surface it even when the features are present
+(nothing here supervises the model to care about readmission); or a different architecture,
+more depth, or more training may be needed. Plain node-level readmission prediction
+(logistic regression directly on the feature vectors, no graph, no message passing) was not
+tried either, so whether the message passing itself is pulling its weight is still unmeasured.
+
+**What is and is not deployed.** `diabetes130_graphsage_v2` and `diabetes130_gat_v2` are
+committed as evidence, not as a replacement: `src/config.rs`'s `DEFAULT_GRAPHSAGE_MODEL` /
+`DEFAULT_GAT_MODEL` are untouched, so nothing in the running server uses them unless a
+future change deliberately points at them. Given the result above, that change is not
+justified yet.
+
+The `--features v2` flag and the `ml/feature_spec.json` contract are retained either way:
+they are needed for the next attempt (a supervised objective, or the missing fields added
+back to the loader) to start from richer inputs rather than repeating this one.

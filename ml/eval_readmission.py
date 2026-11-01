@@ -60,6 +60,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from embedding_server import load_model  # noqa: E402
+import features as feature_defs  # noqa: E402
 
 # Must match src/embedding/resolver.rs::NODE_TYPES and ml/train_graphsage.py.
 NODE_TYPES = ["Patient", "Condition", "Medication", "Provider", "LabResult", "Encounter"]
@@ -87,6 +88,7 @@ class Graph:
     def __init__(self) -> None:
         self.type: dict[int, str] = {}
         self.encounter_props: dict[int, dict] = {}
+        self.props: dict[int, dict] = {}
         self.encounter_us: dict[int, int] = {}
         # node -> [(ts, neighbour, +1 added / -1 removed)], both directions, sorted by ts
         self.adj: dict[int, list[tuple[int, int, int]]] = {}
@@ -129,6 +131,7 @@ def read_trace(path: Path) -> Graph:
             if op == "upsert_node":
                 nid = r["node_id"]
                 g.type[nid] = r["node_type"]
+                g.props[nid] = r.get("properties", {})
                 if r["node_type"] == "Encounter":
                     g.encounter_props[nid] = r["properties"]
                     g.encounter_us[nid] = r["timestamp_us"]
@@ -172,7 +175,30 @@ def clinical(props: dict, categories: dict[str, list[str]]) -> np.ndarray:
     return np.array(row, float)
 
 
-def embed_batch(model, g: Graph, samples: list[tuple[int, int, int]], ring2: int):
+class NodeFeatures:
+    """The model's input row for every node, computed once from the shared feature spec.
+
+    With no spec the rows are the one-hot node type the first models were trained on.
+    """
+
+    def __init__(self, g: Graph, spec: dict | None) -> None:
+        self.row = {n: i for i, n in enumerate(g.type)}
+        if spec is None:
+            m = torch.zeros(len(self.row), len(NODE_TYPES))
+            for n, i in self.row.items():
+                m[i, TYPE_INDEX[g.type[n]]] = 1.0
+        else:
+            m = torch.tensor(
+                [feature_defs.featurize(spec, g.type[n], g.props.get(n)) for n in self.row],
+                dtype=torch.float32,
+            )
+        self.matrix = m
+
+    def rows(self, nodes: list[int]) -> torch.Tensor:
+        return self.matrix[torch.tensor([self.row[n] for n in nodes])]
+
+
+def embed_batch(model, g: Graph, samples: list[tuple[int, int, int]], ring2: int, feats: NodeFeatures):
     """Embeddings of (encounter, patient) for each sample, each over its own as-of graph."""
     xs, srcs, dsts, rows = [], [], [], []
     base = 0
@@ -197,15 +223,14 @@ def embed_batch(model, g: Graph, samples: list[tuple[int, int, int]], ring2: int
             for m in g.live_neighbours(n, t, ring2):
                 edges.add((idx(n), idx(m)))
         order = sorted(local, key=local.get)
-        xs.extend(TYPE_INDEX[g.type[n]] for n in order)
+        xs.append(feats.rows(order))
         for a, b in edges:
             if a != b:
                 srcs.extend((a + base, b + base))
                 dsts.extend((b + base, a + base))
         rows.append((base + local[enc], base + local[pat]))
         base += len(local)
-    x = torch.zeros(base, len(NODE_TYPES))
-    x[torch.arange(base), torch.tensor(xs)] = 1.0
+    x = torch.cat(xs)
     ei = torch.tensor([srcs, dsts], dtype=torch.long)
     with torch.no_grad():
         z = model(x, ei)
@@ -306,11 +331,19 @@ def main() -> None:
 
     model, _ = load_model(Path(__file__).resolve().parent / "deployed" / args.model)
     samples = [(e, g.encounter_patient[e], g.encounter_us[e] + BLOCK_US) for e in sample_enc]
+    in_dim = model.conv1.in_channels if hasattr(model.conv1, "in_channels") else None
+    spec = None
+    if in_dim != len(NODE_TYPES):
+        spec = feature_defs.load_spec()
+        if in_dim != feature_defs.dimension(spec):
+            raise SystemExit(f"{args.model} takes {in_dim} inputs; neither the type one-hot nor ml/feature_spec.json")
+    feats = NodeFeatures(g, spec)
+    print(f"model input: {'ml/feature_spec.json' if spec else 'node type one-hot'}, {feats.matrix.size(1)} dimensions")
 
     print(f"embedding {n:,} encounters with {args.model} (as-of, causal) ...", flush=True)
     enc_emb, pat_emb = [], []
     for i in range(0, n, 1_000):
-        a, b = embed_batch(model, g, samples[i : i + 1_000], args.ring2)
+        a, b = embed_batch(model, g, samples[i : i + 1_000], args.ring2, feats)
         enc_emb.append(a)
         pat_emb.append(b)
         if (i // 1_000) % 5 == 0:

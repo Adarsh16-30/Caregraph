@@ -1,0 +1,115 @@
+{
+  "benchmark": "readmission_30d_causal",
+  "model": "diabetes130_graphsage_v2",
+  "trace": "benchmarks\\traces\\diabetes130_full.jsonl",
+  "samples": 20000,
+  "seed": 0,
+  "ring2_cap": 16,
+  "train": 14000,
+  "test": 6000,
+  "positive_rate_test": 0.10733333333333334,
+  "results": {
+    "structural": {
+      "auc": 0.6328987865237338,
+      "auc_ci95": [
+        0.6101550904537238,
+        0.6549952806569118
+      ],
+      "average_precision": 0.17308886919953728,
+      "dims": 5
+    },
+    "clinical": {
+      "auc": 0.6003732970280037,
+      "auc_ci95": [
+        0.5799891931769394,
+        0.6227109304500246
+      ],
+      "average_precision": 0.15529939145582033,
+      "dims": 56
+    },
+    "embedding (encounter)": {
+      "auc": 0.6038544744617982,
+      "auc_ci95": [
+        0.5803518127522752,
+        0.628037081634135
+      ],
+      "average_precision": 0.14545764216359217,
+      "dims": 32
+    },
+    "embedding (patient)": {
+      "auc": 0.6088588754006652,
+      "auc_ci95": [
+        0.5886866900712713,
+        0.628946148195833
+      ],
+      "average_precision": 0.15474633288496928,
+      "dims": 32
+    },
+    "embedding (both)": {
+      "auc": 0.6311407303123217,
+      "auc_ci95": [
+        0.6090406998234731,
+        0.6523122308552598
+      ],
+      "average_precision": 0.16700760375586357,
+      "dims": 64
+    },
+    "clinical + structural": {
+      "auc": 0.6570036390371975,
+      "auc_ci95": [
+        0.6321420581414781,
+        0.6781365949202717
+      ],
+      "average_precision": 0.18588957366556402,
+      "dims": 61
+    },
+    "clinical + embedding": {
+      "auc": 0.6498618255952574,
+      "auc_ci95": [
+        0.6275219986891281,
+        0.6683238446062917
+      ],
+      "average_precision": 0.1847645963557144,
+      "dims": 120
+    },
+    "clinical + structural + embedding": {
+      "auc": 0.6618675752276427,
+      "auc_ci95": [
+        0.6383188935258878,
+        0.680093324175581
+      ],
+      "average_precision": 0.1882870999299154,
+      "dims": 125
+    }
+  },
+  "paired_differences": {
+    "clinical + embedding  vs  clinical": {
+      "delta_auc": 0.04948852856725372,
+      "ci95": [
+        0.033140693027092355,
+        0.0660583107716332
+      ]
+    },
+    "clinical + structural + embedding  vs  clinical + structural": {
+      "delta_auc": 0.004863936190445228,
+      "ci95": [
+        -0.0028307465388388627,
+        0.012509966443002894
+      ]
+    },
+    "embedding (both)  vs  structural": {
+      "delta_auc": -0.0017580562114121179,
+      "ci95": [
+        -0.024782215253121086,
+        0.025258919985109145
+      ]
+    }
+  },
+  "embedding_variance_explained_by_type_mix": {
+    "patient_embedding_from_type_mix_linear": 0.45739112994359554,
+    "patient_embedding_from_type_mix_quadratic": 0.4685701750241055,
+    "encounter_embedding_from_type_mix_quadratic": 0.06667025879373267
+  },
+  "elapsed_seconds": 26.32382607460022,
+  "torch": "2.15.0+cpu"
+}

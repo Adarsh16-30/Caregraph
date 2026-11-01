@@ -1,0 +1,39 @@
+{
+  "model_id": "diabetes130_gat_v2",
+  "architecture": "GAT",
+  "framework": "pytorch-geometric 2.8.1",
+  "torch": "2.15.0+cpu",
+  "trained_at": "2026-11-01T04:24:03.575644+00:00",
+  "objective": "unsupervised link prediction (positive edges vs negative sampling)",
+  "aggregation": "attention (softmax over each node's own neighbours)",
+  "is_associative": false,
+  "attention_heads": 4,
+  "layers": 2,
+  "embedding_dim": 32,
+  "epochs": 60,
+  "learning_rate": 0.005,
+  "seed": 42,
+  "final_loss": 0.5361691117286682,
+  "initial_loss": 0.7181708812713623,
+  "dataset": {
+    "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl",
+    "trace_sha256": "f755e44882055115677d1dcdb0ba70012cc4e99384024e40d8c669ea4628cfe4",
+    "nodes": 174298,
+    "live_edges": 515117,
+    "node_type_counts": {
+      "Patient": 71518,
+      "Condition": 915,
+      "Medication": 21,
+      "Provider": 72,
+      "LabResult": 6,
+      "Encounter": 101766
+    },
+    "in_dim": 108,
+    "as_of_us": null,
+    "feature_spec_sha256": "9b2d73fb97d908b8f9570b9e2562788cfc98dedcd6ac0bf2e83b48deda836f9d",
+    "feature_encoding": "ml/feature_spec.json v2, 108 dimensions: node type plus non-sensitive node properties; no readmission label and no encrypted field"
+  },
+  "model_sha256": "cad2c3f0a5dc797961aceb35e6c59edc615396a855c4dc4569fc586518a451f0",
+  "node_feature_encoding": "ml/feature_spec.json v2, 108 dimensions: node type plus non-sensitive node properties; no readmission label and no encrypted field",
+  "feature_spec_sha256": "9b2d73fb97d908b8f9570b9e2562788cfc98dedcd6ac0bf2e83b48deda836f9d"
+}

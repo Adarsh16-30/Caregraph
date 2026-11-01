@@ -30,6 +30,9 @@ from torch_geometric.data import Data
 from torch_geometric.nn import GATConv
 from torch_geometric.utils import negative_sampling
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import features as feature_defs  # noqa: E402  (the one definition of node features)
+
 # Must match train_graphsage.py's NODE_TYPES exactly — this is the interface
 # contract with src/embedding/resolver.rs::NODE_TYPES on the Rust side.
 NODE_TYPES = ("Patient", "Condition", "Medication", "Provider", "LabResult", "Encounter")
@@ -77,7 +80,7 @@ class GATEncoder(torch.nn.Module):
         return self.conv2(h, edge_index)
 
 
-def read_graph(trace_path: Path, as_of: int | None) -> tuple[Data, dict]:
+def read_graph(trace_path: Path, as_of: int | None, spec: dict | None = None) -> tuple[Data, dict]:
     """Identical to train_graphsage.py's read_graph — same trace, same
     retraction-aware reconstruction. Duplicated rather than imported so this
     script has no import-time dependency on the sibling trainer; the two are
@@ -92,6 +95,7 @@ def read_graph(trace_path: Path, as_of: int | None) -> tuple[Data, dict]:
         )
 
     node_type: dict[int, str] = {}
+    node_props: dict[int, dict] = {}
     live: dict[tuple[int, int, int], int] = {}
 
     with trace_path.open(encoding="utf-8") as fh:
@@ -106,6 +110,7 @@ def read_graph(trace_path: Path, as_of: int | None) -> tuple[Data, dict]:
             op = r.get("op")
             if op == "upsert_node":
                 node_type[r["node_id"]] = r.get("node_type", "Unknown")
+                node_props[r["node_id"]] = r.get("properties", {})
             elif op == "add_edge":
                 live[(r["src"], r["dst"], r["edge_type"])] = ts
             elif op == "remove_edge":
@@ -120,11 +125,17 @@ def read_graph(trace_path: Path, as_of: int | None) -> tuple[Data, dict]:
     ids = sorted({n for e in live for n in (e[0], e[1])} | set(node_type))
     index = {nid: i for i, nid in enumerate(ids)}
 
-    x = torch.zeros(len(ids), len(NODE_TYPES))
-    for nid, i in index.items():
-        t = node_type.get(nid)
-        if t in NODE_TYPES:
-            x[i, NODE_TYPES.index(t)] = 1.0
+    if spec is None:
+        x = torch.zeros(len(ids), len(NODE_TYPES))
+        for nid, i in index.items():
+            t = node_type.get(nid)
+            if t in NODE_TYPES:
+                x[i, NODE_TYPES.index(t)] = 1.0
+    else:
+        x = torch.tensor(
+            [feature_defs.featurize(spec, node_type.get(nid, "Unknown"), node_props.get(nid)) for nid in ids],
+            dtype=torch.float32,
+        )
 
     src = [index[s] for (s, _, _) in live]
     dst = [index[d] for (_, d, _) in live]
@@ -133,7 +144,8 @@ def read_graph(trace_path: Path, as_of: int | None) -> tuple[Data, dict]:
     stats = {
         "nodes": len(ids),
         "live_edges": len(live),
-        "node_type_counts": {t: int(x[:, i].sum().item()) for i, t in enumerate(NODE_TYPES)},
+        "node_type_counts": {t: sum(1 for n in ids if node_type.get(n) == t) for t in NODE_TYPES},
+        "in_dim": int(x.size(1)),
         "as_of_us": as_of,
     }
     return Data(x=x, edge_index=edge_index), stats
@@ -183,7 +195,8 @@ def deploy(model: GATEncoder, stats: dict, losses: list[float], args, trace_path
         {
             "state_dict": model.state_dict(),
             "architecture": "GAT",
-            "in_dim": len(NODE_TYPES),
+            "in_dim": stats["in_dim"],
+            "feature_spec_sha256": stats.get("feature_spec_sha256"),
             "hidden_dim": args.dim * 2,
             "out_dim": args.dim,
             "heads": args.heads,
@@ -218,7 +231,8 @@ def deploy(model: GATEncoder, stats: dict, losses: list[float], args, trace_path
             **stats,
         },
         "model_sha256": digest,
-        "node_feature_encoding": "one-hot node type; no clinical attributes as features",
+        "node_feature_encoding": stats["feature_encoding"],
+        "feature_spec_sha256": stats.get("feature_spec_sha256"),
     }
     (out_dir / "dataset_manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
@@ -237,10 +251,21 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--as-of", type=int, default=None,
                    help="build the graph as it stood at this timestamp (default: latest)")
+    p.add_argument("--features", choices=("type", "v2"), default="type",
+                   help="type: one-hot node type only (the deployed models). v2: ml/feature_spec.json")
     args = p.parse_args()
 
     try:
-        data, stats = read_graph(args.trace, args.as_of)
+        spec = feature_defs.load_spec() if args.features == "v2" else None
+        data, stats = read_graph(args.trace, args.as_of, spec)
+        if spec is None:
+            stats["feature_encoding"] = "one-hot node type; no clinical attributes as features"
+        else:
+            stats["feature_spec_sha256"] = feature_defs.spec_sha256()
+            stats["feature_encoding"] = (
+                f"ml/feature_spec.json v{spec['version']}, {stats['in_dim']} dimensions: node type plus "
+                "non-sensitive node properties; no readmission label and no encrypted field"
+            )
     except SourceUnavailable as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

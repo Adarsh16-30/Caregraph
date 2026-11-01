@@ -1,0 +1,39 @@
+{
+  "model_id": "diabetes130_graphsage_v2",
+  "architecture": "GraphSAGE",
+  "framework": "pytorch-geometric 2.8.1",
+  "framework_note": "PRD Phase 4 names DGL; DGL 2.x has no distribution for this Python version, and Rule 3 names PyTorch Geometric as equally acceptable.",
+  "torch": "2.15.0+cpu",
+  "trained_at": "2026-11-01T04:17:17.077196+00:00",
+  "objective": "unsupervised link prediction (positive edges vs negative sampling)",
+  "aggregation": "mean",
+  "is_associative": true,
+  "layers": 2,
+  "embedding_dim": 32,
+  "epochs": 60,
+  "learning_rate": 0.01,
+  "seed": 42,
+  "final_loss": 0.43255481123924255,
+  "initial_loss": 0.7037190794944763,
+  "dataset": {
+    "trace_path": "benchmarks\\traces\\diabetes130_full.jsonl",
+    "trace_sha256": "f755e44882055115677d1dcdb0ba70012cc4e99384024e40d8c669ea4628cfe4",
+    "nodes": 174298,
+    "live_edges": 515117,
+    "node_type_counts": {
+      "Patient": 71518,
+      "Condition": 915,
+      "Medication": 21,
+      "Provider": 72,
+      "LabResult": 6,
+      "Encounter": 101766
+    },
+    "in_dim": 108,
+    "as_of_us": null,
+    "feature_spec_sha256": "9b2d73fb97d908b8f9570b9e2562788cfc98dedcd6ac0bf2e83b48deda836f9d",
+    "feature_encoding": "ml/feature_spec.json v2, 108 dimensions: node type plus non-sensitive node properties; no readmission label and no encrypted field"
+  },
+  "model_sha256": "0594a4a6f72e4057b87043f542c07fdbfd424819071faea3ddbf59e38a13de2c",
+  "node_feature_encoding": "ml/feature_spec.json v2, 108 dimensions: node type plus non-sensitive node properties; no readmission label and no encrypted field",
+  "feature_spec_sha256": "9b2d73fb97d908b8f9570b9e2562788cfc98dedcd6ac0bf2e83b48deda836f9d"
+}
