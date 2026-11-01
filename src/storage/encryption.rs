@@ -43,7 +43,14 @@ struct CipherOps {
     encrypt: unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8),
     decrypt: unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8),
     destroy: unsafe extern "C" fn(*mut std::ffi::c_void),
+    /// Fills a buffer from the OS CSPRNG; 0 on success. Used for each new file's prefix
+    /// (see the long comment on `SecurePrefixProvider` in the shim for why).
+    fill_random: unsafe extern "C" fn(*mut u8, usize) -> i32,
 }
+
+// The shim asserts the same size (`static_assert` on `caregraph_cipher_ops`); a mismatch
+// between the two declarations would be silent memory corruption.
+const _: () = assert!(std::mem::size_of::<CipherOps>() == 5 * std::mem::size_of::<usize>());
 
 /// AES block size in bytes.
 const BLOCK: usize = 16;
@@ -71,6 +78,19 @@ unsafe extern "C" fn destroy_cipher(ctx: *mut std::ffi::c_void) {
     drop(unsafe { Box::from_raw(ctx as *mut Aes256) });
 }
 
+/// The prefix source in production: the operating system's CSPRNG. Failing closed matters:
+/// the shim refuses to create the file if this returns non-zero, instead of using anything
+/// weaker.
+unsafe extern "C" fn os_random(buf: *mut u8, len: usize) -> i32 {
+    use aes_gcm::aead::rand_core::RngCore;
+    // SAFETY: the shim passes a writable buffer of `len` bytes (RocksDB's prefix block).
+    let buf = unsafe { std::slice::from_raw_parts_mut(buf, len) };
+    match aes_gcm::aead::OsRng.try_fill_bytes(buf) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
 extern "C" {
     // Declared in native/rocksdb_encryption/shim.cc. Returns a real
     // rocksdb_env_t* (RocksDB's C API's own struct layout — see that file's
@@ -92,6 +112,16 @@ extern "C" {
 /// underlying RocksDB call fails (should not happen with a valid key; see
 /// the shim's own doc comment).
 pub fn open_encrypted_env(key: &[u8]) -> Result<Env> {
+    open_encrypted_env_with(key, os_random)
+}
+
+/// [`open_encrypted_env`] with the prefix source supplied, so a test can show where a file's
+/// prefix comes from. Production code goes through `open_encrypted_env`, which always uses
+/// the OS CSPRNG.
+pub(crate) fn open_encrypted_env_with(
+    key: &[u8],
+    fill_random: unsafe extern "C" fn(*mut u8, usize) -> i32,
+) -> Result<Env> {
     if key.len() != KEY_LEN {
         return Err(CareGraphError::Encryption(format!(
             "encryption key must be exactly {KEY_LEN} bytes (AES-256), got {}",
@@ -108,6 +138,7 @@ pub fn open_encrypted_env(key: &[u8]) -> Result<Env> {
         encrypt: encrypt_block,
         decrypt: decrypt_block,
         destroy: destroy_cipher,
+        fill_random,
     };
 
     // SAFETY: `caregraph_create_encrypted_env` is implemented in
@@ -164,6 +195,96 @@ pub fn decode_hex_key(hex: &str) -> std::result::Result<[u8; KEY_LEN], String> {
         })?;
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------------------
+// Auditing the prefixes of an existing database
+// ---------------------------------------------------------------------------------------
+
+/// Length of the prefix RocksDB's CTR provider writes at the start of every encrypted file:
+/// the initial counter (block 0), the IV (block 1), then filler.
+pub const PREFIX_LEN: u64 = 4096;
+
+/// Two files whose keystreams overlap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrefixOverlap {
+    pub a: String,
+    pub b: String,
+}
+
+/// Result of [`audit_prefixes`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrefixAudit {
+    /// Files that could carry a prefix (at least [`PREFIX_LEN`] bytes) and were checked.
+    pub files: usize,
+    /// Pairs of files that share a keystream. Anyone holding both ciphertexts can XOR
+    /// them to get the XOR of the two plaintexts, with no key. Empty is the goal.
+    pub overlaps: Vec<PrefixOverlap>,
+}
+
+/// Checks the files of an **encrypted** database directory for keystream reuse.
+///
+/// A file's keystream is `AES(key, counter + i || nonce)` for block `i`, where the counter
+/// starts at the value in the file's first block and the nonce is the last 8 bytes of its
+/// second block. Two files collide when they have the same nonce and their counter ranges
+/// overlap. Files written by RocksDB's stock provider take both from a generator with 31 bits
+/// of state, so this can find real collisions in a database created before the prefix came
+/// from the OS CSPRNG. It reads the first 32 bytes and the length of each file; the key is
+/// not needed. Run it only on an encrypted directory: on a plaintext one it reads
+/// meaningless bytes.
+///
+/// A range is counted as the larger of the file's data blocks and the 254 blocks the stock
+/// provider also spends encrypting its prefix filler, so the answer errs towards reporting.
+pub fn audit_prefixes(dir: &std::path::Path) -> std::io::Result<PrefixAudit> {
+    use std::collections::HashMap;
+    use std::io::Read;
+
+    struct F {
+        name: String,
+        counter: u64,
+        blocks: u64,
+    }
+    let mut by_nonce: HashMap<[u8; 8], Vec<F>> = HashMap::new();
+    let mut files = 0usize;
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let meta = entry.metadata()?;
+        if !meta.is_file() || meta.len() < PREFIX_LEN {
+            continue;
+        }
+        let mut head = [0u8; 32];
+        std::fs::File::open(entry.path())?.read_exact(&mut head)?;
+        let counter = u64::from_le_bytes(head[0..8].try_into().unwrap());
+        let nonce: [u8; 8] = head[24..32].try_into().unwrap();
+        let data_blocks = (meta.len() - PREFIX_LEN).div_ceil(BLOCK as u64);
+        files += 1;
+        by_nonce.entry(nonce).or_default().push(F {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            counter,
+            blocks: data_blocks.max((PREFIX_LEN - 32) / BLOCK as u64),
+        });
+    }
+
+    let mut overlaps = Vec::new();
+    for group in by_nonce.values().filter(|g| g.len() > 1) {
+        for (i, a) in group.iter().enumerate() {
+            for b in &group[i + 1..] {
+                // Ranges on a ring of 2^64 counters: they overlap if either start lies in the
+                // other's range.
+                let hit = b.counter.wrapping_sub(a.counter) < a.blocks
+                    || a.counter.wrapping_sub(b.counter) < b.blocks;
+                if hit {
+                    let (x, y) = if a.name <= b.name { (a, b) } else { (b, a) };
+                    overlaps.push(PrefixOverlap {
+                        a: x.name.clone(),
+                        b: y.name.clone(),
+                    });
+                }
+            }
+        }
+    }
+    overlaps.sort_by(|p, q| (&p.a, &p.b).cmp(&(&q.a, &q.b)));
+    Ok(PrefixAudit { files, overlaps })
 }
 
 #[cfg(test)]
@@ -236,5 +357,166 @@ mod tests {
         // into RocksDB's own encryption API, not just a type that compiles.
         let key = [0x42u8; KEY_LEN];
         open_encrypted_env(&key).expect("a valid 32-byte key must succeed");
+    }
+    // ---- where a file's prefix comes from -------------------------------------------------
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static MARKED_CALLS: AtomicU64 = AtomicU64::new(0);
+
+    /// A recognisable "random" source: the whole buffer is 0xA5 except the first 8 bytes,
+    /// which count the calls. Nothing else produces a prefix like this.
+    unsafe extern "C" fn marked_random(buf: *mut u8, len: usize) -> i32 {
+        let n = MARKED_CALLS.fetch_add(1, Ordering::SeqCst);
+        let b = unsafe { std::slice::from_raw_parts_mut(buf, len) };
+        b.fill(0xA5);
+        b[..8].copy_from_slice(&n.to_le_bytes());
+        0
+    }
+
+    unsafe extern "C" fn failing_random(_buf: *mut u8, _len: usize) -> i32 {
+        1
+    }
+
+    fn open_db(dir: &std::path::Path, env: &Env) -> Result<rocksdb::DB> {
+        let mut opts = rocksdb::Options::default();
+        opts.create_if_missing(true);
+        opts.set_env(env);
+        rocksdb::DB::open(&opts, dir).map_err(|e| CareGraphError::Encryption(e.to_string()))
+    }
+
+    /// Regression test for the weak stock prefix. RocksDB's own provider fills the prefix
+    /// from a 31-bit time-seeded generator, so a file's prefix would not be what the random
+    /// source returned; with the fix every byte of it is.
+    #[test]
+    fn a_new_files_whole_prefix_comes_from_the_random_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = open_encrypted_env_with(&[0x42u8; KEY_LEN], marked_random).unwrap();
+        {
+            let db = open_db(dir.path(), &env).unwrap();
+            for i in 0..2000u32 {
+                db.put(i.to_be_bytes(), vec![7u8; 64]).unwrap();
+            }
+            db.flush().unwrap();
+            // Reading it back shows the data still round-trips under such prefixes.
+            assert_eq!(db.get(5u32.to_be_bytes()).unwrap().unwrap(), vec![7u8; 64]);
+        }
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir.path()).unwrap() {
+            let entry = entry.unwrap();
+            let bytes = std::fs::read(entry.path()).unwrap();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if (bytes.len() as u64) < PREFIX_LEN || name == "LOG" {
+                // LOCK is too small to carry a prefix. LOG is RocksDB's own info log; it is
+                // opened through a path that does not go through the configured Env's
+                // cipher stream (RocksDB writes it in the clear regardless of encryption
+                // settings), so it never gets a prefix at all, marked or otherwise.
+                continue;
+            }
+            assert!(
+                bytes[8..PREFIX_LEN as usize].iter().all(|&b| b == 0xA5),
+                "{}: the prefix is not what the random source produced",
+                entry.file_name().to_string_lossy()
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 3,
+            "expected several encrypted files, found {checked}"
+        );
+    }
+
+    #[test]
+    fn a_file_is_not_created_when_the_random_source_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = open_encrypted_env_with(&[0x42u8; KEY_LEN], failing_random).unwrap();
+        let err = open_db(dir.path(), &env)
+            .err()
+            .expect("creating encrypted files must fail without random bytes");
+        assert!(
+            err.to_string().contains("random number generator"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a_database_reopens_and_reads_back_with_the_production_random_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = [0x17u8; KEY_LEN];
+        {
+            let env = open_encrypted_env(&key).unwrap();
+            let db = open_db(dir.path(), &env).unwrap();
+            db.put(b"k", b"v").unwrap();
+            db.flush().unwrap();
+        }
+        let env = open_encrypted_env(&key).unwrap();
+        let db = open_db(dir.path(), &env).unwrap();
+        assert_eq!(db.get(b"k").unwrap().unwrap(), b"v");
+    }
+
+    // ---- auditing prefixes ----------------------------------------------------------------
+
+    fn write_prefixed(
+        dir: &std::path::Path,
+        name: &str,
+        counter: u64,
+        nonce: [u8; 8],
+        data_blocks: u64,
+    ) {
+        let mut bytes = vec![0u8; (PREFIX_LEN + data_blocks * BLOCK as u64) as usize];
+        bytes[0..8].copy_from_slice(&counter.to_le_bytes());
+        bytes[24..32].copy_from_slice(&nonce);
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
+
+    #[test]
+    fn the_audit_finds_files_that_share_a_keystream_and_only_those() {
+        let dir = tempfile::tempdir().unwrap();
+        let n1 = [1u8; 8];
+        let n2 = [2u8; 8];
+        write_prefixed(dir.path(), "a.sst", 1_000, n1, 500); // blocks 1000..1500
+        write_prefixed(dir.path(), "b.sst", 1_400, n1, 500); // overlaps a's range
+        write_prefixed(dir.path(), "c.sst", 9_000, n1, 500); // same nonce, disjoint counters
+        write_prefixed(dir.path(), "d.sst", 1_000, n2, 500); // blocks 1000..1500
+                                                             // Starts 10 blocks before the counter wraps and runs long enough (1100 blocks) to
+                                                             // wrap around past 0 and land inside d.sst's range (1000..1500): blocks
+                                                             // u64::MAX-10 ..= u64::MAX, then 0..=1089.
+        write_prefixed(dir.path(), "wrap.sst", u64::MAX - 10, n2, 1_100);
+        std::fs::write(dir.path().join("LOCK"), b"").unwrap(); // not an encrypted file
+
+        let audit = audit_prefixes(dir.path()).unwrap();
+        assert_eq!(audit.files, 5);
+        assert_eq!(
+            audit.overlaps,
+            vec![
+                PrefixOverlap {
+                    a: "a.sst".into(),
+                    b: "b.sst".into()
+                },
+                PrefixOverlap {
+                    a: "d.sst".into(),
+                    b: "wrap.sst".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_database_written_now_has_no_overlapping_keystreams() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = open_encrypted_env(&[0x23u8; KEY_LEN]).unwrap();
+        {
+            let db = open_db(dir.path(), &env).unwrap();
+            for round in 0..6u32 {
+                for i in 0..500u32 {
+                    db.put((round * 1000 + i).to_be_bytes(), vec![round as u8; 128])
+                        .unwrap();
+                }
+                db.flush().unwrap(); // one new file per round
+            }
+        }
+        let audit = audit_prefixes(dir.path()).unwrap();
+        assert!(audit.files >= 6, "{audit:?}");
+        assert!(audit.overlaps.is_empty(), "{audit:?}");
     }
 }
