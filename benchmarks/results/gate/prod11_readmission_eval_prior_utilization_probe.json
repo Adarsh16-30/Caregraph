@@ -1,0 +1,65 @@
+{
+  "benchmark": "prior_utilization_probe",
+  "description": "Does adding number_inpatient/outpatient/emergency (present in the raw CSV, never read by data/diabetes130_loader.py) close the gap in docs/embedding_quality.md? Read-only: does not modify the loader, the trace, or any deployed model.",
+  "model": "diabetes130_graphsage",
+  "samples": 20000,
+  "seed": 0,
+  "fixed_l2_1e-3": {
+    "clinical": {
+      "auc": 0.6003732970280037,
+      "auc_ci95": [
+        0.5799891931769394,
+        0.6227109304500246
+      ]
+    },
+    "clinical2 (+ prior inpatient/outpatient/emergency)": {
+      "auc": 0.6436293365773104,
+      "auc_ci95": [
+        0.6195665126929848,
+        0.667521231821202
+      ]
+    },
+    "clinical + structural + embedding": {
+      "auc": 0.6614295107593968,
+      "auc_ci95": [
+        0.6379321487445642,
+        0.6836220287751495
+      ]
+    },
+    "clinical2 + structural + embedding": {
+      "auc": 0.6446891278835137,
+      "auc_ci95": [
+        0.6203157845074484,
+        0.6685766374065127
+      ]
+    }
+  },
+  "fixed_l2_1e-3_paired_differences": {
+    "clinical2_vs_clinical": {
+      "delta_auc": 0.04325603954930668,
+      "ci95": [
+        0.027612314682912437,
+        0.05664520709497747
+      ]
+    },
+    "clinical2+structural+embedding_vs_clinical+structural+embedding": {
+      "delta_auc": -0.016740382875883086,
+      "ci95": [
+        -0.027434519555945447,
+        -0.004727729344745201
+      ]
+    }
+  },
+  "validation_selected_l2": {
+    "clinical+structural+embedding": {
+      "l2": 0.0001,
+      "val_auc": 0.6390515275877793,
+      "test_auc": 0.657242965455819
+    },
+    "clinical2+structural+embedding": {
+      "l2": 0.0001,
+      "val_auc": 0.6580261872190737,
+      "test_auc": 0.6381116377290923
+    }
+  }
+}

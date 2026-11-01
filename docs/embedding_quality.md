@@ -174,3 +174,86 @@ justified yet.
 The `--features v2` flag and the `ml/feature_spec.json` contract are retained either way:
 they are needed for the next attempt (a supervised objective, or the missing fields added
 back to the loader) to start from richer inputs rather than repeating this one.
+
+## Where this dataset's ceiling actually is, and attempt 2: the fields the loader drops
+
+Published results on the UCI Diabetes 130-US Hospitals dataset — the same dataset this page
+uses — cluster around AUC 0.65-0.69 regardless of method: a calibrated stacking ensemble at
+0.664-0.688 ([Salim & Ibrahim](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12085305/)), random
+forest at 0.684, XGBoost at 0.667, logistic regression with oversampling at 0.649 (summarised
+in the [GitHub reproduction](https://github.com/chaitra-satheesh/hospital-readmission-prediction)
+and a [Research Square preprint](https://www.researchsquare.com/article/rs-10560805), which
+argues this ceiling is typical of structured EHR data generally, not an artifact of this
+dataset's preprocessing). CareGraph's own `clinical + structural + embedding` (0.661) already
+sits inside that range — the earlier "What this does not say" caveat that CareGraph's absolute
+numbers should not be compared with the literature turns out, once that literature is actually
+read, not to cut against CareGraph: it is close to the field's own ceiling on this data,
+without the fields below.
+
+**The published strongest predictors are not reachable from the trace, and never were.**
+`data/diabetes130_loader.py`'s raw CSV has `number_inpatient`, `number_outpatient` and
+`number_emergency` (counts of each visit type in the year before this encounter) as columns
+16-18. `emit()`'s `encounter_props` lists nine fields to carry into the trace, and these three
+are not among them — not because they are unavailable or because including them would leak
+the label (they describe history strictly before this encounter, the same causal footing as
+`time_in_hospital`), but because no one wired them through. This is a real, previously
+undiagnosed gap behind the "What this does not say" caveat about the missing fields, not a
+property of the dataset.
+
+`ml/eval_prior_utilization.py` tests what adding them back would do, **without changing the
+loader, the committed trace, or any deployed model** — a change to either of those invalidates
+every gated benchmark and deployed-model manifest that depends on them, which is not a change
+to make to test a hypothesis. It maps each raw CSV row to the encounter node id the existing
+trace already gave it, by replaying `read_encounters`'s exact sort and `Namespace`'s exact
+assignment (both already in the loader; this does not reimplement them differently), and
+checks that replay against a field that *did* make it into the trace before trusting it.
+Results: `benchmarks/results/gate/prod11_readmission_eval_prior_utilization_probe.json`.
+
+**Part 1 — same methodology as everywhere else on this page** (fixed `l2=1e-3`, 95% bootstrap
+interval, `diabetes130_graphsage`):
+
+| comparison | delta AUC |
+|---|---|
+| clinical2 (+ prior inpatient/outpatient/emergency) vs clinical | +0.043 [+0.028, +0.057] |
+| clinical2 + structural + embedding vs clinical + structural + embedding | **-0.017** [-0.027, -0.005] |
+
+The fields are exactly as predictive alone as the literature says — clinical alone jumps from
+0.600 to 0.644, a clean, well-separated gain. Added on top of everything CareGraph already
+has, they make the full model measurably *worse*, not better: a significant decrease, not
+noise.
+
+**Why, and a methodology problem this surfaces.** `structural`'s own prior-encounter count and
+the embedding's own neighbourhood-type-mix component already correlate strongly with
+inpatient/outpatient/emergency history — a patient with many prior encounters structurally is
+largely the same patient with high `number_inpatient`. A regularization sweep
+(`l2` from 1e-4 to 1.0, selected by looking directly at the test set — informative about the
+feature space's capacity, not trustworthy as a number to report) shows AUC moving by as much
+as 0.025 for `clinical + structural + embedding` alone just from `l2`, which is comparable to
+or larger than several of the differences this whole page reports as significant, including
+attempt 1's. **This page's fixed, never-tuned `l2=1e-3` is a real confound, not just for this
+probe.** Properly done — `l2` selected on a held-out validation slice the final number never
+sees, not by looking at the test set — the result holds up and gets worse, not better:
+
+| | selected l2 | validation AUC | **test AUC** |
+|---|---|---|---|
+| clinical + structural + embedding | 0.0001 | 0.639 | **0.657** |
+| clinical2 + structural + embedding | 0.0001 | 0.658 | **0.638** |
+
+Two independent procedures — the paired bootstrap at the page's standard `l2`, and this
+honest validation-selected comparison — agree: adding the loader's missing fields to the full
+stack does not help, and under proper model selection it clearly hurts.
+
+**What this does and does not conclude.** The missing fields are real and the literature's
+claim about them holds on their own; simply wiring them into the loader and retraining is
+**not shown to be the fix** — the bottleneck is not that this signal is entirely absent, it
+is that a correlated version of it already reaches the model through `structural` and the
+embedding, and a third copy destabilises a logistic fit at this feature-space size more than
+it helps. This does not rule out a different model class handling the redundancy better
+(gradient boosting, which several of the cited published results use, is far less sensitive
+to correlated inputs than L2-penalized logistic regression), nor does it rule out the fields
+mattering once `build_model_input` (not just this evaluation script) actually uses them as
+GNN input rather than as an evaluation-time logistic-regression feature. Neither was tried.
+**Not done, deliberately:** changing `data/diabetes130_loader.py`, regenerating
+`benchmarks/traces/diabetes130_full.jsonl`, or retraining/redeploying any model on it — that
+is a large, hard-to-reverse step this page's evidence does not clearly justify yet, and it
+would need a decision, not an assumption, before it happens.
